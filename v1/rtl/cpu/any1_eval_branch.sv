@@ -21,7 +21,7 @@
 //                                                                          
 // ============================================================================
 //
-`include "../inc/any1-defines.sv"
+import any1_pkg::*;
 
 module any1_eval_branch(inst, a, b, takb);
 parameter WID=64;
@@ -32,12 +32,12 @@ output reg takb;
 
 always @*
 case(inst[7:0])
-`BEQ: takb =  a==b;
-`BNE: takb =  a!=b;
-`BLT: takb = 	$signed(a) <  $signed(b);
-`BGE: takb = 	$signed(a) >= $signed(b);
-`BLTU:  takb = a <  b;
-`BGEU:  takb = a >= b;
+BEQ: takb =  a==b;
+BNE: takb =  a!=b;
+BLT: takb = 	$signed(a) <  $signed(b);
+BGE: takb = 	$signed(a) >= $signed(b);
+BLTU:  takb = a <  b;
+BGEU:  takb = a >= b;
 default:  takb = 1'b0;
 endcase
 

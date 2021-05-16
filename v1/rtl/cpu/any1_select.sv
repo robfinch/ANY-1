@@ -5,7 +5,7 @@
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
 //
-//	any1_agen.sv
+//	any1_select.sv
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -37,17 +37,20 @@
 
 import any1_pkg::*;
 
-module any1_agen(clk,ir,ia,ib,ea);
-input clk;
+module any1_select(ir, sel);
 input [63:0] ir;
-input [63:0] ia;
-input [63:0] ib;
-output reg [AWID-1:0] ea;
+output reg [7:0] sel;
 
-wire [2:0] Sc = ir[43:41];
-wire [63:0] disp = {{42{ir[63]}},ir[63:50],ir[39:32]};
-
-always @(posedge clk)
-	ea <= disp + ia + (ib << Sc);
-
+always @*
+case(ir[7:0])
+LDx,STx:
+	case(ir[47:44])
+	4'd0:	sel <= 8'h01;
+	4'd1:	sel <= 8'h03;
+	4'd2:	sel <= 8'h0F;
+	4'd3:	sel <= 8'hFF;
+	4'd7:	sel <= 8'hFF;
+	default:	sel <= 8'h00;
+	endcase
+endcase
 endmodule
