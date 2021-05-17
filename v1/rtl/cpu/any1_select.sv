@@ -52,5 +52,6 @@ LDx,STx:
 	4'd7:	sel <= 8'hFF;
 	default:	sel <= 8'h00;
 	endcase
+default:	sel <= 8'h00;
 endcase
 endmodule

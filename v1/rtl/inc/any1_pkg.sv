@@ -6,6 +6,24 @@ package any1_pkg;
 //`define CPU_B64			1'b1
 //`define CPU_B32			1'b1
 
+`define AMSB		31
+`define ABITS		31:0
+
+`ifdef CPU_B128
+`define SELH    31:16
+`define DATH    255:128
+`endif
+`ifdef CPU_B64
+`define SELH    15:8
+`define DATH    127:64
+`endif
+`ifdef CPU_B32
+`define SELH    7:4
+`define DATH    63:32
+`endif
+
+`define SEG_SHIFT	14'd0
+
 parameter TRUE  = 1'b1;
 parameter FALSE = 1'b0;
 parameter HIGH  = 1'b1;
@@ -22,6 +40,14 @@ parameter OM_MACHINE	= 3'd3;
 parameter OM_DEBUG	= 3'd4;
 
 parameter R3		= 8'h03;
+parameter ADD		= 8'h04;
+parameter SUB		= 8'h05;
+parameter AND		= 8'h08;
+parameter OR		= 8'h09;
+parameter XOR		= 8'h0A;
+parameter SLL		= 8'h10;
+parameter SEQ		= 8'h26;
+parameter SNE		= 8'h27;
 
 parameter ADDI	= 8'h04;
 parameter SUBFI	= 8'h05;
@@ -43,15 +69,20 @@ parameter JAL		= 8'h40;
 parameter BLT		= 8'h48;
 parameter BGE		= 8'h49;
 parameter BLTU	= 8'h4A;
-parameter BGEU		8'h4B;
+parameter BGEU	= 8'h4B;
 parameter BEQ		= 8'h4E;
 parameter BNE		= 8'h4F;
+
+parameter LDx		= 8'h60;
+parameter LEA		= 8'h68;
+parameter CACHE	= 8'h6E;
+parameter STx		= 8'h70;
 
 parameter NOP_INSN = {56'd0,NOP};
 
 
 // Cause
-parameter FLT_NONE 		= 8'h00;
+/*
 parameter FLT_RESET		= 8'h01;
 parameter FLT_MACHINE_CHECK	= 8'h02;
 parameter FLT_DATA_STORAGE	= 8'h03;
@@ -67,6 +98,9 @@ parameter FLT_SYSTEM_CALL = 8'h0C;
 parameter FLT_TRACE = 8'h0D;
 parameter FLT_FP_ASSIST = 8'h0E;
 parameter FLT_RESERVED = 8'h2F;
+*/
+parameter FLT_NONE	= 8'h00;
+parameter FLT_UNIMP	= 8'h37;
 
 // Instruction fetch
 parameter IFETCH1 = 6'd1;
@@ -114,28 +148,64 @@ parameter IFETCH2a = 6'd43;
 parameter REGFETCH3 = 6'd44;
 parameter EXPAND_CI = 6'd45;
 parameter IFETCH3a = 6'd46;
+parameter MEMORY1c = 6'd47;
 
 parameter EDIV1 = 3'd3;
 parameter EDIV2 = 3'd4;
 parameter EDIV3 = 3'd5;
 
-parameter pL1CacheLines = 64;
+parameter pL1CacheLines = 256;
 localparam pL1msb = $clog2(pL1CacheLines-1)-1+5;
 parameter RSTIP = 32'hFFFD0000;
 parameter RIBO = 1;
+
+typedef logic [`ABITS] Address;
+typedef logic [AWID-14:0] BTBTag;
+typedef logic [7:0] ASID;
+typedef logic [63:0] Data;
+
+typedef struct packed
+{
+	logic v;
+	Address addr;
+	BTBTag	tag;
+} BTBEntry;
 
 typedef struct packed
 {
 	logic [5:0] epoch;
 	logic [3:0] rid;
+	logic [AWID-1:0] ip;
+	logic [AWID-1:0] pip;
+	logic predict_taken;
+	logic [511:0] cacheline;
+} sInstAlignIn;
+
+typedef struct packed
+{
+	logic [5:0] epoch;
+	logic [3:0] rid;
+	logic [AWID-1:0] ip;
+	logic [AWID-1:0] pip;
+	logic predict_taken;
+	logic [63:0] ir;
+} sInstAlignOut;
+
+typedef struct packed
+{
+	logic [5:0] epoch;
+	logic [3:0] rid;
+	logic [AWID-1:0] ip;
+	logic [AWID-1:0] pip;	// predicted pc
+	logic predict_taken;
 	logic [63:0] ir;
 	logic ii;							// illegal instruction
 	logic rfwr;						// register file write is required
-	logic [5:0] Ra;
-	logic [5:0] Rb;
-	logic [5:0] Rc;
-	logic [5:0] Rd;
-	logic [5:0] Rt;
+	logic [7:0] Ra;
+	logic [7:0] Rb;
+	logic [7:0] Rc;
+	logic [7:0] Rd;
+	logic [7:0] Rt;
 	logic [63:0] imm;
 } sDecode;
 
@@ -144,12 +214,16 @@ typedef struct packed
 	logic [5:0] epoch;
 	logic [3:0] rid;
 	logic [63:0] ir;
+	logic [AWID-1:0] ip;
+	logic [AWID-1:0] pip;	// predicted pc
+	logic predict_taken;
 	logic ii;							// illegal instruction
 	logic rfwr;
 	logic [63:0] ia;
 	logic [63:0] ib;
 	logic [63:0] ic;
 	logic [63:0] id;
+	logic [7:0] Rt;
 	logic [63:0] imm;
 } sExecuteIn;
 
@@ -160,7 +234,7 @@ typedef struct packed
 	logic [63:0] ir;
 	logic [63:0] ia;
 	logic rfwr;
-	logic [5:0] Rt;
+	logic [7:0] Rt;
 	logic [63:0] res;
 } sExecuteOut;
 
@@ -174,16 +248,23 @@ typedef struct packed
 	logic [63:0] dato;
 	logic [63:0] imm;
 	logic rfwr;
-	logic [5:0] Rt;
+	logic [7:0] Rt;
 } sMemoryIO;
 
 typedef struct packed
 {
 	logic v;
+	logic [AWID-1:0] ip;
+	logic ii;
 	logic cmt;
-	logic [5:0] Rt;
+	logic jump;
+	logic [63:0] jump_tgt;
+	logic branch;
+	logic takb;
+	logic rfwr;
+	logic [7:0] Rt;
 	logic [63:0] res;
-	logic [7:0] cause;
+	logic [15:0] cause;
 } sReorderEntry;
 
 endpackage
