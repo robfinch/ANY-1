@@ -23,6 +23,9 @@ package any1_pkg;
 `endif
 
 `define SEG_SHIFT	14'd0
+//`define VICTIM_CACHE	1'b1
+
+parameter ROB_ENTRIES = 16;
 
 parameter TRUE  = 1'b1;
 parameter FALSE = 1'b0;
@@ -42,18 +45,24 @@ parameter OM_DEBUG	= 3'd4;
 parameter R3		= 8'h03;
 parameter ADD		= 8'h04;
 parameter SUB		= 8'h05;
+parameter MUL		= 8'h06;
 parameter AND		= 8'h08;
 parameter OR		= 8'h09;
 parameter XOR		= 8'h0A;
+parameter MULU	= 8'h0E;
 parameter SLL		= 8'h10;
+parameter MULF	= 8'h1C;
 parameter SEQ		= 8'h26;
 parameter SNE		= 8'h27;
 
 parameter ADDI	= 8'h04;
 parameter SUBFI	= 8'h05;
+parameter MULI	= 8'h06;
 parameter ANDI  = 8'h08;
 parameter ORI		= 8'h09;
 parameter XORI	= 8'h0A;
+parameter MULUI	= 8'h0E;
+parameter MULFI	= 8'h15;
 
 parameter EXTU	= 8'h24;
 parameter SEQI	= 8'h26;
@@ -74,7 +83,7 @@ parameter BEQ		= 8'h4E;
 parameter BNE		= 8'h4F;
 
 parameter LDx		= 8'h60;
-parameter LEA		= 8'h68;
+parameter LEA		= 8'h6D;
 parameter CACHE	= 8'h6E;
 parameter STx		= 8'h70;
 
@@ -127,8 +136,6 @@ parameter MEMORY12 = 6'd22;
 parameter MEMORY13 = 6'd23;
 parameter MEMORY14 = 6'd24;
 parameter MEMORY15 = 6'd25;
-parameter MUL1 = 6'd26;
-parameter MUL2 = 6'd27;
 parameter PAM	 = 6'd28;
 parameter TMO = 6'd29;
 parameter PAGEMAPA = 6'd30;
@@ -149,12 +156,21 @@ parameter REGFETCH3 = 6'd44;
 parameter EXPAND_CI = 6'd45;
 parameter IFETCH3a = 6'd46;
 parameter MEMORY1c = 6'd47;
+parameter DFETCH2 = 6'd48;
+parameter DFETCH3 = 6'd49;
+parameter DFETCH3a = 6'd50;
+parameter DFETCH4 = 6'd51;
+parameter DFETCH5 = 6'd52;
+
+parameter MUL1 = 3'd1;
+parameter MUL2 = 3'd2;
+parameter MUL3 = 3'd3;
 
 parameter EDIV1 = 3'd3;
 parameter EDIV2 = 3'd4;
 parameter EDIV3 = 3'd5;
 
-parameter pL1CacheLines = 256;
+parameter pL1CacheLines = 64;
 localparam pL1msb = $clog2(pL1CacheLines-1)-1+5;
 parameter RSTIP = 32'hFFFD0000;
 parameter RIBO = 1;
@@ -194,6 +210,7 @@ typedef struct packed
 typedef struct packed
 {
 	logic [5:0] epoch;
+	logic epoch_inc;
 	logic [3:0] rid;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;	// predicted pc
@@ -212,6 +229,7 @@ typedef struct packed
 typedef struct packed
 {
 	logic [5:0] epoch;
+	logic epoch_inc;
 	logic [3:0] rid;
 	logic [63:0] ir;
 	logic [AWID-1:0] ip;
@@ -225,11 +243,12 @@ typedef struct packed
 	logic [63:0] id;
 	logic [7:0] Rt;
 	logic [63:0] imm;
-} sExecuteIn;
+} sExecute;
 
 typedef struct packed
 {
 	logic [5:0] epoch;
+	logic epoch_inc;
 	logic [3:0] rid;
 	logic [63:0] ir;
 	logic [63:0] ia;
@@ -241,6 +260,7 @@ typedef struct packed
 typedef struct packed
 {
 	logic [5:0] epoch;
+	logic epoch_inc;
 	logic [3:0] rid;
 	logic [63:0] ir;
 	logic [63:0] ia;
@@ -253,6 +273,8 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic [5:0] epoch;
+	logic epoch_inc;
 	logic v;
 	logic [AWID-1:0] ip;
 	logic ii;
@@ -266,6 +288,17 @@ typedef struct packed
 	logic [63:0] res;
 	logic [15:0] cause;
 } sReorderEntry;
+
+typedef struct packed
+{
+	logic [5:0] rid;
+	logic [63:0] ir;
+	logic [63:0] a;
+	logic [63:0] b;
+	logic [63:0] c;
+	logic [63:0] d;
+	logic [63:0] imm;
+} sALUrec;
 
 endpackage
 
