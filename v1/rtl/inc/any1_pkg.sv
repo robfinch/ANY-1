@@ -24,6 +24,7 @@ package any1_pkg;
 
 `define SEG_SHIFT	14'd0
 //`define VICTIM_CACHE	1'b1
+`define ANY1_TLB	1'b1
 
 parameter ROB_ENTRIES = 16;
 
@@ -49,11 +50,24 @@ parameter MUL		= 8'h06;
 parameter AND		= 8'h08;
 parameter OR		= 8'h09;
 parameter XOR		= 8'h0A;
+parameter R2		= 8'h0C;
 parameter MULU	= 8'h0E;
-parameter SLL		= 8'h10;
+parameter MULH	= 8'h0F;
+parameter MULSU =	8'h16;
+parameter DIF		= 8'h18;
+parameter BYTNDX= 8'h1A;
+parameter WYDNDX= 8'h1B;
 parameter MULF	= 8'h1C;
+parameter MULSUH= 8'h1D;
+parameter MULUH = 8'h1E;
 parameter SEQ		= 8'h26;
 parameter SNE		= 8'h27;
+parameter SLT		= 8'h2C;
+parameter SGE		= 8'h2D;
+parameter SLTU	= 8'h2E;
+parameter SGEU	= 8'h2F;
+
+parameter SLL		= 8'h10;
 
 parameter ADDI	= 8'h04;
 parameter SUBFI	= 8'h05;
@@ -63,6 +77,8 @@ parameter ORI		= 8'h09;
 parameter XORI	= 8'h0A;
 parameter MULUI	= 8'h0E;
 parameter MULFI	= 8'h15;
+parameter MULSUI= 8'h16;
+parameter BTFLD	=	8'h1C;
 
 parameter EXTU	= 8'h24;
 parameter SEQI	= 8'h26;
@@ -75,6 +91,15 @@ parameter EXT		= 8'h2C;
 
 parameter NOP  	= 8'h3F;
 parameter JAL		= 8'h40;
+
+parameter SYS		= 8'h44;
+parameter REX		= 8'h10;
+parameter PFI		= 8'h11;
+parameter WFI		= 8'h12;
+parameter MVSEG	= 8'h1D;
+parameter TLBRW	= 8'h1E;
+parameter SYNC	= 8'h1F;
+
 parameter BLT		= 8'h48;
 parameter BGE		= 8'h49;
 parameter BLTU	= 8'h4A;
@@ -109,6 +134,7 @@ parameter FLT_FP_ASSIST = 8'h0E;
 parameter FLT_RESERVED = 8'h2F;
 */
 parameter FLT_NONE	= 8'h00;
+parameter FLT_IADR	= 8'h36;
 parameter FLT_UNIMP	= 8'h37;
 
 // Instruction fetch
@@ -161,6 +187,9 @@ parameter DFETCH3 = 6'd49;
 parameter DFETCH3a = 6'd50;
 parameter DFETCH4 = 6'd51;
 parameter DFETCH5 = 6'd52;
+parameter TLB1 = 6'd53;
+parameter TLB2 = 6'd54;
+parameter TLB3 = 6'd55;
 
 parameter MUL1 = 3'd1;
 parameter MUL2 = 3'd2;

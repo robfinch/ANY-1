@@ -38,13 +38,14 @@
 `define SIM   1'b1
 import any1_pkg::*;
 
-module any1ep(rst_i, clk_i, wc_clk_i, nmi_i, irq_i,
+module any1ep(rst_i, clk_i, wc_clk_i, nmi_i, irq_i, cause_i,
 	vpa_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o, dat_i, dat_o);
 input rst_i;
 input clk_i;
 input wc_clk_i;
 input nmi_i;
 input irq_i;
+input [7:0] cause_i;
 output reg vpa_o;
 output reg cyc_o;
 output reg stb_o;
@@ -178,6 +179,20 @@ reg [63:0] dat, dati;
 wire [63:0] datis = dati >> {ealow[1:0],3'b0};
 `endif
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+wire [63:0] bf_out;
+any1_bitfield ubf1
+(
+	.inst(exbufo.ir),
+	.a(exbufo.ia),
+	.b(exbufo.ib),
+	.c(exbufo.ic),
+	.d(exbufo.id),
+	.o(bf_out),
+	.masko()
+);
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -185,9 +200,9 @@ wire [63:0] datis = dati >> {ealow[1:0],3'b0};
 wire ex_takb;
 any1_eval_branch ubev1
 (
-	.inst(exbufi.ir),
-	.a(exbufi.ia),
-	.b(exbufi.ib),
+	.inst(exbufo.ir),
+	.a(exbufo.ia),
+	.b(exbufo.ib),
 	.takb(ex_takb)
 );
 
@@ -521,6 +536,7 @@ reg tlben, tlbwr;
 wire tlbmiss;
 wire [3:0] tlbacr;
 wire [63:0] tlbdato;
+reg [63:0] tlb_ia, tlb_ib;
 
 any1_TLB utlb (
   .rst_i(rst_i),
@@ -536,8 +552,8 @@ any1_TLB utlb (
   .acr_o(tlbacr),
   .tlben_i(tlben),
   .wrtlb_i(tlbwr),
-  .tlbadr_i(membufo.ia[11:0]),
-  .tlbdat_i(membufo.dato),
+  .tlbadr_i(tlb_ia[11:0]),
+  .tlbdat_i(tlb_ib),
   .tlbdat_o(tlbdato),
   .tlbmiss_o(tlbmiss)
 );
@@ -650,10 +666,21 @@ always @*
 		decbuf.imm <= 64'd0;
 		dcRedirectIp <= dip + {{25{dir[63]}},dir[63:28],3'h0};
 		case(dir[7:0])
+		NOP:	decbuf.ii <= FALSE;
 		R3:
 			case(dir[57:50])
-			ADD,SUB,AND,OR,XOR,SEQ,SNE:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-			SLL:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+			ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+			R2:
+				case(dir[39:32])
+				DIF:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+				MULF:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+				SEQ,SNE,SLT,SGE,SLTU,SGEU:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+				SLL:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+				BYTNDX:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+				WYDNDX:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+				default:	;
+				endcase
 			default:	;
 			endcase
 		ADDI,SUBFI:	begin decbuf.Rt <= dir[31:26]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{dir[19]}},dir[19:0]}; decbuf.ii <= FALSE; end
@@ -678,6 +705,14 @@ always @*
 		BEQ,BNE,BLT,BGE,BLTU,BGEU:	begin	decbuf.ii <= FALSE; decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{43{dir[63]}},dir[63:50],dir[43:40],3'd0}; end
 		LDx:	begin decbuf.Rt <= dir[29:24]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{dir[19]}},dir[19:0]}; decbuf.ii <= FALSE; end
 		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= dir[29:24]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{dir[19]}},dir[19:0]}; decbuf.ii <= FALSE; end
+		SYS:
+			begin
+				case(dir[57:50])
+				PFI:		decbuf.ii <= FALSE;
+				TLBRW:	begin decbuf.ii <= FALSE; decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; end
+				default:	;
+				endcase
+			end
 		default:	;
 		endcase
 	end
@@ -882,6 +917,7 @@ wire [3:0] ea_acr = sregfile[segsel][3:0];
 wire [3:0] pc_acr = sregfile[ip[AWID-1:AWID-4]][3:0];
 wire brMispredict = ex_takb != exbufi.predict_taken;
 wire brAddrMispredict = exbufi.pip != exRedirectIp;
+wire [127:0] sll_out = {exbufo.ib,exbufo.ia} << exbufo.ic;
 
 always @(posedge clk_g)
 if (rst_i) begin
@@ -934,7 +970,7 @@ else begin
 		rob[rob_tail].v <= VAL;
 		rob[rob_tail].ii <= FALSE;
 		rob[rob_tail].ip <= ip;
-		rob[rob_tail].cause <= FLT_NONE;
+		rob[rob_tail].cause <= |ip[2:0] ? FLT_IADR : FLT_NONE;
 		rob_tail <= rob_tail + 2'd1;
 	end
 
@@ -970,17 +1006,61 @@ else begin
 			AND:	begin	rob[exbufo.rid].res <= exbufo.ia & exbufo.ib & exbufo.ic; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 			OR:		begin	rob[exbufo.rid].res <= exbufo.ia | exbufo.ib | exbufo.ic; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 			XOR:	begin	rob[exbufo.rid].res <= exbufo.ia ^ exbufo.ib ^ exbufo.ic; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
-			MUL,MULU:
-						begin
-							mulreci.rid <= exbufo.rid;
-							mulreci.a <= exbufo.ia;
-							mulreci.b <= exbufo.ib;
-							x2mul_wr <= TRUE;
-							exfifo_rd <= TRUE;
-						end
-			MULF:	begin rob[exbufo.rid].res <= exbufo.ia[23:0] + exbufo.ib[15:0]; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
-			SEQ:	begin rob[exbufo.rid].res <= exbufo.ia == exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
-			SNE:	begin rob[exbufo.rid].res <= exbufo.ia != exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+			R2:
+				case(exbufo.ir[39:32])
+				DIF:	begin rob[exbufo.rid].res <= $signed(exbufo.ia) < $signed(exbufo.ib) ? exbufo.ib - exbufo.ia : exbufo.ia - exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
+							begin
+								mulreci.rid <= exbufo.rid;
+								mulreci.a <= exbufo.ia;
+								mulreci.b <= exbufo.ib;
+								x2mul_wr <= TRUE;
+								exfifo_rd <= TRUE;
+							end
+				MULF:	begin rob[exbufo.rid].res <= exbufo.ia[23:0] + exbufo.ib[15:0]; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+				SLL:	begin	rob[exbufo.rid].res <= sll_out[63:0]; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+				SEQ:	begin rob[exbufo.rid].res <= exbufo.ia == exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+				SNE:	begin rob[exbufo.rid].res <= exbufo.ia != exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+				SLT:	begin rob[exbufo.rid].res <= $signed(exbufo.ia) < $signed(exbufo.ib); rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+				SGE:	begin rob[exbufo.rid].res <= $signed(exbufo.ia) >= $signed(exbufo.ib); rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+				SLTU:	begin rob[exbufo.rid].res <= exbufo.ia < exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+				SGEU:	begin rob[exbufo.rid].res <= exbufo.ia >= exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+	      BYTNDX:
+	        begin
+	          if (exbufo.ia[7:0]==exbufo.ib[7:0])
+	            rob[exbufo.rid].res <= 64'd0;
+	          else if (exbufo.ia[15:8]==exbufo.ib[7:0])
+	            rob[exbufo.rid].res <= 64'd1;
+	          else if (exbufo.ia[23:16]==exbufo.ib[7:0])
+	            rob[exbufo.rid].res <= 64'd2;
+	          else if (exbufo.ia[31:24]==exbufo.ib[7:0])
+	            rob[exbufo.rid].res <= 64'd3;
+	          else if (exbufo.ia[39:32]==exbufo.ib[7:0])
+	            rob[exbufo.rid].res <= 64'd4;
+	          else if (exbufo.ia[47:40]==exbufo.ib[7:0])
+	            rob[exbufo.rid].res <= 64'd5;
+	          else if (exbufo.ia[55:40]==exbufo.ib[7:0])
+	            rob[exbufo.rid].res <= 64'd6;
+	          else if (exbufo.ia[63:56]==exbufo.ib[7:0])
+	            rob[exbufo.rid].res <= 64'd7;
+	          else
+	            rob[exbufo.rid].res <= {64{1'b1}};  // -1
+	        end
+	      WYDNDX:
+	        begin
+	          if (exbufo.ia[15:0]==exbufo.ib[15:0])
+	            rob[exbufo.rid].res <= 64'd0;
+	          else if (exbufo.ia[31:16]==exbufo.ib[15:0])
+	            rob[exbufo.rid].res <= 64'd1;
+	          else if (exbufo.ia[47:32]==exbufo.ib[15:0])
+	            rob[exbufo.rid].res <= 64'd2;
+	          else if (exbufo.ia[63:48]==exbufo.ib[15:0])
+	            rob[exbufo.rid].res <= 64'd3;
+	          else
+	            rob[exbufo.rid].res <= {64{1'b1}};  // -1
+	        end
+				default:	;
+				endcase
 			default:	;
 			endcase
 		ADDI:	begin rob[exbufo.rid].res <= exbufo.ia + exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
@@ -988,7 +1068,7 @@ else begin
 		ANDI:	begin rob[exbufo.rid].res <= exbufo.ia & exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 		ORI:	begin rob[exbufo.rid].res <= exbufo.ia | exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 		XORI:	begin rob[exbufo.rid].res <= exbufo.ia ^ exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
-		MULI,MULUI:
+		MULI,MULUI,MULSUI:
 					begin
 						mulreci.rid <= exbufo.rid;
 						mulreci.a <= exbufo.ia;
@@ -1003,6 +1083,7 @@ else begin
 		SGTI:	begin rob[exbufo.rid].res <= $signed(exbufo.ia) > $signed(exbufo.imm); rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 		SLTUI:	begin rob[exbufo.rid].res <= exbufo.ia < exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 		SGTUI:	begin rob[exbufo.rid].res <= exbufo.ia > exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+		BTFLD:	begin rob[exbufo.rid].res <= bf_out; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 		BEQ,BNE,BLT,BGE,BLTU,BGEU:
 			begin
 				rob[exbufo.rid].branch <= TRUE;
@@ -1037,6 +1118,28 @@ else begin
 				membufi.imm <= exbufo.imm;
 				memfifo_wr <= TRUE;
 				exfifo_rd <= TRUE;
+			end
+		SYS:
+			begin
+				case(exbufo.ir[57:50])
+				PFI:
+					begin
+		      	if (irq_i != 1'b0)
+				    	rob[exbufo.rid].cause <= 16'h8000|cause_i;
+			    	rob[exbufo.rid].cmt <= TRUE;
+			  	end
+				TLBRW:
+					begin
+						membufi.rid <= exbufo.rid;
+						membufi.ir <= exbufo.ir;
+						membufi.ia <= exbufo.ia;
+						membufi.ib <= exbufo.ib;
+						membufi.imm <= exbufo.imm;
+						memfifo_wr <= TRUE;
+						exfifo_rd <= TRUE;
+					end
+				default:	;
+				endcase
 			end
 		default:	;
 		endcase
@@ -1080,7 +1183,7 @@ IFETCH3:
  		xlaten <= FALSE;
 	  begin
   		mgoto (IFETCH3a);
-`ifdef RTF64_TLB  		
+`ifdef ANY1_TLB  		
   		if (tlbmiss) begin
 		    rob[membufo.rid].cause <= 16'h8004;
 			  badaddr[3'd4] <= ip;
@@ -1218,6 +1321,17 @@ IFETCH5:
     end
   end
 
+TLB1:
+	mgoto (TLB2);
+TLB2:
+	mgoto (TLB3);
+TLB3:
+	begin
+    rob[membufo.rid].res <= tlbdato;
+    rob[membufo.rid].cmt <= TRUE;
+    mgoto (MEMORY1);
+	end
+
 MEMORY1c:
   begin
   	/*
@@ -1226,12 +1340,17 @@ MEMORY1c:
     	rob[membufo.rid].res <= membufo.ia + membufo.imm;
     end
    */
-`ifdef RTF64_TLB
+`ifdef ANY1_TLB
     mgoto (MEMORY1a);
 `else
     mgoto (MEMORY2);
 `endif
-    if (membufo.ir[7:0]==LEA) begin
+    if (membufo.ir[7:0]==SYS) begin
+    	tlb_ia <= membufo.ia;
+    	tlb_ib <= membufo.ib;
+    	mgoto (TLB1);
+    end
+    else if (membufo.ir[7:0]==LEA) begin
       rob[membufo.rid].res <= ea;
       rob[membufo.rid].cmt <= TRUE;
       mgoto (MEMORY1);
@@ -1278,7 +1397,7 @@ MEMORY3:
   begin
     xlaten <= FALSE;
     mgoto (MEMORY4);
-`ifdef RTF64_TLB
+`ifdef ANY1_TLB
 		if (tlbmiss) begin
 	    rob[membufo.rid].cause <= 16'h8004;
   	  badaddr[3'd5] <= ea;
@@ -1393,7 +1512,7 @@ MEMORY5:
   end
 MEMORY6:
   begin
-`ifdef RTF64_TLB
+`ifdef ANY1_TLB
     mgoto (MEMORY6a);
 `else
     mgoto (MEMORY7);
@@ -1414,7 +1533,7 @@ MEMORY8:
   begin
     xlaten <= FALSE;
     mgoto (MEMORY9);
-`ifdef RTF64_TLB    
+`ifdef ANY1_TLB    
 		if (tlbmiss) begin
 	    rob[membufo.rid].cause <= 16'h8004;
   	  badaddr[3'd4] <= ea;
@@ -1524,7 +1643,7 @@ MEMORY10:
   end
 MEMORY11:
   begin
-`ifdef RTF64_TLB
+`ifdef ANY1_TLB
     mgoto (MEMORY11a);
 `else
     mgoto (MEMORY12);
@@ -1545,7 +1664,7 @@ MEMORY13:
   begin
     xlaten <= FALSE;
     mgoto (MEMORY14);
-`ifdef RTF64_TLB    
+`ifdef ANY1_TLB    
 		if (tlbmiss) begin
 	    rob[membufo.rid].cause <= 16'h8004;
   	  badaddr[3'd4] <= ea;
@@ -1665,7 +1784,7 @@ DFETCH3:
  		xlaten <= FALSE;
 	  begin
   		mgoto (DFETCH3a);
-`ifdef RTF64_TLB  		
+`ifdef ANY1_TLB  		
   		if (tlbmiss) begin
 		    rob[membufo.rid].cause <= 16'h8004;
 			  badaddr[3'd4] <= adr_o;
@@ -1920,14 +2039,21 @@ MUL2:
 		R3:
 			begin
 				case(mulreco.ir[57:50])
-				MUL:
+				MUL,MULH:
 					begin
 						mul_sign <= mulreco.a[63] ^ mulreco.b[63];
 						mul_a <= mulreco.a[63] ? - mulreco.a : mulreco.a;
 						mul_b <= mulreco.b[63] ? - mulreco.b : mulreco.b;
 						mul_state <= MUL3;
 					end
-				MULU:
+				MULSU,MULSUH:
+					begin
+						mul_sign <= mulreco.a[63];
+						mul_a <= mulreco.a[63] ? - mulreco.a : mulreco.a;
+						mul_b <= mulreco.b;
+						mul_state <= MUL3;
+					end
+				MULU,MULUH:
 					begin
 						mul_sign <= 1'b0;
 						mul_a <= mulreco.a;
@@ -1944,6 +2070,13 @@ MUL2:
 				mul_b <= mulreco.imm[63] ? - mulreco.imm : mulreco.imm;
 				mul_state <= MUL3;
 			end
+		MULSUI:
+			begin
+				mul_sign <= mulreco.a[63];
+				mul_a <= mulreco.a[63] ? - mulreco.a : mulreco.a;
+				mul_b <= mulreco.imm;
+				mul_state <= MUL3;
+			end
 		MULUI:
 			begin
 				mul_sign <= 1'b0;
@@ -1958,6 +2091,17 @@ MUL3:
 	begin
 		rob[mulreco.rid].res <= mul_sign ? -mul_p[63:0] : mul_p;
 		rob[mulreco.rid].cmt <= TRUE;
+		case(mulreco.ir[7:0])
+		R3:
+			begin
+				case(mulreco.ir[57:50])
+				MULH:		rob[mulreco.rid].res <= mul_sign ? -mul_p[127:64] : mul_p[127:64];
+				MULSUH:	rob[mulreco.rid].res <= mul_sign ? -mul_p[127:64] : mul_p[127:64];
+				MULUH:	rob[mulreco.rid].res <= mul_p[127:64];
+				default:	;
+				endcase
+			end
+		endcase
 		mul_state <= MUL1;
 	end
 default:
