@@ -26,7 +26,7 @@ package any1_pkg;
 //`define VICTIM_CACHE	1'b1
 `define ANY1_TLB	1'b1
 
-parameter ROB_ENTRIES = 16;
+parameter ROB_ENTRIES = 32;
 
 parameter TRUE  = 1'b1;
 parameter FALSE = 1'b0;
@@ -53,6 +53,9 @@ parameter XOR		= 8'h0A;
 parameter R2		= 8'h0C;
 parameter MULU	= 8'h0E;
 parameter MULH	= 8'h0F;
+parameter DIV		= 8'h10;
+parameter DIVU	= 8'h11;
+parameter DIVSU	= 8'h12;
 parameter MULSU =	8'h16;
 parameter DIF		= 8'h18;
 parameter BYTNDX= 8'h1A;
@@ -76,6 +79,9 @@ parameter ANDI  = 8'h08;
 parameter ORI		= 8'h09;
 parameter XORI	= 8'h0A;
 parameter MULUI	= 8'h0E;
+parameter DIVI	= 8'h10;
+parameter DIVUI	= 8'h11;
+parameter DIVSUI= 8'h12;
 parameter MULFI	= 8'h15;
 parameter MULSUI= 8'h16;
 parameter BTFLD	=	8'h1C;
@@ -93,9 +99,16 @@ parameter NOP  	= 8'h3F;
 parameter JAL		= 8'h40;
 
 parameter SYS		= 8'h44;
+parameter CSR		= 8'h0F;
+parameter CSRR	= 3'd0;
+parameter CSRW	= 3'd1;
+parameter CSRS	= 3'd2;
+parameter CSRC	= 3'd3;
+parameter CSRRW	= 3'd4;
 parameter REX		= 8'h10;
 parameter PFI		= 8'h11;
 parameter WFI		= 8'h12;
+parameter RTE		= 8'h13;
 parameter MVSEG	= 8'h1D;
 parameter TLBRW	= 8'h1E;
 parameter SYNC	= 8'h1F;
@@ -114,6 +127,22 @@ parameter STx		= 8'h70;
 
 parameter NOP_INSN = {56'd0,NOP};
 
+parameter CSR_CAUSE	= 16'h?006;
+parameter CSR_SEMA	= 16'h?00C;
+parameter CSR_ASID	= 16'h101F;
+parameter CSR_TICK	= 16'h3002;
+parameter CSR_MBADADDR	= 16'h3007;
+parameter CSR_MTVEC = 16'h303?;
+parameter CSR_MPMSTACK	= 16'h3040;
+parameter CSR_MSTATUS	= 16'h3044;
+parameter CSR_MEIP	=	16'h3048;
+parameter CSR_DTVEC = 16'h403?;
+parameter CSR_DPMSTACK	= 16'h4040;
+parameter CSR_DSTATUS	= 16'h4044;
+parameter CSR_DEIP	=	16'h4048;
+parameter CSR_TIME	= 16'h?FE0;
+parameter CSR_MTIME	= 16'h3FE0;
+parameter CSR_DTIME	= 16'h4FE0;
 
 // Cause
 /*
@@ -195,9 +224,10 @@ parameter MUL1 = 3'd1;
 parameter MUL2 = 3'd2;
 parameter MUL3 = 3'd3;
 
-parameter EDIV1 = 3'd3;
-parameter EDIV2 = 3'd4;
-parameter EDIV3 = 3'd5;
+parameter DIV1 = 3'd1;
+parameter DIV2 = 3'd2;
+parameter DIV3 = 3'd3;
+parameter DIV4 = 3'd4;
 
 parameter pL1CacheLines = 64;
 localparam pL1msb = $clog2(pL1CacheLines-1)-1+5;
@@ -218,8 +248,8 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] epoch;
-	logic [3:0] rid;
+	logic [5:0] Stream;
+	logic [5:0] rid;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;
 	logic predict_taken;
@@ -228,8 +258,8 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] epoch;
-	logic [3:0] rid;
+	logic [5:0] Stream;
+	logic [5:0] rid;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;
 	logic predict_taken;
@@ -238,9 +268,9 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] epoch;
-	logic epoch_inc;
-	logic [3:0] rid;
+	logic [5:0] Stream;
+	logic Stream_inc;
+	logic [5:0] rid;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;	// predicted pc
 	logic predict_taken;
@@ -257,9 +287,9 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] epoch;
-	logic epoch_inc;
-	logic [3:0] rid;
+	logic [5:0] Stream;
+	logic Stream_inc;
+	logic [5:0] rid;
 	logic [63:0] ir;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;	// predicted pc
@@ -276,9 +306,9 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] epoch;
-	logic epoch_inc;
-	logic [3:0] rid;
+	logic [5:0] Stream;
+	logic Stream_inc;
+	logic [5:0] rid;
 	logic [63:0] ir;
 	logic [63:0] ia;
 	logic rfwr;
@@ -288,9 +318,9 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] epoch;
-	logic epoch_inc;
-	logic [3:0] rid;
+	logic [5:0] Stream;
+	logic Stream_inc;
+	logic [5:0] rid;
 	logic [63:0] ir;
 	logic [63:0] ia;
 	logic [63:0] ib;
@@ -302,10 +332,11 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] epoch;
-	logic epoch_inc;
+	logic [5:0] Stream;
+	logic Stream_inc;
 	logic v;
 	logic [AWID-1:0] ip;
+	logic [63:0] ir;
 	logic ii;
 	logic cmt;
 	logic jump;
@@ -314,6 +345,7 @@ typedef struct packed
 	logic takb;
 	logic rfwr;
 	logic [7:0] Rt;
+	logic [63:0] ia;
 	logic [63:0] res;
 	logic [15:0] cause;
 } sReorderEntry;

@@ -71,7 +71,7 @@ sDecode decbuf, regbuf;
 sExecute exbufi, exbufo;
 sMemoryIO membufi;
 sReorderEntry [ROB_ENTRIES-1:0] rob;
-sALUrec mulreci,mulreco, divrec;
+sALUrec mulreci,mulreco, divreci, divreco;
 reg x2mul_wr,x2mul_rd;
 wire x2mul_full,x2mul_empty;
 reg mul_sign;
@@ -83,6 +83,33 @@ reg [3:0] rob_head;
 reg [3:0] ia_rid, a2d_rid, dc_rid;
 reg [5:0] mstate;			// memory state
 reg [2:0] mul_state;	// multipler state
+reg [2:0] div_state;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Multiply / Divide support logic
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+reg x2div_wr,x2div_rd;
+wire x2div_full,x2div_empty;
+wire div_done;
+reg div_sign;
+reg [63:0] div_a;
+reg [63:0] div_b;
+
+wire [128-1:0] div_q;
+wire [128-1:0] ndiv_q = -div_q;
+wire [63:0] div_r = div_a - (div_b * div_q[WID*2-1:WID]);
+wire [63:0] ndiv_r = -div_r;
+fpdivr16 #(64) u16 (
+	.clk(clk_g),
+	.ld(div_state==DIV3),
+	.a(div_a),
+	.b(div_b),
+	.q(div_q),
+	.r(),
+	.done(div_done)
+);
+
 
 reg [AWID-1:0] ip, aip;
 reg [AWID-1:0] f2a_ip;
@@ -91,10 +118,10 @@ reg [WID-1:0] regfile [0:63];
 reg [5:0] regfilestat [0:63];
 reg [WID-1:0] sregfile [0:15];
 
-reg [5:0] fEpoch;
-reg [5:0] fdEpoch,feEpoch,dEpoch,eEpoch,comEpoch;
-reg [5:0] ifEpoch,dcEpoch,rfEpoch,exEpoch,wbEpoch;	// epoch associated with instructions
-reg [5:0] next_dcEpoch;
+reg [5:0] fStream;
+reg [5:0] fdStream,feStream,dStream,eStream,comStream;
+reg [5:0] ifStream,dcStream,rfStream,exStream,wbStream;	// Stream associated with instructions
+reg [5:0] next_dcStream;
 reg decRedirect_rd;
 reg dc2if_redirect_rd;
 wire [AWID-1:0] dc_redirect_ip;
@@ -105,9 +132,12 @@ wire [AWID-1:0] ex_redirect_ip, wb_redirect_ip;
 reg [AWID-1:0] exRedirectIp,wbRedirectIp;
 wire execRedirect_v;
 reg ex2if_redirect_rd,wb2if_redirect_rd;
+reg dc2if_redirect_rd2,ex2if_redirect_rd2,wb2if_redirect_rd2;
 wire dc2if_redirect_empty,ex2if_redirect_empty,wb2if_redirect_empty;
 
 reg x2m_rd;
+wire f2a_empty;
+wire a2d_empty;
 wire d2r_empty;
 wire x2m_empty;
 reg dc2if_wr,ex2if_wr,wb2if_wr;
@@ -132,9 +162,9 @@ wire uie = status[4][0];
 wire sie = status[4][1];
 wire hie = status[4][2];
 wire mie = status[4][3];
-wire iie = status[4][4];
-wire die = status[4][5];
+wire die = status[4][4];
 reg [7:0] ASID;
+reg [63:0] sema;
 
 sMemoryIO membufo;
 wire d_cache = membufo.ir[7:0]==CACHE;
@@ -370,12 +400,17 @@ if (rst_i) begin
 		btb[n].v <= INV;
 end
 else begin
-	if (ex2if_redirect_v) begin
+	if (wb2if_redirect_rd2) begin
+		btb[ip[12:3]].addr <= wb_redirect_ip;
+		btb[ip[12:3]].tag <= ip[AWID-1:13];
+		btb[ip[12:3]].v <= VAL;
+	end
+	else if (ex2if_redirect_rd2) begin
 		btb[ip[12:3]].addr <= ex_redirect_ip;
 		btb[ip[12:3]].tag <= ip[AWID-1:13];
 		btb[ip[12:3]].v <= VAL;
 	end
-	else if (dc2if_redirect_v) begin
+	else if (dc2if_redirect_rd2) begin
 		btb[ip[12:3]].addr <= dc_redirect_ip;
 		btb[ip[12:3]].tag <= ip[AWID-1:13];
 		btb[ip[12:3]].v <= VAL;
@@ -571,7 +606,7 @@ wire ifStall = f2a_full || !ihit || rob[rob_tail].v==VAL;
 // Instruction fetch
 always @*
 begin
-	f2a_in.epoch <= fdEpoch;
+	f2a_in.Stream <= fdStream;
 	f2a_in.rid <= rob_tail;
 	f2a_in.ip <= ip;
 	f2a_in.pip <= btb_predicted_ip;
@@ -594,35 +629,28 @@ f2a_fifo uf2a
   .rd_en(!a2d_full),  // input wire rd_en
   .dout(f2a_out),    // output wire [511 : 0] dout
   .full(f2a_full),    // output wire full
-  .empty(),  		// output wire empty
+  .empty(f2a_empty),  		// output wire empty
   .valid(f2a_v)  // output wire valid
 );
 
 // Instruction align
 always @*
 	begin
-		a2d_in.epoch <= f2a_out.epoch;
+		a2d_in.Stream <= f2a_out.Stream;
 		a2d_in.predict_taken <= f2a_out.predict_taken;
-	 	if (f2a_v) begin
-		  case(f2a_out.ip[5:0])
-		  6'h00:	a2d_in.ir <= f2a_out.cacheline[63:0];
-		  6'h08:	a2d_in.ir <= f2a_out.cacheline[127:64];
-		  6'h10:	a2d_in.ir <= f2a_out.cacheline[191:128];
-		  6'h18:	a2d_in.ir <= f2a_out.cacheline[255:192];
-		  6'h20:	a2d_in.ir <= f2a_out.cacheline[319:256];
-		  6'h28:	a2d_in.ir <= f2a_out.cacheline[383:320];
-		  6'h30:	a2d_in.ir <= f2a_out.cacheline[447:384];
-		  6'h38:	a2d_in.ir <= f2a_out.cacheline[511:448];
-		  default:	a2d_in.ir <= NOP_INSN;		// instruction alignment fault
-			endcase
-			a2d_in.ip <= f2a_out.ip;
-			a2d_in.rid <= f2a_out.rid;
-		end
-		else begin
-			a2d_in.ip <= RSTIP;
-			a2d_in.ir <= NOP_INSN;
-			a2d_in.rid <= f2a_out.rid;
-		end
+	  case(f2a_out.ip[5:0])
+	  6'h00:	a2d_in.ir <= f2a_out.cacheline[63:0];
+	  6'h08:	a2d_in.ir <= f2a_out.cacheline[127:64];
+	  6'h10:	a2d_in.ir <= f2a_out.cacheline[191:128];
+	  6'h18:	a2d_in.ir <= f2a_out.cacheline[255:192];
+	  6'h20:	a2d_in.ir <= f2a_out.cacheline[319:256];
+	  6'h28:	a2d_in.ir <= f2a_out.cacheline[383:320];
+	  6'h30:	a2d_in.ir <= f2a_out.cacheline[447:384];
+	  6'h38:	a2d_in.ir <= f2a_out.cacheline[511:448];
+	  default:	a2d_in.ir <= NOP_INSN;		// instruction alignment fault
+		endcase
+		a2d_in.ip <= f2a_out.ip;
+		a2d_in.rid <= f2a_out.rid;
 	end
 	
 
@@ -631,11 +659,11 @@ a2d_fifo ua2d
   .clk(clk_g),      // input wire clk
   .srst(srst),    // input wire srst
   .din(a2d_in),      // input wire [95 : 0] din
-  .wr_en(!a2d_full),	// input wire wr_en
+  .wr_en(!a2d_full && !f2a_empty && f2a_v),	// input wire wr_en
   .rd_en(!d2r_full),  // input wire rd_en
   .dout(a2d_out),    // output wire [95 : 0] dout
   .full(a2d_full),    // output wire full
-  .empty(),  		// output wire empty
+  .empty(a2d_empty),  		// output wire empty
   .valid(a2d_v)  // output wire valid
 );
 
@@ -655,8 +683,8 @@ always @*
 		decbuf.ip <= dip;
 		decbuf.pip <= btb_predicted_ip;
 		decbuf.predict_taken <= a2d_out.predict_taken;
-		decbuf.epoch <= a2d_out.epoch;
-		decbuf.epoch_inc <= 1'b0;
+		decbuf.Stream <= a2d_out.Stream;
+		decbuf.Stream_inc <= 1'b0;
 		decbuf.rfwr <= FALSE;
 		decbuf.Ra <= dir[23:16];
 		decbuf.Rb <= dir[31:24];
@@ -697,8 +725,8 @@ always @*
 				decbuf.Rt <= {4'h0,dir[9:8]};
 				decbuf.imm <= {{25{dir[63]}},dir[63:28],3'h0};
 				case(dir[21:16])
-				6'd0:		begin dcRedirectIp <= {{25{dir[63]}},dir[63:28],3'h0}; decbuf.epoch_inc <= 1'b1; end
-				6'd63:	begin dcRedirectIp <= dip + {{25{dir[63]}},dir[63:28],3'h0}; decbuf.epoch_inc <= 1'b1; end
+				6'd0:		decbuf.Stream_inc <= 1'b1;
+				6'd63:	decbuf.Stream_inc <= 1'b1;
 				default:	;
 				endcase
 			end
@@ -708,6 +736,7 @@ always @*
 		SYS:
 			begin
 				case(dir[57:50])
+				CSR:		decbuf.ii <= FALSE;
 				PFI:		decbuf.ii <= FALSE;
 				TLBRW:	begin decbuf.ii <= FALSE; decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; end
 				default:	;
@@ -724,7 +753,7 @@ d2r_fifo ud2r
   .clk(clk_g),      // input wire clk
   .srst(srst),    // input wire srst
   .din(decbuf),      // input wire [134 : 0] din
-  .wr_en(!d2r_full && a2d_v),	// input wire wr_en
+  .wr_en(!d2r_full && !a2d_empty && a2d_v),	// input wire wr_en
   .rd_en(!r2x_full && !stallrf),  // input wire rd_en
   .dout(regbuf),    // output wire [134 : 0] dout
   .full(d2r_full),    // output wire full
@@ -735,8 +764,8 @@ d2r_fifo ud2r
 // Register Fetch
 always @*
 begin
-	exbufi.epoch <= regbuf.epoch;
-	exbufi.epoch_inc <= regbuf.epoch_inc;
+	exbufi.Stream <= regbuf.Stream;
+	exbufi.Stream_inc <= regbuf.Stream_inc;
 	exbufi.ip <= regbuf.ip;
 	exbufi.predict_taken <= regbuf.predict_taken;
 	exbufi.rid <= regbuf.rid;
@@ -755,7 +784,7 @@ begin
 							;
 end
 
-wire pop_r2x = !x2m_full && !x2mul_full;
+wire pop_r2x = !x2m_full && !x2mul_full && !x2div_full;
 r2x_fifo ur2x
 (
   .clk(clk_g),      // input wire clk
@@ -817,6 +846,18 @@ ALU_fifo ux2mul
   .dout(mulreco),    // output wire [134 : 0] dout
   .full(x2mul_full),    // output wire full
   .empty(x2mul_empty)  		// output wire empty
+);
+
+ALU_fifo ux2div
+(
+  .clk(clk_g),      // input wire clk
+  .srst(srst),    // input wire srst
+  .din(divreci),      // input wire [134 : 0] din
+  .wr_en(!r2x_empty && !x2div_full && divfifo_wr),	// input wire wr_en
+  .rd_en(x2div_rd),  // input wire rd_en
+  .dout(divreco),    // output wire [134 : 0] dout
+  .full(x2div_full),    // output wire full
+  .empty(x2div_empty)  		// output wire empty
 );
 
 reg dc2if_redirect_rst;
@@ -887,8 +928,13 @@ end
 else begin
 	if (|ld_time)
 		wc_time <= wc_time_dat;
-	else
-		wc_time <= wc_time + 2'd1;
+	else begin
+		wc_time[31:0] <= wc_time[31:0] + 2'd1;
+		if (wc_time[31:0]==32'd99999999) begin
+			wc_time[31:0] <= 32'd0;
+			wc_time[63:32] <= wc_time[63:32] + 2'd1;
+		end
+	end
 	if (mtimecmp==wc_time[31:0])
 		wc_time_irq <= 1'b1;
 	if (clr_wc_time_irq)
@@ -922,13 +968,13 @@ wire [127:0] sll_out = {exbufo.ib,exbufo.ia} << exbufo.ic;
 always @(posedge clk_g)
 if (rst_i) begin
 	pmStack <= 12'b001001001000;
-	fdEpoch <= 6'd0;
-	feEpoch <= 6'd0;
-	ifEpoch <= 6'd0;
-	dcEpoch <= 6'd0;
-	rfEpoch <= 6'd0;
-	exEpoch <= 6'd0;
-	wbEpoch <= 6'd0;
+	fdStream <= 6'd0;
+	feStream <= 6'd0;
+	ifStream <= 6'd0;
+	dcStream <= 6'd0;
+	rfStream <= 6'd0;
+	exStream <= 6'd0;
+	wbStream <= 6'd0;
 	zero_data <= FALSE;
 	dcachable <= TRUE;
 	ivvalid <= 5'h00;
@@ -948,11 +994,21 @@ if (rst_i) begin
 	end
 	mstate <= MEMORY1;
 	mul_state <= MUL1;
+	div_state <= DIV1;
+	ld_time <= FALSE;
+	status[4] <= 64'h0;
+	status[3] <= 64'd0;
+	status[2] <= 64'd0;
+	status[1] <= 64'd0;
+	status[0] <= 64'd0;
 end
 else begin
 	ex2if_redirect_rd <= FALSE;
 	dc2if_redirect_rd <= FALSE;
 	wb2if_redirect_rd <= FALSE;
+	ex2if_redirect_rd2 <= ex2if_redirect_rd;
+	dc2if_redirect_rd2 <= dc2if_redirect_rd;
+	wb2if_redirect_rd2 <= wb2if_redirect_rd;
 	dc2if_wr <= FALSE;
 	ex2if_wr <= FALSE;
 	wb2if_wr <= FALSE;
@@ -961,27 +1017,56 @@ else begin
 	x2m_rd <= FALSE;
 	x2mul_rd <= FALSE;
 	x2mul_wr <= FALSE;
+	if (ld_time==TRUE && wc_time_dat==wc_time)
+		ld_time <= FALSE;
 
-	ip <= btb_predicted_ip;
+	// Instruction fetch
 
+	if (!wb2if_redirect_empty)
+		wb2if_redirect_rd <= 1'b1;
+	else if (!ex2if_redirect_empty)
+		ex2if_redirect_rd <= 1'b1;
+	else if (!dc2if_redirect_empty)
+		dc2if_redirect_rd <= 1'b1;
+
+	if (wb2if_redirect_rd2) begin
+		ifStream <= ifStream + 2'd1;
+		ip <= wb_redirect_ip;
+	end
+	else if (ex2if_redirect_rd2) begin
+		ifStream <= ifStream + 2'd1;
+		ip <= ex_redirect_ip;
+	end
+	else if (dc2if_redirect_rd2) begin
+		ifStream <= ifStream + 2'd1;
+		ip <= dc_redirect_ip;
+	end
+	else
+		ip <= btb_predicted_ip;
+
+	// Assign reorder buffser and initialize buffer.
 	if (!ifStall) begin
-		rob[rob_tail].epoch <= ifEpoch;
-		rob[rob_tail].epoch_inc <= 1'b0;
+		rob[rob_tail].Stream <= ifStream;
+		rob[rob_tail].Stream_inc <= 1'b0;
 		rob[rob_tail].v <= VAL;
 		rob[rob_tail].ii <= FALSE;
 		rob[rob_tail].ip <= ip;
-		rob[rob_tail].cause <= |ip[2:0] ? FLT_IADR : FLT_NONE;
+		if (irq_i & die)
+			rob[rob_tail].cause <= 16'h8000|cause_i;
+		else
+			rob[rob_tail].cause <= |ip[2:0] ? FLT_IADR : FLT_NONE;
 		rob_tail <= rob_tail + 2'd1;
 	end
 
 	// Decode
-	if (a2d_out.epoch == dcEpoch)
+	// Mostly done by combo logic above.
+	if (a2d_out.Stream == dcStream && a2d_v)
 		case(dir[7:0])
 		JAL:
 			begin
 				case(dir[21:16])
-				6'd0:		begin dcEpoch <= dcEpoch + 2'd1; ifEpoch <= ifEpoch + 2'd1; ip <= {{25{dir[63]}},dir[63:28],3'h0}; end
-				6'd63:	begin dcEpoch <= dcEpoch + 2'd1; ifEpoch <= ifEpoch + 2'd1; ip <= dip + {{25{dir[63]}},dir[63:28],3'h0}; end
+				6'd0:		begin dcStream <= dcStream + 2'd1; dcRedirectIp <= {{25{dir[63]}},dir[63:28],3'h0}; dc2if_wr <= TRUE; end
+				6'd63:	begin dcStream <= dcStream + 2'd1; dcRedirectIp <= dip + {{25{dir[63]}},dir[63:28],3'h0}; dc2if_wr <= TRUE; end
 				default:	;
 				endcase
 			end
@@ -994,10 +1079,11 @@ else begin
 	rob[regbuf.rid].Rt <= regbuf.Rt;
 
 	// Execute
-	if (exbufo.epoch == exEpoch + exbufo.epoch_inc && r2x_v) begin
-		exEpoch <= exEpoch + exbufo.epoch_inc;
+	rob[exbufo.rid].ir <= exbufo.ir;	// ir Needed for writeback
+	if (exbufo.Stream == exStream + exbufo.Stream_inc && r2x_v) begin
+		exStream <= exStream + exbufo.Stream_inc;
 		rob[exbufo.rid].rfwr <= exbufo.rfwr;
-		rob[exbufo.rid].epoch_inc <= 1'b0;
+		rob[exbufo.rid].Stream_inc <= exbufo.Stream_inc;
 		case(exbufo.ir[7:0])
 		R3:
 			case(exbufo.ir[57:50])
@@ -1090,10 +1176,10 @@ else begin
 				rob[exbufo.rid].takb <= ex_takb;
 				rob[exbufo.rid].res <= exbufo.ip + 4'd8;
 				if (brAddrMispredict) begin
-					rob[exbufo.rid].epoch_inc <= 1'b1;
-					exEpoch <= exEpoch + 2'd1;
-					ifEpoch <= ifEpoch + 2'd1; 
-					ip <= ex_takb ? exbufo.ia + exbufo.imm : exbufo.ip + 4'd8;
+					rob[exbufo.rid].Stream_inc <= 1'b1;
+					exStream <= exStream + 2'd1;
+					exRedirectIp <= ex_takb ? exbufo.ia + exbufo.imm : exbufo.ip + 4'd8;
+					ex2if_wr <= TRUE;
 				end
 			end
 		JAL:
@@ -1105,7 +1191,13 @@ else begin
 				case(dir[21:16])
 				6'd0:		;	// already done
 				6'd63:	; // already done
-				default:	begin exEpoch <= exEpoch + 2'd1; ifEpoch <= ifEpoch + 2'd1; ip <= exbufo.ia + exbufo.imm; end
+				default:
+					begin
+						rob[exbufo.rid].Stream_inc <= 1'b1;
+						exStream <= exStream + 2'd1;
+						exRedirectIp <= exbufo.ia + exbufo.imm;
+						ex2if_wr <= TRUE;
+					end
 				endcase
 			end
 		LEA,LDx,
@@ -1122,10 +1214,21 @@ else begin
 		SYS:
 			begin
 				case(exbufo.ir[57:50])
+				CSR:
+					begin
+						rob[exbufo.rid].ia <= exbufo.ia;
+						case(exbufo.ir[60:58])
+						CSRR:	tReadCSR(rob[exbufo.rid].res,exbufo.ir[39:24]);
+						CSRW,CSRS,CSRC:	rob[exbufo.rid].rfwr <= TRUE;
+						CSRRW:begin tReadCSR(rob[exbufo.rid].res,exbufo.ir[39:24]); rob[exbufo.rid].rfwr <= TRUE; end
+						default:	;
+						endcase
+					end
 				PFI:
 					begin
 		      	if (irq_i != 1'b0)
 				    	rob[exbufo.rid].cause <= 16'h8000|cause_i;
+			    	rob[exbufo.rid].rfwr <= TRUE;
 			    	rob[exbufo.rid].cmt <= TRUE;
 			  	end
 				TLBRW:
@@ -1431,6 +1534,7 @@ MEMORY3:
       STx:	we_o <= HIGH;
       default:  ;
       endcase
+      dadr <= adr_o;
     end
   end
 MEMORY4:
@@ -1444,10 +1548,10 @@ MEMORY4:
     end
     else if (dhit) begin
   		case(1'b1)
-  		dhit1a:	datil <= dcache0[adr_o[pL1msb:6]];
-  		dhit1b:	datil <= dcache1[adr_o[pL1msb:6]];
-  		dhit1c:	datil <= dcache2[adr_o[pL1msb:6]];
-  		dhit1d:	datil <= dcache3[adr_o[pL1msb:6]];
+  		dhit1a:	datil <= dcache0[dadr[pL1msb:6]];
+  		dhit1b:	datil <= dcache1[dadr[pL1msb:6]];
+  		dhit1c:	datil <= dcache2[dadr[pL1msb:6]];
+  		dhit1d:	datil <= dcache3[dadr[pL1msb:6]];
   		default:	;
   		endcase
   		if (d_st) begin
@@ -1532,6 +1636,7 @@ MEMORY_KEYCHK2:
 MEMORY8:
   begin
     xlaten <= FALSE;
+    dadr <= adr_o;
     mgoto (MEMORY9);
 `ifdef ANY1_TLB    
 		if (tlbmiss) begin
@@ -1560,10 +1665,10 @@ MEMORY8:
 MEMORY9:
   if (dhit) begin
 		case(1'b1)
-		dhit1a:	datil <= dcache0[adr_o[pL1msb:6]];
-		dhit1b:	datil <= dcache1[adr_o[pL1msb:6]];
-		dhit1c:	datil <= dcache2[adr_o[pL1msb:6]];
-		dhit1d:	datil <= dcache3[adr_o[pL1msb:6]];
+		dhit1a:	datil <= dcache0[dadr[pL1msb:6]];
+		dhit1b:	datil <= dcache1[dadr[pL1msb:6]];
+		dhit1c:	datil <= dcache2[dadr[pL1msb:6]];
+		dhit1d:	datil <= dcache3[dadr[pL1msb:6]];
 		default:	;
 		endcase
 		if (d_st) begin
@@ -1663,6 +1768,7 @@ MEMORY_KEYCHK3:
 MEMORY13:
   begin
     xlaten <= FALSE;
+    dadr <= adr_o;
     mgoto (MEMORY14);
 `ifdef ANY1_TLB    
 		if (tlbmiss) begin
@@ -1691,10 +1797,10 @@ MEMORY13:
 MEMORY14:
   if (dhit) begin
 		case(1'b1)
-		dhit1a:	datil <= dcache0[adr_o[pL1msb:6]];
-		dhit1b:	datil <= dcache1[adr_o[pL1msb:6]];
-		dhit1c:	datil <= dcache2[adr_o[pL1msb:6]];
-		dhit1d:	datil <= dcache3[adr_o[pL1msb:6]];
+		dhit1a:	datil <= dcache0[dadr[pL1msb:6]];
+		dhit1b:	datil <= dcache1[dadr[pL1msb:6]];
+		dhit1c:	datil <= dcache2[dadr[pL1msb:6]];
+		dhit1d:	datil <= dcache3[dadr[pL1msb:6]];
 		default:	;
 		endcase
 		if (d_st) begin
@@ -1980,30 +2086,61 @@ default:	;
 	// to update. The reorder buffer acts like a fifo between the other stages
 	// and the writeback stage.
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-	if (rob[rob_head].epoch == wbEpoch + rob[rob_head].epoch_inc) begin
-		wbEpoch <= wbEpoch + rob[rob_head].epoch_inc;
+	if (rob[rob_head].Stream == wbStream + rob[rob_head].Stream_inc) begin
+		wbStream <= wbStream + rob[rob_head].Stream_inc;
 		// Update register scorebaord
 		if (rob[rob_head].Rt != 6'd0 && !(regbuf.Rt == rob[rob_head].Rt) && rob[rob_head].v && rob[rob_head].cmt)
 			regfilestat[rob[rob_head].Rt] <= regfilestat[rob[rob_head].Rt] - 6'd1;
 		if (rob[rob_head].v & rob[rob_head].cmt) begin
 			if (rob[rob_head].ii) begin
+				status[4][4] <= 1'b0;	// disable further interrupts
 				eip <= rob[rob_head].ip;
 				pmStack <= {pmStack[27:0],3'b100,1'b0};
 				cause[3'd4] <= FLT_UNIMP;
-				wbEpoch <= wbEpoch + 2'd1;
-				ifEpoch <= ifEpoch + 2'd1; 
-				ip <= tvec[3'd4] + {omode,6'h00};
+				wbStream <= wbStream + 2'd1;
+				wbRedirectIp <= tvec[3'd4] + {omode,6'h00};
+				wb2if_wr <= TRUE;
 			end
-			else if (rob[rob_head].cause!=8'h00) begin
+			else if (rob[rob_head].cause!=16'h00) begin
+				status[4][4] <= 1'b0;	// disable further interrupts
 				eip <= rob[rob_head].ip;
 				pmStack <= {pmStack[27:0],3'b100,1'b0};
 				cause[3'd4] <= rob[rob_head].cause;
-				wbEpoch <= wbEpoch + 2'd1;
-				ifEpoch <= ifEpoch + 2'd1; 
-				ip <= tvec[3'd4] + {omode,6'h00};
+				wbStream <= wbStream + 2'd1;
+				wbRedirectIp <= tvec[3'd4] + {omode,6'h00};
+				wb2if_wr <= TRUE;
 			end
-			else if (rob[rob_head].rfwr)
-				regfile[rob[rob_head].Rt] <= rob[rob_head].res;
+			else if (rob[rob_head].rfwr) begin
+				case(rob[rob_head].ir[7:0])
+				SYS:
+					case(rob[rob_head].ir[57:50])
+					CSR:
+						case(rob[rob_head].ir[60:58])
+						CSRW:	tWriteCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
+						CSRS:	tSetbitCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
+						CSRC:	tClrbitCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
+						CSRRW:	tWriteCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
+						default:	;
+						endcase
+					RTE:	
+						begin
+							sema[0] <= 1'b0;
+							wbRedirectIp <= eip + rob[rob_head].ia;
+							wb2if_wr <= TRUE;
+							wbStream <= wbStream + 2'd1;
+							pmStack <= {8'h9,pmStack[31:4]};
+							status[4][pmStack[3:1]] <= pmStack[0];
+							status[3][pmStack[3:1]] <= pmStack[0];
+							status[2][pmStack[3:1]] <= pmStack[0];
+							status[1][pmStack[3:1]] <= pmStack[0];
+							status[0][pmStack[3:1]] <= pmStack[0];
+						end
+					default:	;
+					endcase
+				default:
+					regfile[rob[rob_head].Rt] <= rob[rob_head].res;
+				endcase
+			end
 			rob[rob_head].v <= INV;
 			rob[rob_head].ii <= INV;
 			rob[rob_head].cause <= FLT_NONE;
@@ -2108,12 +2245,179 @@ default:
 	mul_state <= MUL1;
 	endcase
 
+// -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  
+// Handle divide type operations.
+// -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  
+
+	case (div_state)
+DIV1:
+	if (!x2div_empty) begin
+		x2div_rd <= TRUE;
+		div_state <= DIV2;
+	end
+DIV2:
+		case(divreco.ir[7:0])
+		R3:
+			begin
+				case(divreco.ir[57:50])
+				DIV:
+					begin
+						div_sign <= divreco.a[63] ^ divreco.b[63];
+						div_a <= divreco.a[63] ? - divreco.a : divreco.a;
+						div_b <= divreco.b[63] ? - divreco.b : divreco.b;
+						div_state <= DIV3;
+					end
+				DIVU:
+					begin
+						div_sign <= 1'b0;
+						div_a <= divreco.a;
+						div_b <= divreco.b;
+						div_state <= DIV3;
+					end
+				DIVSU:
+					begin
+						div_sign <= divreco.a[63];
+						div_a <= divreco.a[63] ? - divreco.a : divreco.a;
+						div_b <= divreco.b;
+						div_state <= DIV3;
+					end
+				endcase
+			end
+		DIVI:
+			begin
+				div_sign <= divreco.a[63] ^ divreco.imm[63];
+				div_a <= divreco.a[63] ? - divreco.a : divreco.a;
+				div_b <= divreco.imm[63] ? - divreco.imm : divreco.imm;
+				div_state <= DIV3;
+			end
+		DIVUI:
+			begin
+				div_sign <= 1'b0;
+				div_a <= divreco.a;
+				div_b <= divreco.imm;
+				div_state <= DIV3;
+			end
+		DIVSUI:
+			begin
+				div_sign <= divreco.a[63];
+				div_a <= divreco.a[63] ? - divreco.a : divreco.a;
+				div_b <= divreco.imm;
+				div_state <= DIV3;
+			end
+		endcase
+DIV3:
+	div_state <= DIV4;
+DIV4:
+	if (div_done) begin
+		rob[divreco.rid].res <= div_sign ? -div_q[63:0] : div_q;
+		rob[divreco.rid].cmt <= TRUE;
+		case(divreco.ir[7:0])
+		R3:
+			begin
+				case(divreco.ir[57:50])
+				default:	;
+				endcase
+			end
+		endcase
+		div_state <= DIV1;
+	end
+	default:
+		div_state <= DIV1;
+	endcase
 
 end	// clock domain
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 // Support tasks
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+task tReadCSR;
+output [63:0] res;
+input [15:0] regno;
+begin
+	if (regno[14:12] <= omode) begin
+		case(regno[15:0])
+		CSR_SEMA: res <= sema;
+		CSR_ASID:	res <= ASID;
+		CSR_MBADADDR:	res <= badaddr[regno[14:12]];
+		CSR_TICK:	res <= tick;
+		CSR_CAUSE:	res <= cause[regno[14:12]];
+		CSR_MTVEC,CSR_DTVEC:
+			res <= tvec[regno[2:0]];
+		CSR_DPMSTACK:	res <= pmStack;
+		CSR_MPMSTACK:	res <= pmStack;
+		CSR_DEIP: res <= eip;
+		CSR_MEIP: res <= eip;
+		CSR_TIME:	res <= wc_time;
+		CSR_MSTATUS:	res <= status[4];
+		CSR_DSTATUS:	res <= status[4];
+		default:	res <= 64'd0;
+		endcase
+	end
+	else
+		res <= 64'd0;
+end
+endtask
+
+task tWriteCSR;
+input [63:0] val;
+input [15:0] regno;
+begin
+	if (regno[14:12] <= omode) begin
+		casez(regno[15:0])
+		CSR_SEMA:		sema <= val;
+		CSR_ASID: 	ASID <= val;
+		CSR_MBADADDR:	badaddr[regno[14:12]] <= val;
+		CSR_CAUSE:	cause[regno[14:12]] <= val;
+		CSR_MTVEC,CSR_DTVEC:
+			tvec[regno[2:0]] <= val;
+		CSR_DPMSTACK:	pmStack <= val;
+		CSR_MPMSTACK:	pmStack <= val;
+		CSR_DEIP:	eip <= val;
+		CSR_MEIP:	eip <= val;
+		CSR_DTIME:	begin wc_time_dat <= val; ld_time <= TRUE; end
+		CSR_MTIME:	begin wc_time_dat <= val; ld_time <= TRUE; end
+		CSR_DSTATUS:	status[4] <= val;
+		CSR_MSTATUS:	status[4] <= val;
+		default:	;
+		endcase
+	end
+end
+endtask
+
+task tSetbitCSR;
+input [63:0] val;
+input [15:0] regno;
+begin
+	if (regno[14:12] <= omode) begin
+		case(regno[15:0])
+		CSR_SEMA:			sema[val[5:0]] <= 1'b1;
+		CSR_DPMSTACK:	pmStack <= pmStack | val;
+		CSR_MPMSTACK:	pmStack <= pmStack | val;
+		CSR_DSTATUS:	status[4] <= status[4] | val;
+		CSR_MSTATUS:	status[4] <= status[4] | val;
+		default:	;
+		endcase
+	end
+end
+endtask
+
+task tClrbitCSR;
+input [63:0] val;
+input [15:0] regno;
+begin
+	if (regno[14:12] <= omode) begin
+		case(regno[15:0])
+		CSR_SEMA:			sema[val[5:0]] <= 1'b0;
+		CSR_DPMSTACK:	pmStack <= pmStack & ~val;
+		CSR_MPMSTACK:	pmStack <= pmStack & ~val;
+		CSR_DSTATUS:	status[4] <= status[4] & ~val;
+		CSR_MSTATUS:	status[4] <= status[4] & ~val;
+		default:	;
+		endcase
+	end
+end
+endtask
 
 task tLICache;
 input [1:0] way;
