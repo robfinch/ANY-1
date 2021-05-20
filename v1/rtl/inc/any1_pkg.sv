@@ -43,6 +43,7 @@ parameter OM_HYPER	= 3'd2;
 parameter OM_MACHINE	= 3'd3;
 parameter OM_DEBUG	= 3'd4;
 
+parameter BRK		= 8'h00;
 parameter R3		= 8'h03;
 parameter ADD		= 8'h04;
 parameter SUB		= 8'h05;
@@ -230,7 +231,8 @@ parameter DIV3 = 3'd3;
 parameter DIV4 = 3'd4;
 
 parameter pL1CacheLines = 64;
-localparam pL1msb = $clog2(pL1CacheLines-1)-1+5;
+parameter pL1LineSize = 512;
+localparam pL1msb = $clog2(pL1CacheLines-1)-1+6;
 parameter RSTIP = 32'hFFFD0000;
 parameter RIBO = 1;
 
@@ -238,6 +240,12 @@ typedef logic [`ABITS] Address;
 typedef logic [AWID-14:0] BTBTag;
 typedef logic [7:0] ASID;
 typedef logic [63:0] Data;
+
+typedef struct packed
+{
+	logic [5:0] stream;
+	logic [2:0] unit;
+} sSource;
 
 typedef struct packed
 {
@@ -300,6 +308,11 @@ typedef struct packed
 	logic [63:0] ib;
 	logic [63:0] ic;
 	logic [63:0] id;
+	logic iav;
+	logic ibv;
+	logic icv;
+	logic idv;
+	logic itv;
 	logic [7:0] Rt;
 	logic [63:0] imm;
 } sExecute;
@@ -360,6 +373,12 @@ typedef struct packed
 	logic [63:0] d;
 	logic [63:0] imm;
 } sALUrec;
+
+typedef struct packed
+{
+	logic [5:0] Rt;
+	logic [63:0] val;
+} sBypassBuf;
 
 endpackage
 
