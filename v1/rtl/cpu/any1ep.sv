@@ -132,6 +132,8 @@ wire decRedirect_v;
 reg execRedirect_rd;
 wire [AWID-1:0] ex_redirect_ip, wb_redirect_ip;
 reg [AWID-1:0] exRedirectIp,wbRedirectIp;
+sRedirect dc_redirecti,ex_redirecti,wb_redirecti;
+sRedirect dc_redirecto,ex_redirecto,wb_redirecto;
 wire execRedirect_v;
 reg ex2if_redirect_rd,wb2if_redirect_rd;
 reg dc2if_redirect_rd2,ex2if_redirect_rd2,wb2if_redirect_rd2;
@@ -403,18 +405,18 @@ if (rst_i) begin
 end
 else begin
 	if (wb2if_redirect_rd2) begin
-		btb[ip[12:3]].addr <= wb_redirect_ip;
-		btb[ip[12:3]].tag <= ip[AWID-1:13];
+		btb[ip[12:3]].addr <= wb_redirecto.redirect_ip;
+		btb[ip[12:3]].tag <= wb_redirecto.current_ip[AWID-1:13];
 		btb[ip[12:3]].v <= VAL;
 	end
 	else if (ex2if_redirect_rd2) begin
-		btb[ip[12:3]].addr <= ex_redirect_ip;
-		btb[ip[12:3]].tag <= ip[AWID-1:13];
+		btb[ip[12:3]].addr <= ex_redirecto.redirect_ip;
+		btb[ip[12:3]].tag <= ex_redirecto.current_ip[AWID-1:13];
 		btb[ip[12:3]].v <= VAL;
 	end
 	else if (dc2if_redirect_rd2) begin
-		btb[ip[12:3]].addr <= dc_redirect_ip;
-		btb[ip[12:3]].tag <= ip[AWID-1:13];
+		btb[ip[12:3]].addr <= dc_redirecto.redirect_ip;
+		btb[ip[12:3]].tag <= dc_redirecto.current_ip[AWID-1:13];
 		btb[ip[12:3]].v <= VAL;
 	end
 end
@@ -681,7 +683,7 @@ end
 always @*
 	begin
 		decbuf.rid <= dc_rid;
-		decbuf.ii <= TRUE;
+		decbuf.ui <= TRUE;
 		decbuf.ir <= dir;
 		decbuf.ip <= dip;
 		decbuf.pip <= btb_predicted_ip;
@@ -695,57 +697,61 @@ always @*
 		decbuf.Rd <= dir[57:50];
 		decbuf.Rt <= 8'd0;
 		decbuf.imm <= 64'd0;
-		dcRedirectIp <= dip + {{25{dir[63]}},dir[63:28],3'h0};
+//		dcRedirectIp <= dip + {{25{dir[63]}},dir[63:28],3'h0};
 		case(dir[7:0])
-		NOP:	decbuf.ii <= FALSE;
+		NOP:	decbuf.ui <= FALSE;
 		R3:
 			case(dir[57:50])
-			ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+			ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			R2:
 				case(dir[39:32])
-				DIF:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-				MULF:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-				MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-				DIV,DIVU,DIVSU:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-				SEQ,SNE,SLT,SGE,SLTU,SGEU:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-				SLL:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-				BYTNDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-				WYDNDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
+				DIF:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				MULF:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				DIV,DIVU,DIVSU:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				SEQ,SNE,SLT,SGE,SLTU,SGEU:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				SLL:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				BYTNDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= dir[31:24]; end
+				WYDNDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= dir[39:24]; end
+				U21NDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= {dir[57:50],dir[39:24]}; end
 				default:	;
 				endcase
 			default:	;
 			endcase
-		ADDI,SUBFI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{dir[19]}},dir[19:0]}; decbuf.ii <= FALSE; end
-		ANDI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{1'b1}},dir[19:0]}; decbuf.ii <= FALSE; end
-		MULI,MULUI,MULSUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-		DIVI,DIVUI,DIVSUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-		ORI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{1'b0}},dir[19:0]}; decbuf.ii <= FALSE; end
-		XORI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{1'b0}},dir[19:0]}; decbuf.ii <= FALSE; end
-		EXT,EXTU:		begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ii <= FALSE; end
-		SEQI,SNEI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{dir[19]}},dir[19:0]}; decbuf.ii <= FALSE; end
-		SLTI,SGTI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{dir[19]}},dir[19:0]}; decbuf.ii <= FALSE; end
-		SLTUI,SGTUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{44{1'b0}},dir[19:0]}; decbuf.ii <= FALSE; end
+		ADDI,SUBFI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{32{dir[63]}},dir[63:32]}; decbuf.ui <= FALSE; end
+		ANDI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{32{1'b1}},dir[63:32]}; decbuf.ui <= FALSE; end
+		MULI,DIVI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= {{32{dir[63]}},dir[63:32]}; end
+		MULUI,MULSUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= {32'd0,dir[63:32]}; end
+		DIVUI,DIVSUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= {32'd0,dir[63:32]}; end
+		ORI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {32'd0,dir[63:32]}; decbuf.ui <= FALSE; end
+		XORI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {32'd0,dir[63:32]}; decbuf.ui <= FALSE; end
+		EXT,EXTU:		begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+		SEQI,SNEI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{32{dir[63]}},dir[63:32]}; decbuf.ui <= FALSE; end
+		SLTI,SGTI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{32{dir[63]}},dir[63:32]}; decbuf.ui <= FALSE; end
+		SLTUI,SGTUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {32'd0,dir[63:32]}; decbuf.ui <= FALSE; end
+		PERM:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{40{1'b0}},dir[57:50],dir[39:24]}; decbuf.ui <= FALSE; end
 		JAL:
 			begin
-				decbuf.ii <= FALSE;
+				decbuf.ui <= FALSE;
 				decbuf.Rt <= {6'h0,dir[9:8]};
 				decbuf.imm <= {{25{dir[63]}},dir[63:28],3'h0};
+				decbuf.rfwr <= TRUE;
 				case(dir[21:16])
 				6'd0:		decbuf.Stream_inc <= 1'b1;
 				6'd63:	decbuf.Stream_inc <= 1'b1;
 				default:	;
 				endcase
 			end
-		BEQ,BNE,BLT,BGE,BLTU,BGEU:	begin	decbuf.ii <= FALSE; decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{43{dir[63]}},dir[63:50],dir[43:40],3'd0}; end
-		LEA:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{42{dir[63]}},dir[63:50],dir[39:32]}; decbuf.ii <= FALSE; end
-		LDx:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{42{dir[63]}},dir[63:50],dir[39:32]}; decbuf.ii <= FALSE; end
-		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{42{dir[63]}},dir[63:50],dir[39:32]}; decbuf.ii <= FALSE; end
+		BEQ,BNE,BLT,BGE,BLTU,BGEU:	begin	decbuf.ui <= FALSE; decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{43{dir[63]}},dir[63:50],dir[43:40],3'd0}; end
+		LEA:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{42{dir[63]}},dir[63:50],dir[39:32]}; decbuf.ui <= FALSE; end
+		LDx:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{42{dir[63]}},dir[63:50],dir[39:32]}; decbuf.ui <= FALSE; end
+		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{42{dir[63]}},dir[63:50],dir[39:32]}; decbuf.ui <= FALSE; end
 		SYS:
 			begin
 				case(dir[57:50])
-				CSR:		decbuf.ii <= FALSE;
-				PFI:		decbuf.ii <= FALSE;
-				TLBRW:	begin decbuf.ii <= FALSE; decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; end
+				CSR:		decbuf.ui <= FALSE;
+				PFI:		decbuf.ui <= FALSE;
+				TLBRW:	begin decbuf.ui <= FALSE; decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; end
 				default:	;
 				endcase
 			end
@@ -860,32 +866,6 @@ r2x_fifo ur2x
   .valid(r2x_v)  // output wire valid
 );
 
-// Execute
-always @*
-	begin
-//		if (exbufi.ii)
-//			exRedirectIp <= 
-		exRedirectIp <= ex_takb ? exbufo.ia + exbufo.imm : exbufo.ip + 4'd8;
-		case(exbufo.ir[7:0])
-		BEQ,BNE,BLT,BGE,BLTU,BGEU:
-			begin
-				exRedirectIp <= ex_takb ? exbufo.ia + exbufo.imm : exbufo.ip + 4'd8;
-			end
-		JAL:
-			begin
-				case(exbufo.ir[21:16])
-				6'd0:		;	// already done
-				6'd63:	; // already done
-				default:
-					begin
-						exRedirectIp <= exbufo.ia + exbufo.imm;
-					end
-				endcase
-			end
-		default:	;
-		endcase
-	end
-
 x2m_fifo ux2m
 (
   .clk(clk_g),      // input wire clk
@@ -930,10 +910,10 @@ if_redirect_fifo udc2if
 (
   .clk(clk_g),      // input wire clk
   .srst(dc2if_redirect_rst),    // input wire srst
-  .din(dcRedirectIp),      // input wire [31 : 0] din
+  .din(dc_redirecti),      // input wire [31 : 0] din
   .wr_en(dc2if_wr),	// input wire wr_en
   .rd_en(dc2if_redirect_rd),  // input wire rd_en
-  .dout(dc_redirect_ip),    // output wire [31 : 0] dout
+  .dout(dc_redirecto),    // output wire [31 : 0] dout
   .full(),    	// output wire full
   .empty(dc2if_redirect_empty),  		// output wire empty
   .valid(dc2if_redirect_v)  // output wire valid
@@ -943,10 +923,10 @@ if_redirect_fifo uex2if
 (
   .clk(clk_g),      // input wire clk
   .srst(ex2if_redirect_rst),    // input wire srst
-  .din(exRedirectIp),      // input wire [31 : 0] din
+  .din(ex_redirecti),      // input wire [31 : 0] din
   .wr_en(ex2if_wr),	// input wire wr_en
   .rd_en(ex2if_redirect_rd),  // input wire rd_en
-  .dout(ex_redirect_ip),    // output wire [31 : 0] dout
+  .dout(ex_redirecto),    // output wire [31 : 0] dout
   .full(),    	// output wire full
   .empty(ex2if_redirect_empty),  		// output wire empty
   .valid(ex2if_redirect_v)  // output wire valid
@@ -956,10 +936,10 @@ if_redirect_fifo uwb2if
 (
   .clk(clk_g),      // input wire clk
   .srst(srst),    // input wire srst
-  .din(wbRedirectIp),      // input wire [31 : 0] din
+  .din(wb_redirecti),      // input wire [31 : 0] din
   .wr_en(wb2if_wr),	// input wire wr_en
   .rd_en(wb2if_redirect_rd),  // input wire rd_en
-  .dout(wb_redirect_ip),    // output wire [31 : 0] dout
+  .dout(wb_redirecto),    // output wire [31 : 0] dout
   .full(),    	// output wire full
   .empty(wb2if_redirect_empty),  		// output wire empty
   .valid(wb2if_redirect_v)  // output wire valid
@@ -1057,7 +1037,7 @@ if (rst_i) begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		rob[n].v <= INV;
 		rob[n].cmt <= FALSE;
-		rob[n].ii <= TRUE;
+		rob[n].ui <= TRUE;
 		rob[n].ip <= RSTIP;
 		rob[n].jump <= FALSE;
 		rob[n].branch <= FALSE;
@@ -1074,6 +1054,7 @@ if (rst_i) begin
 	status[0] <= 64'd0;
 	for (n = 0; n < 16; n = n + 1)
 		tZeroRegfileSrc(n);
+	active_branch <= 2'd0;
 end
 else begin
 	f2a_rst <= FALSE;
@@ -1096,6 +1077,8 @@ else begin
 	x2mul_wr <= FALSE;
 	if (ld_time==TRUE && wc_time_dat==wc_time)
 		ld_time <= FALSE;
+	if (pe_nmi)
+		nmif <= 1'b1;
 
 	// Instruction fetch
 
@@ -1108,51 +1091,72 @@ else begin
 
 	if (wb2if_redirect_rd2) begin
 		ifStream <= ifStream + 2'd1;
-		ip <= wb_redirect_ip;
+		ip <= wb_redirecto.redirect_ip;
 	end
 	else if (ex2if_redirect_rd2) begin
 		ifStream <= ifStream + 2'd1;
-		ip <= ex_redirect_ip;
+		ip <= ex_redirecto.redirect_ip;
 	end
 	else if (dc2if_redirect_rd2) begin
 		ifStream <= ifStream + 2'd1;
-		ip <= dc_redirect_ip;
+		ip <= dc_redirecto.redirect_ip;
 	end
-	else
+	else if (predict_taken)
 		ip <= btb_predicted_ip;
+	else
+		ip <= ip + 4'd8;
 
 	// Assign reorder buffer and initialize buffer.
 	if (!ifStall) begin
 		rob[rob_tail].Stream <= ifStream;
 		rob[rob_tail].Stream_inc <= 1'b0;
 		rob[rob_tail].v <= VAL;
-		rob[rob_tail].ii <= FALSE;
+		rob[rob_tail].ui <= FALSE;
 		rob[rob_tail].ip <= ip;
-		if (irq_i & die)
+		if (nmif) begin
+			nmif <= 1'b0;
+			rob[rob_tail].cause <= 16'h8000|FLT_NMI;
+		end
+		else if (irq_i & die)
 			rob[rob_tail].cause <= 16'h8000|cause_i;
 		else
 			rob[rob_tail].cause <= |ip[2:0] ? FLT_IADR : FLT_NONE;
 		rob_tail <= rob_tail + 2'd1;
 	end
 
+	// Instruction Align
+	// All work done with combo logic above.
+
 	// Decode
 	// Mostly done by combo logic above.
+	// If it's a branch create a history record of the register file sources.
 	if (a2d_out.Stream == dcStream && a2d_v)
 		case(dir[7:0])
 		BEQ,BNE,BLT,BGE,BLTU,BGEU:
 			begin
+				tBackupRegfileSrc(active_branch);
 				active_branch <= active_branch + 2'd1;
-				tBackupRegfileSrc(active_branch + 2'd1);
+				rob[a2d_out.rid].btag <= active_branch;
 			end
 		JAL:
 			begin
 				case(dir[21:16])
-				6'd0:		begin dcStream <= dcStream + 2'd1; dcRedirectIp <= {{25{dir[63]}},dir[63:28],3'h0}; dc2if_wr <= TRUE; end
-				6'd63:	begin dcStream <= dcStream + 2'd1; dcRedirectIp <= dip + {{25{dir[63]}},dir[63:28],3'h0}; dc2if_wr <= TRUE; end
+				6'd0:	
+					begin 
+						dcStream <= dcStream + 2'd1;
+						dc_redirecti.redirect_ip <= {{25{dir[63]}},dir[63:28],3'h0};
+						dc_redirecti.current_ip <= a2d_out.ip;
+						dc2if_wr <= TRUE;
+					end
+				6'd63:
+					begin 
+						dcStream <= dcStream + 2'd1;
+						dc_redirecti.redirect_ip <= dip + {{25{dir[63]}},dir[63:28],3'h0};
+						dc_redirecti.current_ip <= a2d_out.ip;
+						dc2if_wr <= TRUE;
+					end
 				default:	
 					begin
-						active_branch <= active_branch + 2'd1;
-						tBackupRegfileSrc(active_branch + 2'd1);
 					end
 				endcase
 			end
@@ -1163,6 +1167,9 @@ else begin
 	rob[regbuf.rid].Rt <= regbuf.Rt;
 
 	// Execute
+	// Lots to do here.
+	// Simple single cycle instructions are executed directly and the reorder buffer updated.
+	// Multi-cycle instructions are placed in instruction queues.
 	rob[exbufo.rid].ir <= exbufo.ir;	// ir Needed for writeback
 	if (exbufo.Stream == exStream + exbufo.Stream_inc && r2x_v) begin
 		exStream <= exStream + exbufo.Stream_inc;
@@ -1182,11 +1189,21 @@ else begin
 				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
 							begin
 								mulreci.rid <= exbufo.rid;
+								mulreci.ir <= exbufo.ir;
 								mulreci.a <= exbufo.ia;
 								mulreci.b <= exbufo.ib;
 								x2mul_wr <= TRUE;
 								exfifo_rd <= TRUE;
 							end
+				DIV,DIVU,DIVSU:
+					begin
+								divreci.rid <= exbufo.rid;
+								divreci.ir <= exbufo.ir;
+								divreci.a <= exbufo.ia;
+								divreci.b <= exbufo.ib;
+								x2div_wr <= TRUE;
+								exfifo_rd <= TRUE;
+					end
 				MULF:	begin rob[exbufo.rid].res <= exbufo.ia[23:0] + exbufo.ib[15:0]; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 				SLL:	begin	rob[exbufo.rid].res <= sll_out[63:0]; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 				SEQ:	begin rob[exbufo.rid].res <= exbufo.ia == exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
@@ -1195,42 +1212,14 @@ else begin
 				SGE:	begin rob[exbufo.rid].res <= $signed(exbufo.ia) >= $signed(exbufo.ib); rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 				SLTU:	begin rob[exbufo.rid].res <= exbufo.ia < exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 				SGEU:	begin rob[exbufo.rid].res <= exbufo.ia >= exbufo.ib; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
-	      BYTNDX:
-	        begin
-	          if (exbufo.ia[7:0]==exbufo.ib[7:0])
-	            rob[exbufo.rid].res <= 64'd0;
-	          else if (exbufo.ia[15:8]==exbufo.ib[7:0])
-	            rob[exbufo.rid].res <= 64'd1;
-	          else if (exbufo.ia[23:16]==exbufo.ib[7:0])
-	            rob[exbufo.rid].res <= 64'd2;
-	          else if (exbufo.ia[31:24]==exbufo.ib[7:0])
-	            rob[exbufo.rid].res <= 64'd3;
-	          else if (exbufo.ia[39:32]==exbufo.ib[7:0])
-	            rob[exbufo.rid].res <= 64'd4;
-	          else if (exbufo.ia[47:40]==exbufo.ib[7:0])
-	            rob[exbufo.rid].res <= 64'd5;
-	          else if (exbufo.ia[55:40]==exbufo.ib[7:0])
-	            rob[exbufo.rid].res <= 64'd6;
-	          else if (exbufo.ia[63:56]==exbufo.ib[7:0])
-	            rob[exbufo.rid].res <= 64'd7;
-	          else
-	            rob[exbufo.rid].res <= {64{1'b1}};  // -1
-	        end
-	      WYDNDX:
-	        begin
-	          if (exbufo.ia[15:0]==exbufo.ib[15:0])
-	            rob[exbufo.rid].res <= 64'd0;
-	          else if (exbufo.ia[31:16]==exbufo.ib[15:0])
-	            rob[exbufo.rid].res <= 64'd1;
-	          else if (exbufo.ia[47:32]==exbufo.ib[15:0])
-	            rob[exbufo.rid].res <= 64'd2;
-	          else if (exbufo.ia[63:48]==exbufo.ib[15:0])
-	            rob[exbufo.rid].res <= 64'd3;
-	          else
-	            rob[exbufo.rid].res <= {64{1'b1}};  // -1
-	        end
 				default:	;
 				endcase
+			PTRDIF:	
+				begin
+					rob[exbufo.rid].res <= ((exbufo.ia < exbufo.ib) ? exbufo.ib - exbufo.ia : exbufo.ia - exbufo.ib) >> exbufo.ic[4:0];
+					rob[exbufo.rid].cmt <= TRUE;
+					exfifo_rd <= TRUE;
+				end
 			default:	;
 			endcase
 		ADDI:	begin rob[exbufo.rid].res <= exbufo.ia + exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
@@ -1246,6 +1235,14 @@ else begin
 						x2mul_wr <= TRUE;
 						exfifo_rd <= TRUE;
 					end
+		DIVI,DIVUI,DIVSUI:
+					begin
+						divreci.rid <= exbufo.rid;
+						divreci.a <= exbufo.ia;
+						divreci.imm <= exbufo.imm;
+						x2div_wr <= TRUE;
+						exfifo_rd <= TRUE;
+					end
 		MULFI:begin rob[exbufo.rid].res <= exbufo.ia[23:0] + exbufo.imm[15:0]; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 		SEQI:	begin rob[exbufo.rid].res <= exbufo.ia == exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 		SNEI:	begin rob[exbufo.rid].res <= exbufo.ia != exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
@@ -1254,6 +1251,114 @@ else begin
 		SLTUI:	begin rob[exbufo.rid].res <= exbufo.ia < exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 		SGTUI:	begin rob[exbufo.rid].res <= exbufo.ia > exbufo.imm; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
 		BTFLD:	begin rob[exbufo.rid].res <= bf_out; rob[exbufo.rid].cmt <= TRUE; exfifo_rd <= TRUE; end
+    BYTNDX:
+    	if (exbufo.ir[61:63]==3'd1) begin
+        if (exbufo.ia[7:0]==exbufo.imm[7:0])
+          rob[exbufo.rid].res <= 64'd0;
+        else if (exbufo.ia[15:8]==exbufo.imm[7:0])
+          rob[exbufo.rid].res <= 64'd1;
+        else if (exbufo.ia[23:16]==exbufo.imm[7:0])
+          rob[exbufo.rid].res <= 64'd2;
+        else if (exbufo.ia[31:24]==exbufo.imm[7:0])
+          rob[exbufo.rid].res <= 64'd3;
+        else if (exbufo.ia[39:32]==exbufo.imm[7:0])
+          rob[exbufo.rid].res <= 64'd4;
+        else if (exbufo.ia[47:40]==exbufo.imm[7:0])
+          rob[exbufo.rid].res <= 64'd5;
+        else if (exbufo.ia[55:40]==exbufo.imm[7:0])
+          rob[exbufo.rid].res <= 64'd6;
+        else if (exbufo.ia[63:56]==exbufo.imm[7:0])
+          rob[exbufo.rid].res <= 64'd7;
+        else
+          rob[exbufo.rid].res <= {64{1'b1}};  // -1
+      end
+      else begin
+        if (exbufo.ia[7:0]==exbufo.ib[7:0])
+          rob[exbufo.rid].res <= 64'd0;
+        else if (exbufo.ia[15:8]==exbufo.ib[7:0])
+          rob[exbufo.rid].res <= 64'd1;
+        else if (exbufo.ia[23:16]==exbufo.ib[7:0])
+          rob[exbufo.rid].res <= 64'd2;
+        else if (exbufo.ia[31:24]==exbufo.ib[7:0])
+          rob[exbufo.rid].res <= 64'd3;
+        else if (exbufo.ia[39:32]==exbufo.ib[7:0])
+          rob[exbufo.rid].res <= 64'd4;
+        else if (exbufo.ia[47:40]==exbufo.ib[7:0])
+          rob[exbufo.rid].res <= 64'd5;
+        else if (exbufo.ia[55:40]==exbufo.ib[7:0])
+          rob[exbufo.rid].res <= 64'd6;
+        else if (exbufo.ia[63:56]==exbufo.ib[7:0])
+          rob[exbufo.rid].res <= 64'd7;
+        else
+          rob[exbufo.rid].res <= {64{1'b1}};  // -1
+      end
+    WYDNDX:
+    	if (exbufo.ir[61:63]==3'd1) begin
+        if (exbufo.ia[15:0]==exbufo.imm[15:0])
+          rob[exbufo.rid].res <= 64'd0;
+        else if (exbufo.ia[31:16]==exbufo.imm[15:0])
+          rob[exbufo.rid].res <= 64'd1;
+        else if (exbufo.ia[47:32]==exbufo.imm[15:0])
+          rob[exbufo.rid].res <= 64'd2;
+        else if (exbufo.ia[63:48]==exbufo.imm[15:0])
+          rob[exbufo.rid].res <= 64'd3;
+        else
+          rob[exbufo.rid].res <= {64{1'b1}};  // -1
+      end
+      else begin
+        if (exbufo.ia[15:0]==exbufo.ib[15:0])
+          rob[exbufo.rid].res <= 64'd0;
+        else if (exbufo.ia[31:16]==exbufo.ib[15:0])
+          rob[exbufo.rid].res <= 64'd1;
+        else if (exbufo.ia[47:32]==exbufo.ib[15:0])
+          rob[exbufo.rid].res <= 64'd2;
+        else if (exbufo.ia[63:48]==exbufo.ib[15:0])
+          rob[exbufo.rid].res <= 64'd3;
+        else
+          rob[exbufo.rid].res <= {64{1'b1}};  // -1
+      end
+    U21NDX:
+    	if (exbufo.ir[61:63]==3'd1) begin
+        if (exbufo.ia[20:0]==exbufo.imm[20:0])
+          rob[exbufo.rid].res <= 64'd0;
+        else if (exbufo.ia[41:21]==exbufo.imm[20:0])
+          rob[exbufo.rid].res <= 64'd1;
+        else if (exbufo.ia[62:42]==exbufo.imm[20:0])
+          rob[exbufo.rid].res <= 64'd2;
+        else
+          rob[exbufo.rid].res <= {64{1'b1}};  // -1
+      end
+      else begin
+        if (exbufo.ia[20:0]==exbufo.ib[20:0])
+          rob[exbufo.rid].res <= 64'd0;
+        else if (exbufo.ia[41:21]==exbufo.ib[20:0])
+          rob[exbufo.rid].res <= 64'd1;
+        else if (exbufo.ia[62:42]==exbufo.ib[20:0])
+          rob[exbufo.rid].res <= 64'd2;
+        else
+          rob[exbufo.rid].res <= {64{1'b1}};  // -1
+      end
+    PERM:
+    	if (exbufo.ir[61:63]==3'd1) begin
+    		rob[exbufo.rid].res[7:0] <= exbufo.ia >> {exbufo.imm[2:0],3'b0};
+    		rob[exbufo.rid].res[15:8] <= exbufo.ia >> {exbufo.imm[5:3],3'b0};
+    		rob[exbufo.rid].res[23:16] <= exbufo.ia >> {exbufo.imm[8:6],3'b0};
+    		rob[exbufo.rid].res[31:24] <= exbufo.ia >> {exbufo.imm[11:9],3'b0};
+    		rob[exbufo.rid].res[39:32] <= exbufo.ia >> {exbufo.imm[14:12],3'b0};
+    		rob[exbufo.rid].res[47:40] <= exbufo.ia >> {exbufo.imm[17:15],3'b0};
+    		rob[exbufo.rid].res[55:48] <= exbufo.ia >> {exbufo.imm[20:18],3'b0};
+    		rob[exbufo.rid].res[63:56] <= exbufo.ia >> {exbufo.imm[23:21],3'b0};
+			end
+			else begin
+    		rob[exbufo.rid].res[7:0] <= exbufo.ia >> {exbufo.ib[2:0],3'b0};
+    		rob[exbufo.rid].res[15:8] <= exbufo.ia >> {exbufo.ib[5:3],3'b0};
+    		rob[exbufo.rid].res[23:16] <= exbufo.ia >> {exbufo.ib[8:6],3'b0};
+    		rob[exbufo.rid].res[31:24] <= exbufo.ia >> {exbufo.ib[11:9],3'b0};
+    		rob[exbufo.rid].res[39:32] <= exbufo.ia >> {exbufo.ib[14:12],3'b0};
+    		rob[exbufo.rid].res[47:40] <= exbufo.ia >> {exbufo.ib[17:15],3'b0};
+    		rob[exbufo.rid].res[55:48] <= exbufo.ia >> {exbufo.ib[20:18],3'b0};
+    		rob[exbufo.rid].res[63:56] <= exbufo.ia >> {exbufo.ib[23:21],3'b0};
+			end    	
 		BEQ,BNE,BLT,BGE,BLTU,BGEU:
 			begin
 				rob[exbufo.rid].branch <= TRUE;
@@ -1266,10 +1371,10 @@ else begin
 					d2r_rst <= TRUE;
 					r2x_rst <= TRUE;
 					exStream <= exStream + 2'd1;
-					exRedirectIp <= ex_takb ? exbufo.ia + exbufo.imm : exbufo.ip + 4'd8;
+					ex_redirecti.redirect_ip <= ex_takb ? exbufo.ia + exbufo.imm : exbufo.ip + 4'd8;
+					ex_redirecti.current_ip <= exbufo.ip;
 					ex2if_wr <= TRUE;
-					active_branch <= active_branch - 2'd1;
-					tRestoreRegfileSrc(active_branch - 2'd1);
+					tRestoreRegfileSrc(rob[exbufo.rid].btag); 
 				end
 			end
 		JAL:
@@ -1289,10 +1394,9 @@ else begin
 						d2r_rst <= TRUE;
 						r2x_rst <= TRUE;
 						exStream <= exStream + 2'd1;
-						exRedirectIp <= exbufo.ia + exbufo.imm;
+						ex_redirecti.redirect_ip <= exbufo.ia + exbufo.imm;
+						ex_redirecti.current_ip <= exbufo.ip;
 						ex2if_wr <= TRUE;
-						active_branch <= active_branch - 2'd1;
-						tRestoreRegfileSrc(active_branch - 2'd1);
 					end
 				endcase
 			end
@@ -2189,7 +2293,7 @@ default:	;
 		wbStream <= wbStream + rob[rob_head].Stream_inc;
 		// Update register scorebaord
 		if (rob[rob_head].v & rob[rob_head].cmt) begin
-			if (rob[rob_head].ii) begin
+			if (rob[rob_head].ui) begin
 				status[4][4] <= 1'b0;	// disable further interrupts
 				eip <= rob[rob_head].ip;
 				pmStack <= {pmStack[27:0],3'b100,1'b0};
@@ -2199,10 +2303,10 @@ default:	;
 				d2r_rst <= TRUE;
 				r2x_rst <= TRUE;
 				wbStream <= wbStream + 2'd1;
-				wbRedirectIp <= tvec[3'd4] + {omode,6'h00};
+				wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
+				wb_redirecti.current_ip <= rob[rob_head].ip;
 				wb2if_wr <= TRUE;
-				active_branch <= active_branch + 2'd1;
-				tBackupRegfileSrc(active_branch + 2'd1);
+				//tBackupRegfileSrc(wbStream + rob[rob_head].Stream_inc);
 			end
 			else if (rob[rob_head].cause!=16'h00) begin
 				status[4][4] <= 1'b0;	// disable further interrupts
@@ -2214,10 +2318,10 @@ default:	;
 				d2r_rst <= TRUE;
 				r2x_rst <= TRUE;
 				wbStream <= wbStream + 2'd1;
-				wbRedirectIp <= tvec[3'd4] + {omode,6'h00};
+				wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
+				wb_redirecti.current_ip <= rob[rob_head].ip;
 				wb2if_wr <= TRUE;
-				active_branch <= active_branch + 2'd1;
-				tBackupRegfileSrc(active_branch + 2'd1);
+				//tBackupRegfileSrc(wbStream + rob[rob_head].Stream_inc);
 			end
 			else begin
 				case(rob[rob_head].ir[7:0])
@@ -2247,6 +2351,7 @@ default:	;
 							status[2][pmStack[3:1]] <= pmStack[0];
 							status[1][pmStack[3:1]] <= pmStack[0];
 							status[0][pmStack[3:1]] <= pmStack[0];
+							//tBackupRegfileSrc(wbStream + rob[rob_head].Stream_inc);
 						end
 					TLBRW:	regfile[rob[rob_head].Rt] <= rob[rob_head].res;
 					default:	;
@@ -2259,7 +2364,7 @@ default:	;
 				endcase
 			end
 			rob[rob_head].v <= INV;
-			rob[rob_head].ii <= INV;
+			rob[rob_head].ui <= INV;
 			rob[rob_head].cause <= FLT_NONE;
 			rob[rob_head].cmt <= FALSE;
 			rob[rob_head].jump <= FALSE;
@@ -2269,7 +2374,7 @@ default:	;
 	end
 	else begin
 		rob[rob_head].v <= INV;
-		rob[rob_head].ii <= INV;
+		rob[rob_head].ui <= INV;
 		rob[rob_head].cause <= FLT_NONE;
 		rob[rob_head].cmt <= FALSE;
 		rob[rob_head].jump <= FALSE;
@@ -2280,53 +2385,8 @@ default:	;
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	// Decode
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-	case(decbuf.ir[7:0])
-	R3:
-		case(decbuf.ir[57:50])
-		ADD,SUB,AND,OR,XOR:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-		R2:
-			case(decbuf.ir[39:32])
-			DIF:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			MULF:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			MUL,MULU,MULSU,MULH,MULUH,MULSUH:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			DIV,DIVU,DIVSU:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			SEQ,SNE,SLT,SGE,SLTU,SGEU:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			SLL:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			BYTNDX:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			WYDNDX:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			default:	;
-			endcase
-		default:	;
-		endcase
-	ADDI,SUBFI:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	ANDI:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b00,decbuf.rid};
-	MULI,MULUI,MULSUI:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	DIVI,DIVUI,DIVSUI:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	ORI:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	XORI:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	EXT,EXTU:		regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	SEQI,SNEI:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	SLTI,SGTI:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	SLTUI,SGTUI:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	JAL:
-		begin
-			regfilesrc_hist[active_branch][{4'h0,decbuf.ir[9:8]}] <= {2'b10,decbuf.rid}; 
-		end
-	BEQ,BNE,BLT,BGE,BLTU,BGEU:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	LEA:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	LDx:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	STx:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-	SYS:
-		begin
-			case(decbuf.ir[57:50])
-			CSR:		regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			PFI:		regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			TLBRW:	regfilesrc_hist[active_branch][decbuf.ir[13:8]] <= {2'b10,decbuf.rid};
-			default:	;
-			endcase
-		end
-	default:	;
-	endcase
+	if (decbuf.rfwr)
+		regfilesrc[decbuf.Rt[5:0]] <= {2'b10,decbuf.rid};
 
 
 // -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  

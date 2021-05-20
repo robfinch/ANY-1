@@ -51,6 +51,7 @@ parameter MUL		= 8'h06;
 parameter AND		= 8'h08;
 parameter OR		= 8'h09;
 parameter XOR		= 8'h0A;
+parameter PTRDIF	= 8'h18;
 parameter R2		= 8'h0C;
 parameter MULU	= 8'h0E;
 parameter MULH	= 8'h0F;
@@ -59,8 +60,6 @@ parameter DIVU	= 8'h11;
 parameter DIVSU	= 8'h12;
 parameter MULSU =	8'h16;
 parameter DIF		= 8'h18;
-parameter BYTNDX= 8'h1A;
-parameter WYDNDX= 8'h1B;
 parameter MULF	= 8'h1C;
 parameter MULSUH= 8'h1D;
 parameter MULUH = 8'h1E;
@@ -85,8 +84,12 @@ parameter DIVUI	= 8'h11;
 parameter DIVSUI= 8'h12;
 parameter MULFI	= 8'h15;
 parameter MULSUI= 8'h16;
+parameter PERM	= 8'h17;
+parameter BYTNDX= 8'h1A;
+parameter WYDNDX= 8'h1B;
 parameter BTFLD	=	8'h1C;
 
+parameter U21NDX= 8'h23;
 parameter EXTU	= 8'h24;
 parameter SEQI	= 8'h26;
 parameter SNEI	= 8'h27;
@@ -166,6 +169,7 @@ parameter FLT_RESERVED = 8'h2F;
 parameter FLT_NONE	= 8'h00;
 parameter FLT_IADR	= 8'h36;
 parameter FLT_UNIMP	= 8'h37;
+parameter FLT_NMI		= 8'hFE;
 
 // Instruction fetch
 parameter IFETCH1 = 6'd1;
@@ -283,7 +287,7 @@ typedef struct packed
 	logic [AWID-1:0] pip;	// predicted pc
 	logic predict_taken;
 	logic [63:0] ir;
-	logic ii;							// illegal instruction
+	logic ui;							// unimplemented instruction
 	logic rfwr;						// register file write is required
 	logic [7:0] Ra;
 	logic [7:0] Rb;
@@ -302,7 +306,7 @@ typedef struct packed
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;	// predicted pc
 	logic predict_taken;
-	logic ii;							// illegal instruction
+	logic ui;							// unimplemented instruction
 	logic rfwr;
 	logic [63:0] ia;
 	logic [63:0] ib;
@@ -350,10 +354,11 @@ typedef struct packed
 	logic v;
 	logic [AWID-1:0] ip;
 	logic [63:0] ir;
-	logic ii;
+	logic ui;							// unimplemented instruction
 	logic cmt;
 	logic jump;
 	logic [63:0] jump_tgt;
+	logic [3:0] btag;
 	logic branch;
 	logic takb;
 	logic rfwr;
@@ -373,6 +378,12 @@ typedef struct packed
 	logic [63:0] d;
 	logic [63:0] imm;
 } sALUrec;
+
+typedef struct packed
+{
+	logic [AWID-1:0] redirect_ip;
+	logic [AWID-1:0] current_ip;
+} sRedirect;
 
 typedef struct packed
 {
