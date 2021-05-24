@@ -25,19 +25,19 @@ import any1_pkg::*;
 
 module any1_eval_branch(inst, a, b, takb);
 parameter WID=64;
-input [63:0] inst;
-input [WID-1:0] a;
-input [WID-1:0] b;
+input Instruction inst;
+input sValue a;
+input sValue b;
 output reg takb;
 
 always @*
-case(inst[7:0])
-BEQ: takb =  a==b;
-BNE: takb =  a!=b;
-BLT: takb = 	$signed(a) <  $signed(b);
-BGE: takb = 	$signed(a) >= $signed(b);
-BLTU:  takb = a <  b;
-BGEU:  takb = a >= b;
+case(inst.opcode)
+BEQ: takb =  a.val==b.val;
+BNE: takb =  a.val!=b.val;
+BLT: takb = 	$signed(a.val) <  $signed(b.val);
+BGE: takb = 	$signed(a.val) >= $signed(b.val);
+BLTU:  takb = a.val <  b.val;
+BGEU:  takb = a.val >= b.val;
 default:  takb = 1'b0;
 endcase
 

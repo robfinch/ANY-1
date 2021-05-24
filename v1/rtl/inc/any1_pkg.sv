@@ -26,7 +26,7 @@ package any1_pkg;
 //`define VICTIM_CACHE	1'b1
 `define ANY1_TLB	1'b1
 
-parameter ROB_ENTRIES = 32;
+parameter ROB_ENTRIES = 64;
 
 parameter TRUE  = 1'b1;
 parameter FALSE = 1'b0;
@@ -36,6 +36,14 @@ parameter VAL		= 1'b1;
 parameter INV		= 1'b0;
 parameter AWID  = 32;
 parameter WID 	= 64;
+
+parameter TAG_PTR		= 4'h0;
+parameter TAG_INT		= 4'h1;
+parameter TAG_FLT		= 4'h2;
+parameter TAG_PST		= 4'h6;
+parameter TAG_BOOL	= 4'h7;
+parameter TAG_U20		= 4'h8;
+parameter TAG_U10		= 4'h9;
 
 parameter OM_USER		= 3'd0;
 parameter OM_SUPER	= 3'd1;
@@ -85,11 +93,11 @@ parameter DIVSUI= 8'h12;
 parameter MULFI	= 8'h15;
 parameter MULSUI= 8'h16;
 parameter PERM	= 8'h17;
-parameter BYTNDX= 8'h1A;
+parameter U10NDX= 8'h1A;
 parameter WYDNDX= 8'h1B;
 parameter BTFLD	=	8'h1C;
 
-parameter U21NDX= 8'h23;
+parameter U20NDX= 8'h23;
 parameter EXTU	= 8'h24;
 parameter SEQI	= 8'h26;
 parameter SNEI	= 8'h27;
@@ -134,12 +142,14 @@ parameter NOP_INSN = {56'd0,NOP};
 parameter CSR_CAUSE	= 16'h?006;
 parameter CSR_SEMA	= 16'h?00C;
 parameter CSR_ASID	= 16'h101F;
+parameter CSR_MCR0	= 16'h3000;
 parameter CSR_TICK	= 16'h3002;
 parameter CSR_MBADADDR	= 16'h3007;
 parameter CSR_MTVEC = 16'h303?;
 parameter CSR_MPMSTACK	= 16'h3040;
 parameter CSR_MSTATUS	= 16'h3044;
 parameter CSR_MEIP	=	16'h3048;
+parameter CSR_DCR0	= 16'h4000;
 parameter CSR_DTVEC = 16'h403?;
 parameter CSR_DPMSTACK	= 16'h4040;
 parameter CSR_DSTATUS	= 16'h4044;
@@ -196,6 +206,7 @@ parameter MEMORY12 = 6'd22;
 parameter MEMORY13 = 6'd23;
 parameter MEMORY14 = 6'd24;
 parameter MEMORY15 = 6'd25;
+parameter MEMORY2b = 6'd26;
 parameter PAM	 = 6'd28;
 parameter TMO = 6'd29;
 parameter PAGEMAPA = 6'd30;
@@ -224,6 +235,14 @@ parameter DFETCH5 = 6'd52;
 parameter TLB1 = 6'd53;
 parameter TLB2 = 6'd54;
 parameter TLB3 = 6'd55;
+parameter MEMORY1d = 6'd56;
+parameter MEMORY1e = 6'd57;
+parameter KYLD = 6'd58;
+parameter KYLD2 = 6'd59;
+parameter KYLD3 = 6'd60;
+parameter KYLD3a = 6'd61;
+parameter KYLD4 = 6'd62;
+parameter KYLD5 = 6'd63;
 
 parameter MUL1 = 3'd1;
 parameter MUL2 = 3'd2;
@@ -241,9 +260,38 @@ parameter RSTIP = 32'hFFFD0000;
 parameter RIBO = 1;
 
 typedef logic [`ABITS] Address;
-typedef logic [AWID-14:0] BTBTag;
+typedef logic [AWID-13:0] BTBTag;
 typedef logic [7:0] ASID;
 typedef logic [63:0] Data;
+typedef logic [3:0] DataTag;
+
+typedef struct packed
+{
+	DataTag tag;
+	logic pad;
+	logic [2:0] rm;
+	logic [7:0] func;
+	logic [3:0] sz;
+	logic [2:0] m;
+	logic z;
+	logic [7:0] Rc;
+	logic [7:0] Rb;
+	logic [7:0] Ra;
+	logic [7:0] Rt;
+	logic [7:0] opcode;
+} Instruction;
+
+typedef struct packed
+{
+	DataTag tag;
+	logic [59:0] val;
+} sValue;
+
+typedef struct packed
+{
+	logic rf;
+	logic [5:0] rid;
+} Rid;
 
 typedef struct packed
 {
@@ -275,7 +323,7 @@ typedef struct packed
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;
 	logic predict_taken;
-	logic [63:0] ir;
+	Instruction ir;
 } sInstAlignOut;
 
 typedef struct packed
@@ -286,7 +334,7 @@ typedef struct packed
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;	// predicted pc
 	logic predict_taken;
-	logic [63:0] ir;
+	Instruction ir;
 	logic ui;							// unimplemented instruction
 	logic rfwr;						// register file write is required
 	logic [7:0] Ra;
@@ -294,7 +342,7 @@ typedef struct packed
 	logic [7:0] Rc;
 	logic [7:0] Rd;
 	logic [7:0] Rt;
-	logic [63:0] imm;
+	sValue imm;
 } sDecode;
 
 typedef struct packed
@@ -302,23 +350,23 @@ typedef struct packed
 	logic [5:0] Stream;
 	logic Stream_inc;
 	logic [5:0] rid;
-	logic [63:0] ir;
+	Instruction ir;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;	// predicted pc
 	logic predict_taken;
 	logic ui;							// unimplemented instruction
 	logic rfwr;
-	logic [63:0] ia;
-	logic [63:0] ib;
-	logic [63:0] ic;
-	logic [63:0] id;
+	sValue ia;
+	sValue ib;
+	sValue ic;
+	sValue id;
 	logic iav;
 	logic ibv;
 	logic icv;
 	logic idv;
 	logic itv;
 	logic [7:0] Rt;
-	logic [63:0] imm;
+	sValue imm;
 } sExecute;
 
 typedef struct packed
@@ -326,11 +374,11 @@ typedef struct packed
 	logic [5:0] Stream;
 	logic Stream_inc;
 	logic [5:0] rid;
-	logic [63:0] ir;
-	logic [63:0] ia;
+	Instruction ir;
+	sValue ia;
 	logic rfwr;
 	logic [7:0] Rt;
-	logic [63:0] res;
+	sValue res;
 } sExecuteOut;
 
 typedef struct packed
@@ -338,11 +386,11 @@ typedef struct packed
 	logic [5:0] Stream;
 	logic Stream_inc;
 	logic [5:0] rid;
-	logic [63:0] ir;
-	logic [63:0] ia;
-	logic [63:0] ib;
-	logic [63:0] dato;
-	logic [63:0] imm;
+	Instruction ir;
+	sValue ia;
+	sValue ib;
+	sValue dato;
+	sValue imm;
 	logic rfwr;
 	logic [7:0] Rt;
 } sMemoryIO;
@@ -352,44 +400,56 @@ typedef struct packed
 	logic [5:0] Stream;
 	logic Stream_inc;
 	logic v;
-	logic [AWID-1:0] ip;
-	logic [63:0] ir;
-	logic ui;							// unimplemented instruction
+	logic issued;
 	logic cmt;
+	logic cmt2;
+	logic dec;						// instruction decoded
+	Address ip;
+	Instruction ir;
+	logic ui;							// unimplemented instruction
 	logic jump;
-	logic [63:0] jump_tgt;
+	Address jump_tgt;
 	logic [3:0] btag;
 	logic branch;
 	logic takb;
+	logic predict_taken;
 	logic rfwr;
 	logic [7:0] Rt;
-	logic [63:0] ia;
-	logic [63:0] res;
+	sValue ia;
+	sValue ib;
+	sValue ic;
+	sValue id;
+	sValue imm;
+	logic iav;
+	logic ibv;
+	logic icv;
+	logic idv;
+	logic itv;
+	Rid ias;
+	Rid ibs;
+	Rid ics;
+	Rid ids;
+	Rid its;
+	sValue res;
 	logic [15:0] cause;
 } sReorderEntry;
 
 typedef struct packed
 {
 	logic [5:0] rid;
-	logic [63:0] ir;
-	logic [63:0] a;
-	logic [63:0] b;
-	logic [63:0] c;
-	logic [63:0] d;
-	logic [63:0] imm;
+	Instruction ir;
+	sValue a;
+	sValue b;
+	sValue c;
+	sValue d;
+	sValue imm;
 } sALUrec;
 
 typedef struct packed
 {
-	logic [AWID-1:0] redirect_ip;
-	logic [AWID-1:0] current_ip;
+	Address redirect_ip;
+	Address current_ip;
 } sRedirect;
-
-typedef struct packed
-{
-	logic [5:0] Rt;
-	logic [63:0] val;
-} sBypassBuf;
 
 endpackage
 

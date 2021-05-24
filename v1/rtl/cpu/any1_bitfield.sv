@@ -24,6 +24,8 @@
 //
 // ============================================================================
 //
+import any1_pkg::*;
+
 `ifndef BFSET
 `define BFSET     3'd0
 `define BFCLR     3'd1
@@ -35,14 +37,13 @@
 `endif
 
 module any1_bitfield(inst, a, b, c, d, o, masko);
-parameter DWIDTH=64;
-input [63:0] inst;
-input [DWIDTH-1:0] a;
-input [DWIDTH-1:0] b;
-input [DWIDTH-1:0] c;
-input [DWIDTH-1:0] d;
-output [DWIDTH-1:0] o;
-reg [DWIDTH-1:0] o;
+parameter DWIDTH=60;
+input Instruction inst;
+input sValue a;
+input sValue b;
+input sValue c;
+input sValue d;
+output sValue o;
 output [DWIDTH-1:0] masko;
 
 reg [DWIDTH*2-1:0] o1;
@@ -52,9 +53,9 @@ wire [6:0] ffoo;
 // generate mask
 reg [DWIDTH-1:0] mask;
 assign masko = mask;
-wire [2:0] op = inst[63:61];
-wire [5:0] mb = c[5:0];
-wire [5:0] mw = d[5:0];
+wire [2:0] op = inst.sz;
+wire [5:0] mb = c.val[5:0];
+wire [5:0] mw = d.val[5:0];
 wire [5:0] me = mb + mw;
 wire [5:0] ml = mw;		// mask length-1
 
@@ -63,40 +64,40 @@ always @(mb or me or nn)
 	for (nn = 0; nn < DWIDTH; nn = nn + 1)
 		mask[nn] <= (nn >= mb) ^ (nn <= me) ^ (me >= mb);
 
-ffo96 u1 ({32'h0,a},ffoo);
+ffo96 u1 ({36'h0,a.val},ffoo);
 
 always @*
 begin
-o1 = 128'd0;	// prevent inferred latch
-o2 = 128'd0;
+o1 = 120'd0;	// prevent inferred latch
+o2 = 120'd0;
 case (op)
 `BFINS: 
 	begin
-		o2 = {64'd0,b} << mb;
-		for (n = 0; n < DWIDTH; n = n + 1) o[n] = (mask[n] ? o2[n] : a[n]);
+		o2 = {60'd0,b.val} << mb;
+		for (n = 0; n < DWIDTH; n = n + 1) o[n] = (mask[n] ? o2[n] : a.val[n]);
 	end
-`BFSET: 	begin for (n = 0; n < DWIDTH; n = n + 1) o[n] = mask[n] ? 1'b1 : a[n]; end
-`BFCLR: 	begin for (n = 0; n < DWIDTH; n = n + 1) o[n] = mask[n] ? 1'b0 : a[n]; end
-`BFCHG: 	begin for (n = 0; n < DWIDTH; n = n + 1) o[n] = mask[n] ? ~a[n] : a[n]; end
+`BFSET: 	begin for (n = 0; n < DWIDTH; n = n + 1) o[n] = mask[n] ? 1'b1 : a.val[n]; end
+`BFCLR: 	begin for (n = 0; n < DWIDTH; n = n + 1) o[n] = mask[n] ? 1'b0 : a.val[n]; end
+`BFCHG: 	begin for (n = 0; n < DWIDTH; n = n + 1) o[n] = mask[n] ? ~a.val[n] : a.val[n]; end
 `BFEXTU:	// Also does SRL
 	begin
-		o1 = {b,a} >> mb;
+		o1 = {b.val,a.val} >> mb;
 		for (n = 0; n < DWIDTH; n = n + 1)
 			o[n] = n <= me ? o1[n] : 1'b0;
 	end
 `BFEXT:	// Also does SRA
 	begin
-		o1 = {b,a} >> mb;
+		o1 = {b.val,a.val} >> mb;
 		for (n = 0; n < DWIDTH; n = n + 1)
 			o[n] = n <= me ? o1[n] : o1[me];
 	end
 `BFFFO:
 	begin
 		for (n = 0; n < DWIDTH; n = n + 1)
-			o1[n] = mask[n] ? a[n] : 1'b0;
-		o = (ffoo==7'd127) ? -64'd1 : ffoo - mb;	// ffoo returns 127 if no one was found
+			o1[n] = mask[n] ? a.val[n] : 1'b0;
+		o.val = (ffoo==7'd127) ? -60'd1 : ffoo - mb;	// ffoo returns 127 if no one was found
 	end
-default:	o = {DWIDTH{1'b0}};
+default:	o.val = {DWIDTH{1'b0}};
 endcase
 end
 

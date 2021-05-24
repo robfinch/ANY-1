@@ -37,17 +37,21 @@
 
 import any1_pkg::*;
 
-module any1_agen(clk,ir,ia,ib,ea);
+module any1_agen(rst,clk,ir,ia,ib,ea);
+input rst;
 input clk;
-input [63:0] ir;
-input [63:0] ia;
-input [63:0] ib;
+input Instruction ir;
+input sValue ia;
+input sValue ib;
 output reg [AWID-1:0] ea;
 
 wire [2:0] Sc = ir[43:41];
-wire [63:0] disp = {{42{ir[63]}},ir[63:50],ir[39:32]};
+wire [59:0] disp = {{40{ir[59]}},ir[59:48],ir[39:32]};
 
 always @(posedge clk)
-	ea <= disp + ia + (ib << Sc);
+if (rst)
+	ea <= 60'd0;
+else
+	ea <= disp + ia.val + (ib.val << Sc);
 
 endmodule

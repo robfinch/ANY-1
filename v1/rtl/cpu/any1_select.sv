@@ -38,13 +38,13 @@
 import any1_pkg::*;
 
 module any1_select(ir, sel);
-input [63:0] ir;
+input Instruction ir;
 output reg [7:0] sel;
 
 always @*
-case(ir[7:0])
+case(ir.opcode)
 LDx,STx:
-	case(ir[47:44])
+	case(ir.sz)
 	4'd0:	sel <= 8'h01;
 	4'd1:	sel <= 8'h03;
 	4'd2:	sel <= 8'h0F;

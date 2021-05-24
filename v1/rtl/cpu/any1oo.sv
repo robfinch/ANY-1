@@ -61,10 +61,11 @@ wire clk_g;
 wire acki = ack_i;
 
 wire [2:0] omode;
-wire memmode, UserMode, SupervisorMode, HypervisorMode, MachineMode, DebugMode;
+wire [2:0] memmode;
+wire UserMode, SupervisorMode, HypervisorMode, MachineMode, DebugMode;
 wire MUserMode;
 
-reg [63:0] ir;
+Instruction ir;
 sInstAlignIn f2a_in, f2a_out;
 sInstAlignOut a2d_in,a2d_out;
 sDecode decbuf;
@@ -75,14 +76,14 @@ sALUrec mulreci,mulreco, divreci, divreco;
 reg x2mul_wr,x2mul_rd;
 wire x2mul_full,x2mul_empty;
 reg mul_sign;
-reg [63:0] mul_a;
-reg [63:0] mul_b;
-reg [127:0] mul_p;
+reg [59:0] mul_a;
+reg [59:0] mul_b;
+reg [119:0] mul_p;
 reg [5:0] rob_tail;
 reg [5:0] rob_head;
 reg [5:0] rob_exec;
 reg [5:0] ia_rid, dc_rid;
-reg [5:0] mstate;			// memory state
+reg [5:0] mstate, mstk_state;			// memory state
 reg [2:0] mul_state;	// multipler state
 reg [2:0] div_state;
 
@@ -94,14 +95,14 @@ reg x2div_wr,x2div_rd;
 wire x2div_full,x2div_empty;
 wire div_done;
 reg div_sign;
-reg [63:0] div_a;
-reg [63:0] div_b;
+reg [59:0] div_a;
+reg [59:0] div_b;
 
-wire [128-1:0] div_q;
-wire [128-1:0] ndiv_q = -div_q;
-wire [63:0] div_r = div_a - (div_b * div_q[WID*2-1:WID]);
-wire [63:0] ndiv_r = -div_r;
-fpdivr16 #(64) u16 (
+wire [120-1:0] div_q;
+wire [120-1:0] ndiv_q = -div_q;
+wire [59:0] div_r = div_a - (div_b * div_q[120-1:60]);
+wire [59:0] ndiv_r = -div_r;
+fpdivr16 #(60) u16 (
 	.clk(clk_g),
 	.ld(div_state==DIV3),
 	.a(div_a),
@@ -115,7 +116,7 @@ fpdivr16 #(64) u16 (
 reg [AWID-1:0] ip, aip;
 reg [AWID-1:0] f2a_ip;
 
-reg [WID-1:0] regfile [0:63];
+sValue regfile [0:63];
 Rid regfilesrc [0:63];					// bit 7 = 0 = regfile, 1 = reorder buffer
 Rid regfilesrc_hist [0:15][0:63];
 reg [WID-1:0] sregfile [0:15];
@@ -127,17 +128,16 @@ reg [5:0] next_dcStream;
 reg [3:0] active_branch;
 reg decRedirect_rd;
 reg dc2if_redirect_rd;
-wire [AWID-1:0] dc_redirect_ip;
-reg [AWID-1:0] dcRedirectIp;
+Address dc_redirect_ip;
 wire decRedirect_v;
 reg execRedirect_rd;
-wire [AWID-1:0] ex_redirect_ip, wb_redirect_ip;
-reg [AWID-1:0] exRedirectIp,wbRedirectIp;
+Address ex_redirect_ip, wb_redirect_ip;
 sRedirect dc_redirecti,ex_redirecti,wb_redirecti;
 sRedirect dc_redirecto,ex_redirecto,wb_redirecto;
 wire execRedirect_v;
 reg ex2if_redirect_rd,wb2if_redirect_rd;
 reg dc2if_redirect_rd2,ex2if_redirect_rd2,wb2if_redirect_rd2;
+reg dc2if_redirect_rd3,ex2if_redirect_rd3,wb2if_redirect_rd3;
 wire dc2if_redirect_empty,ex2if_redirect_empty,wb2if_redirect_empty;
 
 reg x2m_rd;
@@ -148,18 +148,23 @@ wire x2m_empty;
 reg dc2if_wr,ex2if_wr,wb2if_wr;
 reg exfifo_rd;
 reg memfifo_wr;
-reg [AWID-1:0] dip;
-reg [63:0] dir;
+Address dip;
+Instruction dir;
 
 //CSRs
-reg [63:0] tick;
-reg [AWID-1:0] tvec [0:7];
+reg [59:0] cr0;
+wire bpe = cr0[32];
+wire btben = cr0[33];
+wire dce = cr0[30];
+wire sple = cr0[35];
+reg [59:0] tick;
+Address tvec [0:7];
 reg [7:0] cause [0:7];
-reg [AWID-1:0] badaddr [0:7];
-reg [AWID-1:0] eip;
+Address badaddr [0:7];
+Address eip;
 reg [31:0] pmStack;
-reg [AWID-1:0] dbad [0:3];
-reg [63:0] dbcr;
+Address dbad [0:3];
+reg [59:0] dbcr;
 reg [31:0] mtimecmp;
 reg [31:0] status [0:7];
 wire mprv = status[4][17];
@@ -169,12 +174,14 @@ wire hie = status[4][2];
 wire mie = status[4][3];
 wire die = status[4][4];
 reg [7:0] ASID;
-reg [63:0] sema;
+reg [59:0] sema;
+Address keytbl;
+reg [19:0] keys [0:7];
 
 sMemoryIO membufo;
-wire d_cache = membufo.ir[7:0]==CACHE;
-wire d_st = membufo.ir[7:0]==STx;
-wire d_ld = membufo.ir[7:0]==LDx;
+wire d_cache = membufo.ir.opcode==CACHE;
+wire d_st = membufo.ir.opcode==STx;
+wire d_ld = membufo.ir.opcode==LDx;
 
 assign omode = pmStack[3:1];
 assign DebugMode = omode==3'b100;
@@ -190,7 +197,7 @@ reg shr_ma;
 wire [7:0] selx;
 any1_select ua1sel
 (
-	.ir(membufo.ir),
+	.ir(rob[membufo.rid].ir),
 	.sel(selx)
 );
 
@@ -217,14 +224,14 @@ wire [63:0] datis = dati >> {ealow[1:0],3'b0};
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-wire [63:0] bf_out;
+sValue bf_out;
 any1_bitfield ubf1
 (
-	.inst(exbufo.ir),
-	.a(exbufo.ia),
-	.b(exbufo.ib),
-	.c(exbufo.ic),
-	.d(exbufo.id),
+	.inst(rob[rob_exec].ir),
+	.a(rob[rob_exec].ia),
+	.b(rob[rob_exec].ib),
+	.c(rob[rob_exec].ic),
+	.d(rob[rob_exec].id),
 	.o(bf_out),
 	.masko()
 );
@@ -235,9 +242,9 @@ any1_bitfield ubf1
 wire ex_takb;
 any1_eval_branch ubev1
 (
-	.inst(exbufo.ir),
-	.a(exbufo.ia),
-	.b(exbufo.ib),
+	.inst(rob[rob_exec].ir),
+	.a(rob[rob_exec].ia),
+	.b(rob[rob_exec].ib),
 	.takb(ex_takb)
 );
 
@@ -246,6 +253,7 @@ any1_eval_branch ubev1
 
 any1_agen uagen
 (
+	.rst(rst_i),
 	.clk(clk_g),
 	.ir(rob[membufo.rid].ir),
 	.ia(rob[membufo.rid].ia),
@@ -392,33 +400,33 @@ end
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 reg [AWID-1:0] btb_predicted_ip;
-BTBEntry btb [0:1023];
+BTBEntry btb [0:511];
 always @*
-	if (btb[ip[12:3]].tag==ip[AWID-1:13] && btb[ip[12:3]].v)
-		btb_predicted_ip <= btb[ip[12:3]].addr;
+	if (btb[ip[11:3]].tag==ip[AWID-1:12] && btb[ip[11:3]].v)
+		btb_predicted_ip <= btb[ip[11:3]].addr;
 	else
 		btb_predicted_ip <= ip + 4'd8;
 
 always @(posedge clk_g)
 if (rst_i) begin
-	for (n = 0; n < 1024; n = n + 1)
+	for (n = 0; n < 512; n = n + 1)
 		btb[n].v <= INV;
 end
 else begin
 	if (wb2if_redirect_rd2) begin
-		btb[ip[12:3]].addr <= wb_redirecto.redirect_ip;
-		btb[ip[12:3]].tag <= wb_redirecto.current_ip[AWID-1:13];
-		btb[ip[12:3]].v <= VAL;
+		btb[wb_redirecto.current_ip[11:3]].addr <= wb_redirecto.redirect_ip;
+		btb[wb_redirecto.current_ip[11:3]].tag <= wb_redirecto.current_ip[AWID-1:12];
+		btb[wb_redirecto.current_ip[11:3]].v <= VAL;
 	end
 	else if (ex2if_redirect_rd2) begin
-		btb[ip[12:3]].addr <= ex_redirecto.redirect_ip;
-		btb[ip[12:3]].tag <= ex_redirecto.current_ip[AWID-1:13];
-		btb[ip[12:3]].v <= VAL;
+		btb[ex_redirecto.current_ip[11:3]].addr <= ex_redirecto.redirect_ip;
+		btb[ex_redirecto.current_ip[11:3]].tag <= ex_redirecto.current_ip[AWID-1:12];
+		btb[ex_redirecto.current_ip[11:3]].v <= VAL;
 	end
 	else if (dc2if_redirect_rd2) begin
-		btb[ip[12:3]].addr <= dc_redirecto.redirect_ip;
-		btb[ip[12:3]].tag <= dc_redirecto.current_ip[AWID-1:13];
-		btb[ip[12:3]].v <= VAL;
+		btb[dc_redirecto.current_ip[11:3]].addr <= dc_redirecto.redirect_ip;
+		btb[dc_redirecto.current_ip[11:3]].tag <= dc_redirecto.current_ip[AWID-1:12];
+		btb[dc_redirecto.current_ip[11:3]].v <= VAL;
 	end
 end
 
@@ -430,7 +438,7 @@ gselectPredictor ubprd1
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.en(1'b1),
+	.en(bpe),
 	.xisBranch(rob[rob_head].branch & rob[rob_head].cmt & rob[rob_head].v),
 	.xip(rob[rob_head].ip),
 	.takb(rob[rob_head].takb),
@@ -444,7 +452,7 @@ gselectPredictor ubprd1
 
 reg daccess;
 reg [3:0] dcnt;
-reg [AWID-1:0] dadr;
+Address dadr;
 reg [pL1LineSize-1:0] dci;
 reg [pL1LineSize-1:0] datil;
 reg dcachable;
@@ -567,6 +575,30 @@ reg [511:0] ivcache [0:4];
 reg [AWID-1:6] ivtag [0:4];
 reg [4:0] ivvalid;
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Key Cache
+// - the key cache is direct mapped, 64 lines of 512 bits.
+// - keys are stored in the low order 20 bits of a 32-bit memory cell
+// - 16 keys per 512 bit cache line
+// - one cache line is enough to cover 256kB of memory
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+reg kaccess;
+reg [3:0] kcnt;
+reg [511:0] kyline [0:63];
+reg [AWID-19:0] kytag;
+reg [63:0] kyv;
+reg kyhit;
+always @*
+	kyhit <= kytag[adr_o[23:18]]==adr_o[AWID-1:18] && kyv[adr_o[23:18]];
+initial begin
+	kyv = 64'd0;
+	for (n = 0; n < 64; n = n + 1) begin
+		kyline[n] <= 512'd0;
+		kytag[n] <= 32'd1;
+	end
+end
+wire [19:0] kyut = kyline[adr_o[23:18]] >> {adr_o[17:14],5'd0};
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 // TLB
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -611,6 +643,23 @@ wire ifStall = f2a_full || !ihit || rob[rob_tail].v==VAL;
 reg dcStall,dcStall1;
 reg f2a_rst,a2d_rst,d2x_rst;
 
+reg pop_f2ad,pop_a2dd,pop_d2xd;
+wire push_f2a = !ifStall && !f2a_full;// && rob_tail+2'd1 != rob_head;
+wire pop_f2a = !a2d_full && !f2a_empty;
+wire push_a2d = !a2d_full && pop_f2ad;
+wire pop_a2d = !d2x_full && !a2d_empty && !dcStall;
+wire push_d2x = (!d2x_full && pop_a2dd && !dcStall) || (dcStall1 && !dcStall);
+wire pop_d2x = !x2m_full && !x2mul_full && !x2div_full && !d2x_empty;
+
+always @(posedge clk_g)
+	dcStall1 <= dcStall;
+always @(posedge clk_g)
+	pop_f2ad <= pop_f2a;
+always @(posedge clk_g)
+	pop_a2dd <= pop_a2d || (dcStall1 && !dcStall);
+always @(posedge clk_g)
+	pop_d2xd <= pop_d2x;
+
 // Instruction fetch
 always @*
 begin
@@ -627,23 +676,6 @@ begin
   default:  f2a_in.cacheline <= {8{NOP_INSN}};
   endcase
 end
-
-reg pop_f2ad,pop_a2dd,pop_d2xd;
-wire push_f2a = !ifStall && !f2a_full && rob_tail+2'd1 != rob_head;
-wire pop_f2a = !a2d_full && !f2a_empty;
-wire push_a2d = !a2d_full && pop_f2ad;
-wire pop_a2d = !d2x_full && !a2d_empty;
-wire push_d2x = !d2x_full && pop_a2dd;
-wire pop_d2x = !x2m_full && !x2mul_full && !x2div_full && !d2x_empty;
-
-always @(posedge clk_g)
-	dcStall1 <= dcStall;
-always @(posedge clk_g)
-	pop_f2ad <= pop_f2a;
-always @(posedge clk_g)
-	pop_a2dd <= pop_a2d;
-always @(posedge clk_g)
-	pop_d2xd <= pop_d2x;
 
 f2a_fifo uf2a
 (
@@ -711,17 +743,17 @@ always @*
 		decbuf.Stream <= a2d_out.Stream;
 		decbuf.Stream_inc <= 1'b0;
 		decbuf.rfwr <= FALSE;
-		decbuf.Ra <= dir[23:16];
-		decbuf.Rb <= dir[31:24];
-		decbuf.Rc <= dir[39:32];
-		decbuf.Rd <= dir[57:50];
+		decbuf.Ra <= dir.Ra;
+		decbuf.Rb <= dir.Rb;
+		decbuf.Rc <= dir.Rc;
+		decbuf.Rd <= dir.func;		/// same field as Rd
 		decbuf.Rt <= 8'd0;
-		decbuf.imm <= 64'd0;
+		decbuf.imm.val <= 60'd0;
 //		dcRedirectIp <= dip + {{25{dir[63]}},dir[63:28],3'h0};
-		case(dir[7:0])
+		case(dir.opcode)
 		NOP:	decbuf.ui <= FALSE;
 		R3:
-			case(dir[57:50])
+			case(dir.func)
 			ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			SLL:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			R2:
@@ -735,26 +767,25 @@ always @*
 				endcase
 			default:	;
 			endcase
-		ADDI,SUBFI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{32{dir[63]}},dir[63:32]}; decbuf.ui <= FALSE; end
-		ANDI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{32{1'b1}},dir[63:32]}; decbuf.ui <= FALSE; end
-		MULI,DIVI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= {{32{dir[63]}},dir[63:32]}; end
-		MULUI,MULSUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= {32'd0,dir[63:32]}; end
-		DIVUI,DIVSUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= {32'd0,dir[63:32]}; end
-		ORI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {32'd0,dir[63:32]}; decbuf.ui <= FALSE; end
-		XORI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {32'd0,dir[63:32]}; decbuf.ui <= FALSE; end
+		ADDI,SUBFI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{32{dir[59]}},dir[59:28]}; decbuf.ui <= FALSE; end
+		ANDI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{32{1'b1}},dir[59:28]}; decbuf.ui <= FALSE; end
+		MULI,DIVI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{32{dir[59]}},dir[59:28]}; end
+		MULUI,MULSUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {32'd0,dir[59:28]}; end
+		DIVUI,DIVSUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {32'd0,dir[59:28]}; end
+		ORI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {32'd0,dir[59:28]}; decbuf.ui <= FALSE; end
+		XORI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {32'd0,dir[59:28]}; decbuf.ui <= FALSE; end
 		EXT,EXTU:		begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
-		SEQI,SNEI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{32{dir[63]}},dir[63:32]}; decbuf.ui <= FALSE; end
-		SLTI,SGTI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{32{dir[63]}},dir[63:32]}; decbuf.ui <= FALSE; end
-		SLTUI,SGTUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {32'd0,dir[63:32]}; decbuf.ui <= FALSE; end
-		BYTNDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= dir[31:24]; end
-		WYDNDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= dir[39:24]; end
-		U21NDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm <= {dir[57:50],dir[39:24]}; end
-		PERM:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{40{1'b0}},dir[57:50],dir[39:24]}; decbuf.ui <= FALSE; end
+		SEQI,SNEI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{32{dir[59]}},dir[59:28]}; decbuf.ui <= FALSE; end
+		SLTI,SGTI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{32{dir[59]}},dir[59:28]}; decbuf.ui <= FALSE; end
+		SLTUI,SGTUI:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {32'd0,dir[59:28]}; decbuf.ui <= FALSE; end
+		U10NDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= dir[33:24]; end
+		U20NDX:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {dir[55:48],dir[39:24]}; end
+		PERM:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{36{1'b0}},dir[55:48],dir[39:24]}; decbuf.ui <= FALSE; end
 		JAL:
 			begin
 				decbuf.ui <= FALSE;
 				decbuf.Rt <= {6'h0,dir[9:8]};
-				decbuf.imm <= {{25{dir[63]}},dir[63:28],3'h0};
+				decbuf.imm.val <= {{25{dir[59]}},dir[59:28],3'h0};
 				decbuf.rfwr <= TRUE;
 				case(dir[21:16])
 				6'd0:		decbuf.Stream_inc <= 1'b1;
@@ -762,13 +793,13 @@ always @*
 				default:	;
 				endcase
 			end
-		BEQ,BNE,BLT,BGE,BLTU,BGEU:	begin	decbuf.ui <= FALSE; decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{43{dir[63]}},dir[63:50],dir[43:40],3'd0}; end
-		LEA:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{42{dir[63]}},dir[63:50],dir[39:32]}; decbuf.ui <= FALSE; end
-		LDx:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{42{dir[63]}},dir[63:50],dir[39:32]}; decbuf.ui <= FALSE; end
-		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm <= {{42{dir[63]}},dir[63:50],dir[39:32]}; decbuf.ui <= FALSE; end
+		BEQ,BNE,BLT,BGE,BLTU,BGEU:	begin	decbuf.ui <= FALSE; decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{41{dir[59]}},dir[59:48],dir[43:40],3'd0}; end
+		LEA:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{40{dir[59]}},dir[59:48],dir[39:32]}; decbuf.ui <= FALSE; end
+		LDx:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{40{dir[59]}},dir[59:48],dir[39:32]}; decbuf.ui <= FALSE; end
+		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{40{dir[59]}},dir[59:48],dir[39:32]}; decbuf.ui <= FALSE; end
 		SYS:
 			begin
-				case(dir[57:50])
+				case(dir.func)
 				CSR:		decbuf.ui <= FALSE;
 				PFI:		decbuf.ui <= FALSE;
 				TLBRW:	begin decbuf.ui <= FALSE; decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; end
@@ -827,7 +858,7 @@ begin
 								decbuf.Rt[5:0]==6'd0 ||
 								decbuf.Rt[5:0]==6'd63 ||
 								regfilesrc[decbuf.Rt[5:0]].rf == 1'd0 ||
-								rob[regfilesrc[decbuf.Rt[5:0]].rid].cmt
+								rob[regfilesrc[decbuf.Rt[5:0]].rid].cmt || regfilesrc[decbuf.Rt[5:0]].rid==decbuf.rid;
 								;
 end
 
@@ -838,16 +869,22 @@ begin
 	exbufi.Stream <= decbuf.Stream;
 	exbufi.Stream_inc <= decbuf.Stream_inc;
 	exbufi.ip <= decbuf.ip;
+	exbufi.pip <= decbuf.pip;
 	exbufi.predict_taken <= decbuf.predict_taken;
 	exbufi.rid <= decbuf.rid;
 	exbufi.ir <= decbuf.ir;
 	exbufi.rfwr <= decbuf.rfwr;
-	exbufi.ia <= decbuf.Ra[7] ? {{57{decbuf.Ra[6]}},decbuf.Ra[6:0]} : decbuf.Ra[5:0]==6'd0 ? 64'd0 : decbuf.Ra[5:0]==6'd63 ? decbuf.ip : regfilesrc[decbuf.Ra[5:0]].rf ? rob[regfilesrc[decbuf.Ra[5:0]].rid].res : regfile[decbuf.Ra];
-	exbufi.ib <= decbuf.Rb[7] ? {{57{decbuf.Rb[6]}},decbuf.Rb[6:0]} : decbuf.Rb[5:0]==6'd0 ? 64'd0 : decbuf.Rb[5:0]==6'd63 ? decbuf.ip : regfilesrc[decbuf.Rb[5:0]].rf ? rob[regfilesrc[decbuf.Rb[5:0]].rid].res : regfile[decbuf.Rb];
-	exbufi.ic <= decbuf.Rc[7] ? {{57{decbuf.Rc[6]}},decbuf.Rc[6:0]} : decbuf.Rc[5:0]==6'd0 ? 64'd0 : decbuf.Rc[5:0]==6'd63 ? decbuf.ip : regfilesrc[decbuf.Rc[5:0]].rf ? rob[regfilesrc[decbuf.Rc[5:0]].rid].res : regfile[decbuf.Rc];
-	exbufi.id <= decbuf.Rd[7] ? {{57{decbuf.Rd[6]}},decbuf.Rd[6:0]} : decbuf.Rd[5:0]==6'd0 ? 64'd0 : decbuf.Rd[5:0]==6'd63 ? decbuf.ip : regfilesrc[decbuf.Rd[5:0]].rf ? rob[regfilesrc[decbuf.Rd[5:0]].rid].res : regfile[decbuf.Rd];
+	exbufi.ia.val <= decbuf.Ra[7] ? {{53{decbuf.Ra[6]}},decbuf.Ra[6:0]} : decbuf.Ra[5:0]==6'd0 ? 60'd0 : decbuf.Ra[5:0]==6'd63 ? decbuf.ip : regfilesrc[decbuf.Ra[5:0]].rf ? rob[regfilesrc[decbuf.Ra[5:0]].rid].res.val : regfile[decbuf.Ra].val;
+	exbufi.ib.val <= decbuf.Rb[7] ? {{53{decbuf.Rb[6]}},decbuf.Rb[6:0]} : decbuf.Rb[5:0]==6'd0 ? 60'd0 : decbuf.Rb[5:0]==6'd63 ? decbuf.ip : regfilesrc[decbuf.Rb[5:0]].rf ? rob[regfilesrc[decbuf.Rb[5:0]].rid].res.val : regfile[decbuf.Rb].val;
+	exbufi.ic.val <= decbuf.Rc[7] ? {{53{decbuf.Rc[6]}},decbuf.Rc[6:0]} : decbuf.Rc[5:0]==6'd0 ? 60'd0 : decbuf.Rc[5:0]==6'd63 ? decbuf.ip : regfilesrc[decbuf.Rc[5:0]].rf ? rob[regfilesrc[decbuf.Rc[5:0]].rid].res.val : regfile[decbuf.Rc].val;
+	exbufi.id.val <= decbuf.Rd[7] ? {{53{decbuf.Rd[6]}},decbuf.Rd[6:0]} : decbuf.Rd[5:0]==6'd0 ? 60'd0 : decbuf.Rd[5:0]==6'd63 ? decbuf.ip : regfilesrc[decbuf.Rd[5:0]].rf ? rob[regfilesrc[decbuf.Rd[5:0]].rid].res.val : regfile[decbuf.Rd].val;
+	exbufi.ia.tag <= TAG_INT;
+	exbufi.ib.tag <= TAG_INT;
+	exbufi.ic.tag <= TAG_INT;
+	exbufi.id.tag <= TAG_INT;
 	exbufi.imm <= decbuf.imm;
-	dcStall <=  !(exbufi.iav & exbufi.ibv & exbufi.icv & exbufi.idv & exbufi.itv);
+//	dcStall <=  !(exbufi.iav & exbufi.ibv & exbufi.icv & exbufi.idv & exbufi.itv);
+	dcStall <= !exbufi.itv;
 //	dcStall <= 1'b0;
 end
 
@@ -870,7 +907,7 @@ x2m_fifo ux2m
   .clk(clk_g),      // input wire clk
   .srst(rst_i),    // input wire srst
   .din(membufi),      // input wire [134 : 0] din
-  .wr_en(!d2x_empty && !x2m_full && memfifo_wr),	// input wire wr_en
+  .wr_en(!x2m_full && memfifo_wr),	// input wire wr_en
   .rd_en(x2m_rd),  // input wire rd_en
   .dout(membufo),    // output wire [134 : 0] dout
   .full(x2m_full),    // output wire full
@@ -883,7 +920,7 @@ ALU_fifo ux2mul
   .clk(clk_g),      // input wire clk
   .srst(rst_i),    // input wire srst
   .din(mulreci),      // input wire [134 : 0] din
-  .wr_en(!d2x_empty && !x2mul_full && mulfifo_wr),	// input wire wr_en
+  .wr_en(!x2mul_full && mulfifo_wr),	// input wire wr_en
   .rd_en(x2mul_rd),  // input wire rd_en
   .dout(mulreco),    // output wire [134 : 0] dout
   .full(x2mul_full),    // output wire full
@@ -895,7 +932,7 @@ ALU_fifo ux2div
   .clk(clk_g),      // input wire clk
   .srst(rst_i),    // input wire srst
   .din(divreci),      // input wire [134 : 0] din
-  .wr_en(!d2x_empty && !x2div_full && divfifo_wr),	// input wire wr_en
+  .wr_en(!x2div_full && divfifo_wr),	// input wire wr_en
   .rd_en(x2div_rd),  // input wire rd_en
   .dout(divreco),    // output wire [134 : 0] dout
   .full(x2div_full),    // output wire full
@@ -959,8 +996,8 @@ else
 reg [5:0] ld_time;
 reg wc_time_irq;
 reg [5:0] wc_time_irq_clr;
-reg [63:0] wc_time_dat;
-reg [63:0] wc_time;
+reg [59:0] wc_time_dat;
+reg [59:0] wc_time;
 assign clr_wc_time_irq = wc_time_irq_clr[5];
 always @(posedge wc_clk_i)
 if (rst_i) begin
@@ -974,7 +1011,7 @@ else begin
 		wc_time[31:0] <= wc_time[31:0] + 2'd1;
 		if (wc_time[31:0]==32'd99999999) begin
 			wc_time[31:0] <= 32'd0;
-			wc_time[63:32] <= wc_time[63:32] + 2'd1;
+			wc_time[59:32] <= wc_time[59:32] + 2'd1;
 		end
 	end
 	if (mtimecmp==wc_time[31:0])
@@ -1003,9 +1040,9 @@ BUFGCE u11 (.CE(!wfi), .I(clk_i), .O(clk_g));
 
 wire [3:0] ea_acr = sregfile[segsel][3:0];
 wire [3:0] pc_acr = sregfile[ip[AWID-1:AWID-4]][3:0];
-wire brMispredict = ex_takb != exbufi.predict_taken;
-wire brAddrMispredict = exbufi.pip != exRedirectIp;
-wire [127:0] sll_out = {exbufo.ib,exbufo.ia} << exbufo.ic;
+wire brMispredict = ex_takb != rob[rob_exec].predict_taken;//exbufi.predict_taken;
+wire brAddrMispredict = exbufi.pip != ex_redirecti.redirect_ip;//exRedirectIp;
+wire [127:0] sll_out = {rob[rob_exec].ib,rob[rob_exec].ia} << rob[rob_exec].ic;
 
 reg [63:0] csrro;
 always @*
@@ -1041,8 +1078,10 @@ if (rst_i) begin
 		rob[n].Stream_inc <= FALSE;
 		rob[n].v <= INV;
 		rob[n].cmt <= FALSE;
+		rob[n].cmt2 <= FALSE;
+		rob[n].dec <= FALSE;
 		rob[n].rfwr <= FALSE;
-		rob[n].ui <= TRUE;
+		rob[n].ui <= FALSE;	// ***
 		rob[n].ip <= RSTIP;
 		rob[n].jump <= FALSE;
 		rob[n].branch <= FALSE;
@@ -1076,6 +1115,8 @@ if (rst_i) begin
 	for (n = 0; n < 64; n = n + 1)
 		regfile[n] <= 64'd0;
 	for (n = 0; n < 16; n = n + 1)
+		sregfile[n] <= 64'd0;
+	for (n = 0; n < 16; n = n + 1)
 		tZeroRegfileSrc(n);
 	active_branch <= 2'd0;
 	tlben <= TRUE;
@@ -1084,6 +1125,24 @@ if (rst_i) begin
 	membufi <= 1'd0;
 	mulreci <= 1'b0;
 	divreci <= 1'b0;
+	dc_redirecti.redirect_ip <= 32'd0;
+	dc_redirecti.current_ip <= 32'd0;
+	ex_redirecti.redirect_ip <= 32'd0;
+	ex_redirecti.current_ip <= 32'd0;
+	wb_redirecti.redirect_ip <= 32'd0;
+	wb_redirecti.current_ip <= 32'd0;
+	dc2if_redirect_rd3 <= FALSE;
+	ex2if_redirect_rd3 <= FALSE;
+	wb2if_redirect_rd3 <= FALSE;
+	cr0 <= 64'h940000000;		// enable branch predictor, data cache
+	cyc_o <= 1'b0;
+	stb_o <= 1'b0;
+	sel_o <= 16'h0;
+	we_o <= 1'b0;
+	dat_o <= 128'd0;
+	keytbl <= 32'h00020000;
+	for (n = 0; n < 8; n = n + 1)
+		keys[n] <= 20'd0;
 end
 else begin
 	f2a_rst <= FALSE;
@@ -1092,8 +1151,14 @@ else begin
 	ex2if_redirect_rd <= FALSE;
 	dc2if_redirect_rd <= FALSE;
 	wb2if_redirect_rd <= FALSE;
-	ex2if_redirect_rd2 <= ex2if_redirect_rd;
+	if (dc2if_redirect_rd)
+		dc2if_redirect_rd3 <= TRUE;
+	if (ex2if_redirect_rd)
+		ex2if_redirect_rd3 <= TRUE;
+	if (wb2if_redirect_rd)
+		wb2if_redirect_rd3 <= TRUE;
 	dc2if_redirect_rd2 <= dc2if_redirect_rd;
+	ex2if_redirect_rd2 <= ex2if_redirect_rd;
 	wb2if_redirect_rd2 <= wb2if_redirect_rd;
 	dc2if_wr <= FALSE;
 	ex2if_wr <= FALSE;
@@ -1123,19 +1188,34 @@ else begin
 		dc2if_redirect_rd <= 1'b1;
 
 	if (push_f2a) begin
-		if (wb2if_redirect_rd2) begin
+		if (wb2if_redirect_rd3) begin
+			wb2if_redirect_rd3 <= FALSE;
+			ex2if_redirect_rd3 <= FALSE;
+			dc2if_redirect_rd3 <= FALSE;
 			ifStream <= ifStream + 2'd1;
+			dcStream <= ifStream + 2'd1;
+			exStream <= ifStream + 2'd1;
+			wbStream <= ifStream + 2'd1;
 			ip <= wb_redirecto.redirect_ip;
 		end
-		else if (ex2if_redirect_rd2) begin
+		else if (ex2if_redirect_rd3) begin
+			ex2if_redirect_rd3 <= FALSE;
+			dc2if_redirect_rd3 <= FALSE;
 			ifStream <= ifStream + 2'd1;
+			dcStream <= ifStream + 2'd1;
+			exStream <= ifStream + 2'd1;
+			wbStream <= ifStream + 2'd1;
 			ip <= ex_redirecto.redirect_ip;
 		end
-		else if (dc2if_redirect_rd2) begin
+		else if (dc2if_redirect_rd3) begin
+			dc2if_redirect_rd3 <= FALSE;
 			ifStream <= ifStream + 2'd1;
+			dcStream <= ifStream + 2'd1;
+			exStream <= ifStream + 2'd1;
+			wbStream <= ifStream + 2'd1;
 			ip <= dc_redirecto.redirect_ip;
 		end
-		else if (predict_taken)
+		else if (predict_taken & btben)
 			ip <= btb_predicted_ip;
 		else
 			ip <= ip + 4'd8;
@@ -1150,6 +1230,8 @@ else begin
 		rob[rob_tail].ip <= f2a_in.ip;
 		rob[rob_tail].ir <= -64'd1;
 		rob[rob_tail].Rt <= 8'h00;
+		rob[rob_tail].dec <= FALSE;
+		rob[rob_tail].cmt2 <= FALSE;
 		if (nmif) begin
 			nmif <= 1'b0;
 			rob[rob_tail].cause <= 16'h8000|FLT_NMI;
@@ -1188,7 +1270,8 @@ else begin
 	       );
 	end
 
-	if (a2d_out.Stream == dcStream && pop_a2dd) begin
+//	if (a2d_out.Stream == dcStream) begin
+		if (pop_a2dd && exbufi.ir != 64'd0) begin
 		rob[exbufi.rid].ir <= exbufi.ir;
 		rob[exbufi.rid].predict_taken <= exbufi.predict_taken;
 		rob[exbufi.rid].rfwr <= exbufi.rfwr;
@@ -1207,13 +1290,16 @@ else begin
 		rob[exbufi.rid].ics <= regfilesrc[decbuf.Rc[5:0]];
 		rob[exbufi.rid].ids <= regfilesrc[decbuf.Rd[5:0]];
 		rob[exbufi.rid].its <= regfilesrc[decbuf.Rt[5:0]];
+		rob[exbufi.rid].dec <= TRUE;
+		rob[exbufi.rid].branch <= FALSE;
 
-		case(dir[7:0])
+		case(dir.opcode)
 		BEQ,BNE,BLT,BGE,BLTU,BGEU:
 			begin
 				tBackupRegfileSrc(active_branch);
 				active_branch <= active_branch + 2'd1;
-				rob[a2d_out.rid].btag <= active_branch;
+				rob[exbufi.rid].btag <= active_branch;
+				rob[exbufi.rid].branch <= TRUE;
 			end
 		JAL:
 			begin
@@ -1241,6 +1327,7 @@ else begin
 		endcase
 	rob[decbuf.rid].Rt <= decbuf.Rt;
 	end
+//	end
 	
 	// Execute
 	// Lots to do here.
@@ -1249,40 +1336,53 @@ else begin
 	$display("Execute");
 	$display("rid:%d ip: %h  ir: %h  a:%h  b:%h  c:%h  d:%h  i:%h", exbufi.rid, exbufi.ip, exbufi.ir,exbufi.ia,exbufi.ib,exbufi.ic,exbufi.id,exbufi.imm);
 	if (rob[rob_exec].Stream == exStream + exbufo.Stream_inc) begin
+		if (rob[rob_exec].dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, rob[rob_exec].ip, rob[rob_exec].ir,
 			rob[rob_exec].ia,rob[rob_exec].iav?"v":" ",rob[rob_exec].ib,rob[rob_exec].ibv?"v":" ",rob[rob_exec].ic,rob[rob_exec].icv?"v":" ",rob[rob_exec].id,rob[rob_exec].idv?"v":" ",
 			rob[rob_exec].imm);
 		exStream <= exStream + rob[rob_exec].Stream_inc;
-		case(rob[rob_exec].ir[7:0])
+		// If the instruction is exceptioned, then ignore executing it.
+
+		if (rob[rob_exec].ui || rob[rob_exec].cause != 16'h0000) begin
+			rob[rob_exec].cmt <= TRUE;
+			rob_exec <= rob_exec + 2'd1;
+		end
+		else
+
+		rob[rob_exec].res.tag <= rob[rob_exec].ir.tag;
+		case(rob[rob_exec].ir.opcode)
 		NOP:	begin rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
 		R3:
 			begin
 				if (rob[rob_exec].iav && rob[rob_exec].ibv && rob[rob_exec].icv && rob[rob_exec].itv) begin
-					case(rob[rob_exec].ir[57:50])
-					ADD:	begin	rob[rob_exec].res <= rob[rob_exec].ia + rob[rob_exec].ib + rob[rob_exec].ic; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-					SUB:	begin	rob[rob_exec].res <= rob[rob_exec].ia - rob[rob_exec].ib - rob[rob_exec].ic; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-					AND:	begin	rob[rob_exec].res <= rob[rob_exec].ia & rob[rob_exec].ib & rob[rob_exec].ic; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-					OR:		begin	rob[rob_exec].res <= rob[rob_exec].ia | rob[rob_exec].ib | rob[rob_exec].ic; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-					XOR:	begin	rob[rob_exec].res <= rob[rob_exec].ia ^ rob[rob_exec].ib ^ rob[rob_exec].ic; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-					SLL:	begin rob[rob_exec].res <= sll_out[63:0]; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
+					case(rob[rob_exec].ir.func)
+					ADD:	begin	rob[rob_exec].res.val <= rob[rob_exec].ia.val + rob[rob_exec].ib.val + rob[rob_exec].ic.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+					SUB:	begin	rob[rob_exec].res.val <= rob[rob_exec].ia.val - rob[rob_exec].ib.val - rob[rob_exec].ic.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+					AND:	begin	rob[rob_exec].res.val <= rob[rob_exec].ia.val & rob[rob_exec].ib.val & rob[rob_exec].ic.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+					OR:		begin	rob[rob_exec].res.val <= rob[rob_exec].ia.val | rob[rob_exec].ib.val | rob[rob_exec].ic.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+					XOR:	begin	rob[rob_exec].res.val <= rob[rob_exec].ia.val ^ rob[rob_exec].ib.val ^ rob[rob_exec].ic.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+					SLL:	begin rob[rob_exec].res.val <= sll_out[59:0]; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
 					PTRDIF:	
 						begin
-							rob[rob_exec].res <= ((rob[rob_exec].ia < rob[rob_exec].ib) ? rob[rob_exec].ib - rob[rob_exec].ia : rob[rob_exec].ia - rob[rob_exec].ib) >> rob[rob_exec].ic[4:0];
+							rob[rob_exec].res.tag <= TAG_INT;
+							rob[rob_exec].res.val <= ((rob[rob_exec].ia.val < rob[rob_exec].ib.val) ? rob[rob_exec].ib.val - rob[rob_exec].ia.val : rob[rob_exec].ia.val - rob[rob_exec].ib.val) >> rob[rob_exec].ic.val[4:0];
 							rob[rob_exec].cmt <= TRUE;
+							rob[rob_exec].cmt2 <= TRUE; 
 							rob_exec <= rob_exec + 2'd1;
 						end
 					default:	;
 					endcase
 				end
-				case(rob[rob_exec].ir[57:50])
+				case(rob[rob_exec].ir.func)
 				R2:
 					if (rob[rob_exec].iav && rob[rob_exec].ibv && rob[rob_exec].itv) begin
 						case(rob[rob_exec].ir[39:32])
 						DIF:
 							begin
-								rob[rob_exec].res <= $signed(rob[rob_exec].ia) < $signed(rob[rob_exec].ib) ?
-									rob[rob_exec].ib - rob[rob_exec].ia : rob[rob_exec].ia - rob[rob_exec].ib;
+								rob[rob_exec].res <= $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val) ?
+								rob[rob_exec].ib.val - rob[rob_exec].ia.val : rob[rob_exec].ia.val - rob[rob_exec].ib.val;
 								rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1;
+								rob[rob_exec].cmt2 <= TRUE; 
 							end
 						MUL,MULU,MULSU,MULH,MULUH,MULSUH:
 							begin
@@ -1302,25 +1402,26 @@ else begin
 								x2div_wr <= TRUE;
 								rob_exec <= rob_exec + 2'd1;
 							end
-						MULF:	begin rob[rob_exec].res <= rob[rob_exec].ia[23:0] + rob[rob_exec].ib[15:0]; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-						SEQ:	begin rob[rob_exec].res <= rob[rob_exec].ia == rob[rob_exec].ib; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-						SNE:	begin rob[rob_exec].res <= rob[rob_exec].ia != rob[rob_exec].ib; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-						SLT:	begin rob[rob_exec].res <= $signed(rob[rob_exec].ia) < $signed(rob[rob_exec].ib); rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-						SGE:	begin rob[rob_exec].res <= $signed(rob[rob_exec].ia) >= $signed(rob[rob_exec].ib); rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-						SLTU:	begin rob[rob_exec].res <= rob[rob_exec].ia < rob[rob_exec].ib; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-						SGEU:	begin rob[rob_exec].res <= rob[rob_exec].ia >= rob[rob_exec].ib; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
+						MULF:	begin rob[rob_exec].res.val <= rob[rob_exec].ia.val[23:0] + rob[rob_exec].ib.val[15:0]; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+						SEQ:	begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= rob[rob_exec].ia.val == rob[rob_exec].ib.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+						SNE:	begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= rob[rob_exec].ia.val != rob[rob_exec].ib.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+						SLT:	begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val); rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+						SGE:	begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= $signed(rob[rob_exec].ia.val) >= $signed(rob[rob_exec].ib.val); rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+						SLTU:	begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= rob[rob_exec].ia.val < rob[rob_exec].ib.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+						SGEU:	begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= rob[rob_exec].ia.val >= rob[rob_exec].ib.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
 						default:	;
 						endcase
 					end
 				default:	;
 				endcase
 			end
-		ADDI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].ia + rob[rob_exec].imm; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		SUBFI:if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].imm - rob[rob_exec].ia; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		ANDI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].ia & rob[rob_exec].imm; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		ORI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].ia | rob[rob_exec].imm; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		XORI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].ia ^ rob[rob_exec].imm; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		ADDI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.val <= rob[rob_exec].ia.val + rob[rob_exec].imm.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		SUBFI:if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.val <= rob[rob_exec].imm.val - rob[rob_exec].ia.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		ANDI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.val <= rob[rob_exec].ia.val & rob[rob_exec].imm.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		ORI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.val <= rob[rob_exec].ia.val | rob[rob_exec].imm.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		XORI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.val <= rob[rob_exec].ia.val ^ rob[rob_exec].imm.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
 		MULI,MULUI,MULSUI:
+				begin
 					if (rob[rob_exec].iav && rob[rob_exec].itv) begin
 						mulreci.rid <= rob_exec;
 						mulreci.a <= rob[rob_exec].ia;
@@ -1328,7 +1429,9 @@ else begin
 						x2mul_wr <= TRUE;
 						rob_exec <= rob_exec + 2'd1;
 					end
+				end
 		DIVI,DIVUI,DIVSUI:
+				begin
 					if (rob[rob_exec].iav && rob[rob_exec].itv) begin
 						divreci.rid <= rob_exec;
 						divreci.a <= rob[rob_exec].ia;
@@ -1336,151 +1439,154 @@ else begin
 						x2div_wr <= TRUE;
 						rob_exec <= rob_exec + 2'd1;
 					end
-		MULFI:if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].ia[23:0] + rob[rob_exec].imm[15:0]; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		SEQI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].ia == rob[rob_exec].imm; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		SNEI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].ia != rob[rob_exec].imm; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		SLTI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= $signed(rob[rob_exec].ia) < $signed(rob[rob_exec].imm); rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		SGTI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= $signed(rob[rob_exec].ia) > $signed(rob[rob_exec].imm); rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		SLTUI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].ia < rob[rob_exec].imm; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		SGTUI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= rob[rob_exec].ia > rob[rob_exec].imm; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-		BTFLD:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res <= bf_out; rob[rob_exec].cmt <= TRUE; rob_exec <= rob_exec + 2'd1; end
-    BYTNDX:
+				end
+		MULFI:if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.val <= rob[rob_exec].ia.val[23:0] + rob[rob_exec].imm.val[15:0]; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		SEQI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= rob[rob_exec].ia.val == rob[rob_exec].imm.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		SNEI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= rob[rob_exec].ia != rob[rob_exec].imm; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		SLTI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm.val); rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		SGTI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= $signed(rob[rob_exec].ia.val) > $signed(rob[rob_exec].imm.val); rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		SLTUI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= rob[rob_exec].ia.val < rob[rob_exec].imm.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		SGTUI:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.tag <= TAG_BOOL; rob[rob_exec].res.val <= rob[rob_exec].ia.val > rob[rob_exec].imm.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+		BTFLD:	if (rob[rob_exec].iav && rob[rob_exec].itv) begin rob[rob_exec].res.val <= bf_out.val; rob[rob_exec].cmt <= TRUE; rob[rob_exec].cmt2 <= TRUE; rob_exec <= rob_exec + 2'd1; end
+    U10NDX:
     if (rob[rob_exec].iav && rob[rob_exec].itv) begin
-    	if (rob[rob_exec].ir[63:61]==3'd1) begin
-        if (rob[rob_exec].ia[7:0]==rob[rob_exec].imm[7:0])
-          rob[rob_exec].res <= 64'd0;
-        else if (rob[rob_exec].ia[15:8]==rob[rob_exec].imm[7:0])
-          rob[rob_exec].res <= 64'd1;
-        else if (rob[rob_exec].ia[23:16]==rob[rob_exec].imm[7:0])
-          rob[rob_exec].res <= 64'd2;
-        else if (rob[rob_exec].ia[31:24]==rob[rob_exec].imm[7:0])
-          rob[rob_exec].res <= 64'd3;
-        else if (rob[rob_exec].ia[39:32]==rob[rob_exec].imm[7:0])
-          rob[rob_exec].res <= 64'd4;
-        else if (rob[rob_exec].ia[47:40]==rob[rob_exec].imm[7:0])
-          rob[rob_exec].res <= 64'd5;
-        else if (rob[rob_exec].ia[55:40]==rob[rob_exec].imm[7:0])
-          rob[rob_exec].res <= 64'd6;
-        else if (rob[rob_exec].ia[63:56]==rob[rob_exec].imm[7:0])
-          rob[rob_exec].res <= 64'd7;
+    	rob[rob_exec].res.tag <= TAG_INT; 
+    	if (rob[rob_exec].ir.sz==4'd1) begin
+        if (rob[rob_exec].ia.val[9:0]==rob[rob_exec].imm.val[9:0])
+          rob[rob_exec].res.val <= 60'd0;
+        else if (rob[rob_exec].ia.val[19:10]==rob[rob_exec].imm.val[9:0])
+          rob[rob_exec].res.val <= 60'd1;
+        else if (rob[rob_exec].ia.val[29:20]==rob[rob_exec].imm.val[9:0])
+          rob[rob_exec].res.val <= 60'd2;
+        else if (rob[rob_exec].ia.val[39:30]==rob[rob_exec].imm.val[9:0])
+          rob[rob_exec].res.val <= 60'd3;
+        else if (rob[rob_exec].ia.val[49:40]==rob[rob_exec].imm.val[9:0])
+          rob[rob_exec].res.val <= 60'd4;
+        else if (rob[rob_exec].ia.val[59:50]==rob[rob_exec].imm.val[9:0])
+          rob[rob_exec].res.val <= 60'd5;
         else
-          rob[rob_exec].res <= {64{1'b1}};  // -1
+          rob[rob_exec].res.val <= {60{1'b1}};  // -1
       end
       else begin
-        if (rob[rob_exec].ia[7:0]==rob[rob_exec].ib[7:0])
-          rob[rob_exec].res <= 64'd0;
-        else if (rob[rob_exec].ia[15:8]==rob[rob_exec].ib[7:0])
-          rob[rob_exec].res <= 64'd1;
-        else if (rob[rob_exec].ia[23:16]==rob[rob_exec].ib[7:0])
-          rob[rob_exec].res <= 64'd2;
-        else if (rob[rob_exec].ia[31:24]==rob[rob_exec].ib[7:0])
-          rob[rob_exec].res <= 64'd3;
-        else if (rob[rob_exec].ia[39:32]==rob[rob_exec].ib[7:0])
-          rob[rob_exec].res <= 64'd4;
-        else if (rob[rob_exec].ia[47:40]==rob[rob_exec].ib[7:0])
-          rob[rob_exec].res <= 64'd5;
-        else if (rob[rob_exec].ia[55:40]==rob[rob_exec].ib[7:0])
-          rob[rob_exec].res <= 64'd6;
-        else if (rob[rob_exec].ia[63:56]==rob[rob_exec].ib[7:0])
-          rob[rob_exec].res <= 64'd7;
+        if (rob[rob_exec].ia.val[9:0]==rob[rob_exec].ib.val[9:0])
+          rob[rob_exec].res.val <= 60'd0;
+        else if (rob[rob_exec].ia.val[19:10]==rob[rob_exec].ib.val[9:0])
+          rob[rob_exec].res.val <= 60'd1;
+        else if (rob[rob_exec].ia.val[29:20]==rob[rob_exec].ib.val[9:0])
+          rob[rob_exec].res.val <= 60'd2;
+        else if (rob[rob_exec].ia.val[39:30]==rob[rob_exec].ib.val[9:0])
+          rob[rob_exec].res.val <= 60'd3;
+        else if (rob[rob_exec].ia.val[49:40]==rob[rob_exec].ib.val[9:0])
+          rob[rob_exec].res.val <= 60'd4;
+        else if (rob[rob_exec].ia.val[59:50]==rob[rob_exec].ib.val[9:0])
+          rob[rob_exec].res.val <= 60'd5;
         else
-          rob[rob_exec].res <= {64{1'b1}};  // -1
+          rob[rob_exec].res.val <= {60{1'b1}};  // -1
       end
+      rob[rob_exec].cmt <= TRUE;
+			rob[rob_exec].cmt2 <= TRUE; 
+      rob_exec <= rob_exec + 2'd1; 
     end
-    WYDNDX:
+    U20NDX:
 		if (rob[rob_exec].iav && rob[rob_exec].itv) begin
-    	if (rob[rob_exec].ir[63:61]==3'd1) begin
-        if (rob[rob_exec].ia[15:0]==rob[rob_exec].imm[15:0])
-          rob[rob_exec].res <= 64'd0;
-        else if (rob[rob_exec].ia[31:16]==rob[rob_exec].imm[15:0])
-          rob[rob_exec].res <= 64'd1;
-        else if (rob[rob_exec].ia[47:32]==rob[rob_exec].imm[15:0])
-          rob[rob_exec].res <= 64'd2;
-        else if (rob[rob_exec].ia[63:48]==rob[rob_exec].imm[15:0])
-          rob[rob_exec].res <= 64'd3;
+    	rob[rob_exec].res.tag <= TAG_INT; 
+    	if (rob[rob_exec].ir.sz==4'd1) begin
+        if (rob[rob_exec].ia.val[19:0]==rob[rob_exec].imm.val[19:0])
+          rob[rob_exec].res.val <= 60'd0;
+        else if (rob[rob_exec].ia.val[39:20]==rob[rob_exec].imm.val[19:0])
+          rob[rob_exec].res.val <= 60'd1;
+        else if (rob[rob_exec].ia.val[59:40]==rob[rob_exec].imm.val[19:0])
+          rob[rob_exec].res.val <= 60'd2;
         else
-          rob[rob_exec].res <= {64{1'b1}};  // -1
+          rob[rob_exec].res.val <= {60{1'b1}};  // -1
       end
       else begin
-        if (rob[rob_exec].ia[15:0]==rob[rob_exec].ib[15:0])
-          rob[rob_exec].res <= 64'd0;
-        else if (rob[rob_exec].ia[31:16]==rob[rob_exec].ib[15:0])
-          rob[rob_exec].res <= 64'd1;
-        else if (rob[rob_exec].ia[47:32]==rob[rob_exec].ib[15:0])
-          rob[rob_exec].res <= 64'd2;
-        else if (rob[rob_exec].ia[63:48]==rob[rob_exec].ib[15:0])
-          rob[rob_exec].res <= 64'd3;
+        if (rob[rob_exec].ia.val[19:0]==rob[rob_exec].ib.val[19:0])
+          rob[rob_exec].res.val <= 60'd0;
+        else if (rob[rob_exec].ia.val[39:20]==rob[rob_exec].ib.val[19:0])
+          rob[rob_exec].res.val <= 60'd1;
+        else if (rob[rob_exec].ia.val[59:40]==rob[rob_exec].ib.val[19:0])
+          rob[rob_exec].res.val <= 60'd2;
         else
-          rob[rob_exec].res <= {64{1'b1}};  // -1
+          rob[rob_exec].res.val <= {60{1'b1}};  // -1
       end
-    end
-    U21NDX:
-		if (rob[rob_exec].iav && rob[rob_exec].itv) begin
-    	if (rob[rob_exec].ir[63:61]==3'd1) begin
-        if (rob[rob_exec].ia[20:0]==rob[rob_exec].imm[20:0])
-          rob[rob_exec].res <= 64'd0;
-        else if (rob[rob_exec].ia[41:21]==rob[rob_exec].imm[20:0])
-          rob[rob_exec].res <= 64'd1;
-        else if (rob[rob_exec].ia[62:42]==rob[rob_exec].imm[20:0])
-          rob[rob_exec].res <= 64'd2;
-        else
-          rob[rob_exec].res <= {64{1'b1}};  // -1
-      end
-      else begin
-        if (rob[rob_exec].ia[20:0]==rob[rob_exec].ib[20:0])
-          rob[rob_exec].res <= 64'd0;
-        else if (rob[rob_exec].ia[41:21]==rob[rob_exec].ib[20:0])
-          rob[rob_exec].res <= 64'd1;
-        else if (rob[rob_exec].ia[62:42]==rob[rob_exec].ib[20:0])
-          rob[rob_exec].res <= 64'd2;
-        else
-          rob[rob_exec].res <= {64{1'b1}};  // -1
-      end
+      rob[rob_exec].cmt <= TRUE;
+      rob[rob_exec].cmt2 <= TRUE; 
+      rob_exec <= rob_exec + 2'd1; 
     end
     PERM:
 		if (rob[rob_exec].iav && rob[rob_exec].itv) begin
-    	if (rob[rob_exec].ir[63:61]==3'd1) begin
-    		rob[rob_exec].res[7:0] <= rob[rob_exec].ia >> {rob[rob_exec].imm[2:0],3'b0};
-    		rob[rob_exec].res[15:8] <= rob[rob_exec].ia >> {rob[rob_exec].imm[5:3],3'b0};
-    		rob[rob_exec].res[23:16] <= rob[rob_exec].ia >> {rob[rob_exec].imm[8:6],3'b0};
-    		rob[rob_exec].res[31:24] <= rob[rob_exec].ia >> {rob[rob_exec].imm[11:9],3'b0};
-    		rob[rob_exec].res[39:32] <= rob[rob_exec].ia >> {rob[rob_exec].imm[14:12],3'b0};
-    		rob[rob_exec].res[47:40] <= rob[rob_exec].ia >> {rob[rob_exec].imm[17:15],3'b0};
-    		rob[rob_exec].res[55:48] <= rob[rob_exec].ia >> {rob[rob_exec].imm[20:18],3'b0};
-    		rob[rob_exec].res[63:56] <= rob[rob_exec].ia >> {rob[rob_exec].imm[23:21],3'b0};
+    	if (rob[rob_exec].ir.sz==4'd1) begin
+    		rob[rob_exec].res.val[7:0] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm.val[2:0],3'b0};
+    		rob[rob_exec].res.val[15:8] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm.val[5:3],3'b0};
+    		rob[rob_exec].res.val[23:16] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm.val[8:6],3'b0};
+    		rob[rob_exec].res.val[31:24] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm.val[11:9],3'b0};
+    		rob[rob_exec].res.val[39:32] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm.val[14:12],3'b0};
+    		rob[rob_exec].res.val[47:40] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm.val[17:15],3'b0};
+    		rob[rob_exec].res.val[55:48] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm.val[20:18],3'b0};
+    		rob[rob_exec].res.val[63:56] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm.val[23:21],3'b0};
 			end
 			else begin
-    		rob[rob_exec].res[7:0] <= rob[rob_exec].ia >> {rob[rob_exec].ib[2:0],3'b0};
-    		rob[rob_exec].res[15:8] <= rob[rob_exec].ia >> {rob[rob_exec].ib[5:3],3'b0};
-    		rob[rob_exec].res[23:16] <= rob[rob_exec].ia >> {rob[rob_exec].ib[8:6],3'b0};
-    		rob[rob_exec].res[31:24] <= rob[rob_exec].ia >> {rob[rob_exec].ib[11:9],3'b0};
-    		rob[rob_exec].res[39:32] <= rob[rob_exec].ia >> {rob[rob_exec].ib[14:12],3'b0};
-    		rob[rob_exec].res[47:40] <= rob[rob_exec].ia >> {rob[rob_exec].ib[17:15],3'b0};
-    		rob[rob_exec].res[55:48] <= rob[rob_exec].ia >> {rob[rob_exec].ib[20:18],3'b0};
-    		rob[rob_exec].res[63:56] <= rob[rob_exec].ia >> {rob[rob_exec].ib[23:21],3'b0};
+    		rob[rob_exec].res.val[7:0] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[2:0],3'b0};
+    		rob[rob_exec].res.val[15:8] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[5:3],3'b0};
+    		rob[rob_exec].res.val[23:16] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[8:6],3'b0};
+    		rob[rob_exec].res.val[31:24] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[11:9],3'b0};
+    		rob[rob_exec].res.val[39:32] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[14:12],3'b0};
+    		rob[rob_exec].res.val[47:40] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[17:15],3'b0};
+    		rob[rob_exec].res.val[55:48] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[20:18],3'b0};
+    		rob[rob_exec].res.val[63:56] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[23:21],3'b0};
 			end
+      rob[rob_exec].cmt <= TRUE;
+      rob[rob_exec].cmt2 <= TRUE; 
+      rob_exec <= rob_exec + 2'd1; 
 		end    	
 		BEQ,BNE,BLT,BGE,BLTU,BGEU:
 			if (rob[rob_exec].iav && rob[rob_exec].ibv && rob[rob_exec].itv) begin
 				rob[rob_exec].branch <= TRUE;
 				rob[rob_exec].takb <= ex_takb;
-				rob[rob_exec].res <= rob[rob_exec].ip + 4'd8;
-				if (brAddrMispredict) begin
+				rob[rob_exec].res.val <= rob[rob_exec].ip + 4'd8;
+	      rob[rob_exec].cmt <= TRUE;
+	      rob[rob_exec].cmt2 <= TRUE; 
+  	    rob_exec <= rob_exec + 2'd1; 
+				if (brMispredict) begin
 					rob[rob_exec].Stream_inc <= 1'b1;
 					f2a_rst <= TRUE;
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
 					exStream <= exStream + 2'd1;
-					ex_redirecti.redirect_ip <= ex_takb ? rob[rob_exec].ia + rob[rob_exec].imm : rob[rob_exec].ip + 4'd8;
+					ex_redirecti.redirect_ip <= ex_takb ? rob[rob_exec].ic.val + rob[rob_exec].imm.val : rob[rob_exec].ip + 4'd8;
 					ex_redirecti.current_ip <= rob[rob_exec].ip;
 					ex2if_wr <= TRUE;
 					tRestoreRegfileSrc(rob[rob_exec].btag); 
+					for (n = 0; n < 64; n = n + 1) begin
+						if (rob[n].v && !rob[n].dec)
+							rob[n].v <= INV;
+					end
+					rob[rob_tail].v <= INV;
+					rob_tail <= rob_exec + 2'd1;
+				end
+				else if (brAddrMispredict) begin
+					rob[rob_exec].Stream_inc <= 1'b1;
+					f2a_rst <= TRUE;
+					a2d_rst <= TRUE;
+					d2x_rst <= TRUE;
+					exStream <= exStream + 2'd1;
+					ex_redirecti.redirect_ip <= ex_takb ? rob[rob_exec].ic.val + rob[rob_exec].imm.val : rob[rob_exec].ip + 4'd8;
+					ex_redirecti.current_ip <= rob[rob_exec].ip;
+					ex2if_wr <= TRUE;
+					tRestoreRegfileSrc(rob[rob_exec].btag); 
+					for (n = 0; n < 64; n = n + 1) begin
+						if (rob[n].v && !rob[n].dec)
+							rob[n].v <= INV;
+					end
+					rob[rob_tail].v <= INV;
+					rob_tail <= rob_exec + 2'd1;
 				end
 			end
 		JAL:
 			if (rob[rob_exec].iav && rob[rob_exec].itv) begin
 				rob[rob_exec].jump <= TRUE;
-				rob[rob_exec].jump_tgt <= rob[rob_exec].ia + rob[rob_exec].imm;
+				rob[rob_exec].jump_tgt <= rob[rob_exec].ia.val + rob[rob_exec].imm.val;
 				rob[rob_exec].jump_tgt[2:0] <= 3'd0;
 				rob[rob_exec].res <= rob[rob_exec].ip + {rob[rob_exec].ir[15:10],3'd0} + 4'd8;
 				case(dir[21:16])
@@ -1493,30 +1599,35 @@ else begin
 						a2d_rst <= TRUE;
 						d2x_rst <= TRUE;
 						exStream <= exStream + 2'd1;
-						ex_redirecti.redirect_ip <= rob[rob_exec].ia + rob[rob_exec].imm;
+						ex_redirecti.redirect_ip <= rob[rob_exec].ia.val + rob[rob_exec].imm.val;
 						ex_redirecti.current_ip <= rob[rob_exec].ip;
 						ex2if_wr <= TRUE;
 					end
 				endcase
+	      rob[rob_exec].cmt <= TRUE;
+	      rob[rob_exec].cmt2 <= TRUE; 
+  	    rob_exec <= rob_exec + 2'd1; 
 			end
 		LEA,LDx,
 		STx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			begin
 				membufi.rid <= rob_exec;
 				membufi.ir <= rob[rob_exec].ir;
 				membufi.ia <= rob[rob_exec].ia;
 				membufi.ib <= rob[rob_exec].ib;
+				membufi.dato <= rob[rob_exec].ic;
 				membufi.imm <= rob[rob_exec].imm;
 				memfifo_wr <= TRUE;
 				rob_exec <= rob_exec + 2'd1;
 			end
 		SYS:
 			if (rob[rob_exec].iav && rob[rob_exec].ibv && rob[rob_exec].itv) begin
-				case(rob[rob_exec].ir[57:50])
+				case(rob[rob_exec].ir.func)
 				CSR:
 					begin
 						rob[rob_exec].ia <= rob[rob_exec].ia;
-						case(rob[rob_exec].ir[60:58])
+						case(rob[rob_exec].ir.sz)
 						CSRR:	rob[rob_exec].res <= csrro;
 						CSRW,CSRS,CSRC:	;
 						CSRRW:	rob[rob_exec].res <= csrro;
@@ -1530,7 +1641,7 @@ else begin
 			    	rob[rob_exec].cmt <= TRUE;
 			  	end
 				TLBRW:
-					begin
+					if (memfifo_wr==FALSE) begin
 						membufi.rid <= rob_exec;
 						membufi.ir <= rob[rob_exec].ir;
 						membufi.ia <= rob[rob_exec].ia;
@@ -1542,39 +1653,26 @@ else begin
 				default:	;
 				endcase
 			end
+		8'hFF:
+			rob_exec <= rob_exec;
 		default:	;
 		endcase
+		end
+	end
+	// Stream mismatch
+	else begin
+		if (rob[rob_exec].dec) begin
+			rob[rob_exec].cmt <= TRUE;
+			rob[rob_exec].cmt2 <= TRUE;
+			rob_exec <= rob_exec + 2'd1;
+		end
 	end
 
 	// Memory
+	// Memory loads and stores are always executed in program order.
 	case(mstate)
 MEMORY1:
-	if (ihit) begin
-		if (!x2m_empty) begin
-			x2m_rd <= TRUE;
-			zero_data <= FALSE;
-			mgoto (MEMORY1c);
-		end
-	end
-	else begin
-`ifdef ANY1_TLB
-    mgoto (IFETCH2a);
-`else
-    mgoto (IFETCH3);
-`endif
-`ifdef VICTIM_CACHE
-		for (n = 0; n < 5; n = n + 1) begin
-			if (ivtag[n]==iadr[AWID-1:6] && ivvalid[n]) begin
-				tLICache(lfsr_o[1:0],ivtag[n],ivcache[n],ivvalid[n]);
-	    	mgoto (MEMORY1);
-    	end
-		end
-`endif
-  	iaccess <= FALSE;
-  	daccess <= FALSE;
-    icnt <= 4'd0;
-    dcnt <= 4'd0;
-  end
+	tMemory1();
 IFETCH2a:
   begin
     mgoto(IFETCH3);
@@ -1709,19 +1807,19 @@ IFETCH5:
 `endif
 `ifdef CPU_B128
     if (icnt[3:2]==2'd3)
-			mgoto (MEMORY1);
+    	tMemory1();
 		else
       mgoto (IFETCH3);
 `endif
 `ifdef CPU_B64
     if (icnt[3:1]==3'd7)
-			mgoto (MEMORY1);
+    	tMemory1();
 		else
       mgoto (IFETCH3);
 `endif
 `ifdef CPU_B32
     if (icnt[3:0]==4'd15)
-			mgoto (MEMORY1);
+    	tMemory1();
 		else
       mgoto (IFETCH3);
 `endif
@@ -1736,13 +1834,17 @@ TLB3:
 	begin
     rob[membufo.rid].res <= tlbdato;
     rob[membufo.rid].cmt <= TRUE;
-    mgoto (MEMORY1);
+    rob[membufo.rid].cmt2 <= TRUE;
+   	tMemory1();
 	end
 
 MEMORY1c:
   if (rob[membufo.rid].iav && rob[membufo.rid].ibv && rob[membufo.rid].icv && rob[membufo.rid].idv)
   	mgoto (MEMORY1d);
+  // Need a cycle for AGEN
 MEMORY1d:
+	mgoto(MEMORY1e);
+MEMORY1e:
 	begin
   	/*
     if (membufo.ir[7:0]==LINK) begin
@@ -1762,18 +1864,24 @@ MEMORY1d:
    		mgoto (TLB1);
     end
     else if (membufo.ir[7:0]==LEA) begin
-      rob[membufo.rid].res <= ea;
+      rob[membufo.rid].res.val <= ea;
+      rob[membufo.rid].res.tag <= TAG_PTR;
       rob[membufo.rid].cmt <= TRUE;
-      mgoto (MEMORY1);
+      rob[membufo.rid].cmt2 <= TRUE;
+    	tMemory1();
     end
     else begin
+    	// If speculated loads are not enabled then they must occur at the
+    	// head of the list.
+    	if (membufo.ir.opcode==LDx && membufo.rid != rob_head && !sple)
+    		mgoto (MEMORY1d);
     	// Holding pattern until store is at head of list
     	// Prevents the scenario of having an instruction before the store
     	// causing an exception.
-    	if (membufo.ir[7:0]==STx && membufo.rid != rob_head)
-    		mgoto (MEMORY1c);
+    	else if (membufo.ir.opcode==STx && membufo.rid != rob_head)
+    		mgoto (MEMORY1d);
     	else begin
-      tEA();
+      tEA(ea);
       xlaten <= TRUE;
 `ifdef CPU_B128
       sel <= selx << ea[3:0];
@@ -1800,10 +1908,25 @@ MEMORY2:
   end
 MEMORY_KEYCHK1:
   begin
-    mgoto (MEMORY3);
+  	if (!kyhit)
+  		mgosub(KYLD);
+  	else begin
+  		mgoto (MEMORY2b);
+  		for (n = 0; n < 8; n = n + 1)
+  			if (kyut == keys[n] || kyut==20'd0)
+  				mgoto(MEMORY3);
+  	end
     if (d_cache)
       tPMAEA();
   end
+MEMORY2b:
+	begin
+    rob[membufo.rid].cause <= 16'h8031;	// KEY fault
+    rob[membufo.rid].cmt <= TRUE;
+    rob[membufo.rid].cmt2 <= TRUE;
+	  badaddr[3'd5] <= ea;
+	  tMemory1();
+	end
 MEMORY3:
   begin
     xlaten <= FALSE;
@@ -1812,6 +1935,9 @@ MEMORY3:
 		if (tlbmiss) begin
 	    rob[membufo.rid].cause <= 16'h8004;
   	  badaddr[3'd5] <= ea;
+	    rob[membufo.rid].cmt <= TRUE;
+  	  rob[membufo.rid].cmt2 <= TRUE;
+  	  tMemory1();
   	end
     else
 `endif    
@@ -1842,7 +1968,7 @@ MEMORY3:
       STx:	we_o <= HIGH;
       default:  ;
       endcase
-      dadr <= adr_o;
+//      dadr <= adr_o;
     end
   end
 MEMORY4:
@@ -1852,9 +1978,9 @@ MEMORY4:
       icvalid1[adr_o[pL1msb:6]] <= 1'b0;
       icvalid2[adr_o[pL1msb:6]] <= 1'b0;
       icvalid3[adr_o[pL1msb:6]] <= 1'b0;
-      mgoto (MEMORY1);
+    	tMemory1();
     end
-    else if (dhit) begin
+    else if (dce & dhit) begin
   		case(1'b1)
   		dhit1a:	datil <= dcache0[dadr[pL1msb:6]];
   		dhit1b:	datil <= dcache1[dadr[pL1msb:6]];
@@ -1892,19 +2018,20 @@ MEMORY5:
     if (|sel[`SELH])
       mgoto (MEMORY6);
     else begin
-      case(membufo.ir[7:0])
+      case(membufo.ir.opcode)
       LDx:
       	begin
-      		if (dhit)
+      		if (dce & dhit)
       			dati <= datil >> {adr_o[5:3],6'b0};
 	        mgoto (DATA_ALIGN);
       	end
 	    STx://,`FSTO,`PSTO,
 	    	begin
-	    		if (membufo.ir[47:44]==4'd7) begin	// STPTR
+	    		if (membufo.ir.sz==4'd7) begin	// STPTR
 			    	if (ea==32'd0) begin
 			    	 	rob[membufo.rid].cmt <= TRUE;
-			    		mgoto (MEMORY1);
+			    	 	rob[membufo.rid].cmt2 <= TRUE;
+				    	tMemory1();
 			    	end
 			    	else begin
 			    		shr_ma <= TRUE;
@@ -1914,7 +2041,8 @@ MEMORY5:
 	    		end
 	    		else begin
 			    	rob[membufo.rid].cmt <= TRUE;
-		      	mgoto (MEMORY1);
+		    	 	rob[membufo.rid].cmt2 <= TRUE;
+			    	tMemory1();
 		      end
 	    	end
       default:
@@ -1930,7 +2058,7 @@ MEMORY6:
     mgoto (MEMORY7);
 `endif
     xlaten <= TRUE;
-    tEA();
+    tEA(ea);
   end
 MEMORY6a:
   mgoto (MEMORY7);
@@ -1938,13 +2066,20 @@ MEMORY7:
   mgoto (MEMORY_KEYCHK2);
 MEMORY_KEYCHK2:
   begin
-    mgoto (MEMORY8);
+  	if (!kyhit)
+  		mgosub(KYLD);
+  	else begin
+  		mgoto (MEMORY2b);
+  		for (n = 0; n < 8; n = n + 1)
+  			if (kyut == keys[n] || kyut==20'd0)
+  				mgoto(MEMORY8);
+  	end
     tPMAEA();
   end
 MEMORY8:
   begin
     xlaten <= FALSE;
-    dadr <= adr_o;
+//    dadr <= adr_o;
     mgoto (MEMORY9);
 `ifdef ANY1_TLB    
 		if (tlbmiss) begin
@@ -1958,7 +2093,7 @@ MEMORY8:
 		else
 `endif
 		begin
-			if (dhit & d_ld) begin
+			if (dhit & d_ld & dce) begin
 				cyc_o <= LOW;
 				stb_o <= LOW;
 				sel_o <= 1'b0;
@@ -1971,7 +2106,7 @@ MEMORY8:
     end
   end
 MEMORY9:
-  if (dhit) begin
+  if (dhit & dce) begin
 		case(1'b1)
 		dhit1a:	datil <= dcache0[dadr[pL1msb:6]];
 		dhit1b:	datil <= dcache1[dadr[pL1msb:6]];
@@ -2027,7 +2162,7 @@ MEMORY10:
       case(membufo.ir[7:0])
       LDx:
       	begin
-      		if (dhit)
+      		if (dhit & dce)
       			dati <= datil >> {adr_o[5:3],6'b0};
 	        mgoto (DATA_ALIGN);
       	end
@@ -2036,7 +2171,8 @@ MEMORY10:
 	    		if (membufo.ir[47:44]==4'd7) begin	// STPTR
 			    	if (ea==32'd0) begin
 			    	 	rob[membufo.rid].cmt <= TRUE;
-			    		mgoto (MEMORY1);
+			    	 	rob[membufo.rid].cmt2 <= TRUE;
+				    	tMemory1();
 			    	end
 			    	else begin
 			    		shr_ma <= TRUE;
@@ -2046,7 +2182,8 @@ MEMORY10:
 	    		end
 	    		else begin
 			    	rob[membufo.rid].cmt <= TRUE;
-		      	mgoto (MEMORY1);
+			    	rob[membufo.rid].cmt2 <= TRUE;
+				   	tMemory1();
 		      end
 	    	end
       default:
@@ -2062,7 +2199,7 @@ MEMORY11:
     mgoto (MEMORY12);
 `endif
     xlaten <= TRUE;
-    tEA();
+    tEA(ea);
   end
 MEMORY11a:
   mgoto (MEMORY12);
@@ -2070,13 +2207,20 @@ MEMORY12:
   mgoto (MEMORY_KEYCHK3);
 MEMORY_KEYCHK3:
   begin
-    mgoto (MEMORY13);
+  	if (!kyhit)
+  		mgosub(KYLD);
+  	else begin
+  		mgoto (MEMORY2b);
+  		for (n = 0; n < 8; n = n + 1)
+  			if (kyut == keys[n] || kyut==20'd0)
+  				mgoto(MEMORY13);
+  	end
     tPMAEA();
   end
 MEMORY13:
   begin
     xlaten <= FALSE;
-    dadr <= adr_o;
+//    dadr <= adr_o;
     mgoto (MEMORY14);
 `ifdef ANY1_TLB    
 		if (tlbmiss) begin
@@ -2103,7 +2247,7 @@ MEMORY13:
     end
   end
 MEMORY14:
-  if (dhit) begin
+  if (dhit & dce) begin
 		case(1'b1)
 		dhit1a:	datil <= dcache0[dadr[pL1msb:6]];
 		dhit1b:	datil <= dcache1[dadr[pL1msb:6]];
@@ -2136,7 +2280,7 @@ MEMORY15:
     case(membufo.ir[7:0])
     LDx:
     	begin
-    		if (dhit)
+    		if (dhit & dce)
     			dati <= datil >> {adr_o[5:3],6'b0};
         mgoto (DATA_ALIGN);
     	end
@@ -2145,7 +2289,8 @@ MEMORY15:
     		if (membufo.ir[47:44]==4'd7) begin	// STPTR
 		    	if (ea==32'd0) begin
 		    	 	rob[membufo.rid].cmt <= TRUE;
-		    		mgoto (MEMORY1);
+		    	 	rob[membufo.rid].cmt2 <= TRUE;
+			    	tMemory1();
 		    	end
 		    	else begin
 		    		shr_ma <= TRUE;
@@ -2155,7 +2300,8 @@ MEMORY15:
     		end
     		else begin
 		    	rob[membufo.rid].cmt <= TRUE;
-	      	mgoto (MEMORY1);
+	    	 	rob[membufo.rid].cmt2 <= TRUE;
+		    	tMemory1();
 	      end
     	end
     default:
@@ -2164,21 +2310,22 @@ MEMORY15:
   end
 DATA_ALIGN:
   begin
-  	if (d_ld & ~dhit & dcachable)
+  	if (d_ld & ~dhit & dcachable & dce)
   		mgoto (DFETCH2);
   	else
-    	mgoto (MEMORY1);
+    	tMemory1();
     rob[membufo.rid].cmt <= TRUE;
+ 	 	rob[membufo.rid].cmt2 <= TRUE;
     case(membufo.ir[7:0])
     LDx:
     	begin
     		rob[membufo.rid].rfwr <= TRUE;
 	    	case(membufo.ir[47:44])
-	    	4'd0:	rob[membufo.rid].res <= {{56{datis[7] & membufo.ir[40]}},datis[7:0]};
-	    	4'd1:	rob[membufo.rid].res <= {{48{datis[15] & membufo.ir[40]}},datis[15:0]};
-	    	4'd2:	rob[membufo.rid].res <= {{32{datis[31] & membufo.ir[40]}},datis[31:0]};
-	    	4'd3:	rob[membufo.rid].res <= datis[63:0];
-	    	4'd7:	rob[membufo.rid].res <= datis[63:0];
+	    	4'd0:	rob[membufo.rid].res.val <= {{56{datis[7] & membufo.ir[40]}},datis[7:0]};
+	    	4'd1:	rob[membufo.rid].res.val <= {{48{datis[15] & membufo.ir[40]}},datis[15:0]};
+	    	4'd2:	rob[membufo.rid].res.val <= {{32{datis[31] & membufo.ir[40]}},datis[31:0]};
+	    	4'd3:	rob[membufo.rid].res.val <= datis[63:0];
+	    	4'd7:	begin rob[membufo.rid].res.val <= datis[63:0]; rob[membufo.rid].res.tag <= TAG_PTR; end
 	    	default:	;
 	    	endcase
     	end
@@ -2382,9 +2529,167 @@ DFETCH5:
 `ifdef CPU_B32
     if (dcnt[3:0]==4'd15)
 `endif
-			mgoto (MEMORY1);
+    	tMemory1();
 		else
       mgoto (DFETCH3);
+    end
+  end
+
+KYLD:
+  begin
+    tEA(keytbl);
+`ifdef ANY1_TLB
+			mgoto (KYLD2);
+`else
+    	mgoto(KYLD3);
+`endif
+  end
+KYLD2:
+	mgoto (KYLD3);
+KYLD3:
+  begin
+ 		xlaten <= FALSE;
+	  begin
+  		mgoto (KYLD3a);
+`ifdef ANY1_TLB  		
+  		if (tlbmiss) begin
+		    rob[membufo.rid].cause <= 16'h8004;
+			  badaddr[3'd4] <= adr_o;
+			end
+			else
+`endif			
+			begin
+			  // First time in, set to miss address, after that increment
+			  daccess <= TRUE;
+`ifdef CPU_B128
+        if (!daccess)
+          dadr <= {adr_o[AWID-1:5],5'h0};
+        else begin
+          dadr <= {dadr[AWID-1:4],4'h0} + 5'h10;
+        end
+`endif
+`ifdef CPU_B64
+        if (!daccess)
+          dadr <= {adr_o[AWID-1:5],5'h0}
+        else begin
+          dadr <= {dadr[AWID-1:3],3'h0} + 4'h8;
+        end
+`endif
+`ifdef CPU_B32
+        if (!daccess)
+          dadr <= {adr_o[AWID-1:5],5'h0};
+        else begin
+          dadr <= {dadr[AWID-1:2],2'h0} + 3'h4;
+        end
+`endif			
+      end
+	  end
+  end
+KYLD3a:
+  begin
+    cyc_o <= HIGH;
+		stb_o <= HIGH;
+`ifdef CPU_B128
+    sel_o <= 16'hFFFF;
+`endif
+`ifdef CPU_B64
+    sel_o <= 8'hFF;
+`endif
+`ifdef CPU_B32
+		sel_o <= 4'hF;
+`endif
+//		adr_o <= dadr;
+    mgoto (KYLD4);
+  end
+KYLD4:
+  begin
+    if (ack_i) begin
+      cyc_o <= LOW;
+      stb_o <= LOW;
+      vpa_o <= LOW;
+      sel_o <= 1'h0;
+`ifdef CPU_B128
+      case(dcnt[3:2])
+      2'd0: dci[127:0] <= dat_i;
+      2'd1: dci[255:128] <= dat_i;
+      2'd2: dci[383:256] <= dat_i;
+      2'd3: dci[511:384] <= dat_i;
+      endcase
+      mgoto (KYLD5);
+`endif
+`ifdef CPU_B64
+      case(dcnt[3:1])
+      3'd0: dci[63:0] <= dat_i;
+      3'd1: dci[127:64] <= dat_i;
+      3'd2: dci[191:128] <= dat_i;
+      3'd3; dci[255:192] <= dat_i;
+      3'd4:	dci[319:256] <= dat_i;
+      3'd5:	dci[383:320] <= dat_i;
+      3'd6:	dci[447:384] <= dat_i;
+      3'd7:	dci[511:448] <= dat_i;
+      endcase
+      mgoto (KYLD5);
+`endif
+`ifdef CPU_B32
+      case(dcnt[3:0])
+      4'd0: dci[31:0] <= dat_i;
+      4'd1: dci[63:32] <= dat_i;
+      4'd2: dci[95:64] <= dat_i;
+      4'd3: dci[127:96] <= dat_i;
+      4'd4: dci[159:128] <= dat_i;
+      4'd5: dci[191:160] <= dat_i;
+      4'd6; dci[223:192] <= dat_i;
+      4'd7: dci[255:224] <= dat_i;
+      endcase
+      mgoto (KYLD5);
+`endif
+    end
+  end
+KYLD5:
+  begin
+`ifdef CPU_B128
+    if (dcnt[3:2]==2'd3) begin
+    	kytag[dadr[11:6]] <= dadr[AWID-1:6];
+    	kyline[dadr[11:6]] <= dci;
+    	kyv[dadr[11:6]] <= 1'b1;
+		end
+`endif
+`ifdef CPU_B64
+    if (dcnt[3:1]==3'd7) begin
+    	kytag[dadr[11:6]] <= dadr[AWID-1:6];
+    	kyline[dadr[11:6]] <= dci;
+    	kyv[dadr[11:6]] <= 1'b1;
+		end
+`endif
+`ifdef CPU_B32
+    if (dcnt[3:0]==4'd15) begin
+    	kytag[dadr[11:6]] <= dadr[AWID-1:6];
+    	kyline[dadr[11:6]] <= dci;
+    	kyv[dadr[11:6]] <= 1'b1;
+		end
+`endif
+    if (~ack_i) begin
+`ifdef CPU_B128
+      dcnt <= dcnt + 4'd4;
+`endif
+`ifdef CPU_B64
+      dcnt <= dcnt + 4'd2;
+`endif
+`ifdef CPU_B32
+      dcnt <= dcnt + 2'd1;
+`endif
+`ifdef CPU_B128
+    if (dcnt[3:2]==2'd3)
+`endif
+`ifdef CPU_B64
+    if (dcnt[3:1]==3'd7)
+`endif
+`ifdef CPU_B32
+    if (dcnt[3:0]==4'd15)
+`endif
+    	mret();
+		else
+      mgoto (KYLD3);
     end
   end
 default:	;
@@ -2410,86 +2715,102 @@ default:	;
 	// and the writeback stage.
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	$display("Writeback:%d",wbStream);
-	if ((rob[rob_head].Stream == wbStream + rob[rob_head].Stream_inc) && rob[rob_head].cmt==TRUE) begin
-		wbStream <= wbStream + rob[rob_head].Stream_inc;
-		begin
-			$display("ip:%h  ir:%h", rob[rob_head].ip, rob[rob_head].ir);
-			$display("Rt:%d  res:%h", rob[rob_head].Rt, rob[rob_head].res);
-			if (rob[rob_head].ui==TRUE) begin
-				status[4][4] <= 1'b0;	// disable further interrupts
-				eip <= rob[rob_head].ip;
-				pmStack <= {pmStack[27:0],3'b100,1'b0};
-				cause[3'd4] <= FLT_UNIMP;
-				f2a_rst <= TRUE;
-				a2d_rst <= TRUE;
-				d2x_rst <= TRUE;
-				wbStream <= wbStream + 2'd1;
-				wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
-				wb_redirecti.current_ip <= rob[rob_head].ip;
-				wb2if_wr <= TRUE;
-				//tBackupRegfileSrc(wbStream + rob[rob_head].Stream_inc);
-			end
-			else if (rob[rob_head].cause!=16'h00) begin
-				status[4][4] <= 1'b0;	// disable further interrupts
-				eip <= rob[rob_head].ip;
-				pmStack <= {pmStack[27:0],3'b100,1'b0};
-				cause[3'd4] <= rob[rob_head].cause;
-				f2a_rst <= TRUE;
-				a2d_rst <= TRUE;
-				d2x_rst <= TRUE;
-				wbStream <= wbStream + 2'd1;
-				wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
-				wb_redirecti.current_ip <= rob[rob_head].ip;
-				wb2if_wr <= TRUE;
-				//tBackupRegfileSrc(wbStream + rob[rob_head].Stream_inc);
-			end
-			else begin
-				case(rob[rob_head].ir[7:0])
-				SYS:
-					case(rob[rob_head].ir[57:50])
-					CSR:
-						case(rob[rob_head].ir[60:58])
-						CSRW:	tWriteCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
-						CSRS:	tSetbitCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
-						CSRC:	tClrbitCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
-						CSRRW:	tWriteCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
+	if (rob[rob_head].Stream == wbStream + rob[rob_head].Stream_inc) begin
+		if (rob[rob_head].cmt==TRUE) begin
+			wbStream <= wbStream + rob[rob_head].Stream_inc;
+			begin
+				$display("ip:%h  ir:%h", rob[rob_head].ip, rob[rob_head].ir);
+				$display("Rt:%d  res:%h", rob[rob_head].Rt, rob[rob_head].res);
+				if (rob[rob_head].ui==TRUE) begin
+					status[4][4] <= 1'b0;	// disable further interrupts
+					eip <= rob[rob_head].ip;
+					pmStack <= {pmStack[27:0],3'b100,1'b0};
+					cause[3'd4] <= FLT_UNIMP;
+					f2a_rst <= TRUE;
+					a2d_rst <= TRUE;
+					d2x_rst <= TRUE;
+					wbStream <= wbStream + 2'd1;
+					wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
+					wb_redirecti.current_ip <= rob[rob_head].ip;
+					wb2if_wr <= TRUE;
+					//tBackupRegfileSrc(wbStream + rob[rob_head].Stream_inc);
+				end
+				else if (rob[rob_head].cause!=16'h00) begin
+					status[4][4] <= 1'b0;	// disable further interrupts
+					eip <= rob[rob_head].ip;
+					pmStack <= {pmStack[27:0],3'b100,1'b0};
+					cause[3'd4] <= rob[rob_head].cause;
+					f2a_rst <= TRUE;
+					a2d_rst <= TRUE;
+					d2x_rst <= TRUE;
+					wbStream <= wbStream + 2'd1;
+					wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
+					wb_redirecti.current_ip <= rob[rob_head].ip;
+					wb2if_wr <= TRUE;
+					//tBackupRegfileSrc(wbStream + rob[rob_head].Stream_inc);
+				end
+				else begin
+					case(rob[rob_head].ir.opcode)
+					SYS:
+						case(rob[rob_head].ir.func)
+						CSR:
+							case(rob[rob_head].ir.sz)
+							CSRW:	tWriteCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
+							CSRS:	tSetbitCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
+							CSRC:	tClrbitCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
+							CSRRW:	tWriteCSR(rob[rob_head].ia,rob[rob_head].ir[39:24]);
+							default:	;
+							endcase
+						RTE:	
+							begin
+								sema[0] <= 1'b0;
+								wb_redirecti.redirect_ip <= eip + rob[rob_head].ia;
+								wb_redirecti.current_ip <= rob[rob_head].ip;
+								wb2if_wr <= TRUE;
+								f2a_rst <= TRUE;
+								a2d_rst <= TRUE;
+								d2x_rst <= TRUE;
+								wbStream <= wbStream + 2'd1;
+								pmStack <= {8'h9,pmStack[31:4]};
+								status[4][pmStack[3:1]] <= pmStack[0];
+								status[3][pmStack[3:1]] <= pmStack[0];
+								status[2][pmStack[3:1]] <= pmStack[0];
+								status[1][pmStack[3:1]] <= pmStack[0];
+								status[0][pmStack[3:1]] <= pmStack[0];
+								//tBackupRegfileSrc(wbStream + rob[rob_head].Stream_inc);
+							end
+						TLBRW:	regfile[rob[rob_head].Rt] <= rob[rob_head].res;
 						default:	;
 						endcase
-					RTE:	
-						begin
-							sema[0] <= 1'b0;
-							wbRedirectIp <= eip + rob[rob_head].ia;
-							wb2if_wr <= TRUE;
-							f2a_rst <= TRUE;
-							a2d_rst <= TRUE;
-							d2x_rst <= TRUE;
-							wbStream <= wbStream + 2'd1;
-							pmStack <= {8'h9,pmStack[31:4]};
-							status[4][pmStack[3:1]] <= pmStack[0];
-							status[3][pmStack[3:1]] <= pmStack[0];
-							status[2][pmStack[3:1]] <= pmStack[0];
-							status[1][pmStack[3:1]] <= pmStack[0];
-							status[0][pmStack[3:1]] <= pmStack[0];
-							//tBackupRegfileSrc(wbStream + rob[rob_head].Stream_inc);
+					default:
+						if (rob[rob_head].rfwr==TRUE) begin
+							regfile[rob[rob_head].Rt[5:0]] <= rob[rob_head].res;
+							regfilesrc[rob[rob_head].Rt[5:0]].rf <= 1'h0;
 						end
-					TLBRW:	regfile[rob[rob_head].Rt] <= rob[rob_head].res;
-					default:	;
 					endcase
-				default:
-					if (rob[rob_head].rfwr==TRUE) begin
-						regfile[rob[rob_head].Rt[5:0]] <= rob[rob_head].res;
-						regfilesrc[rob[rob_head].Rt[5:0]].rf <= 1'h0;
-					end
-				endcase
+				end
+				begin
+					rob[rob_head].v <= INV;
+					rob[rob_head].ui <= INV;
+					rob[rob_head].cause <= FLT_NONE;
+					rob[rob_head].cmt <= FALSE;
+					rob[rob_head].rfwr <= FALSE;
+					rob[rob_head].jump <= FALSE;
+					rob_head <= rob_head + 2'd1;
+				end
 			end
+		end
+	end
+	else begin
+		if (rob[rob_head].cmt) begin
 			rob[rob_head].v <= INV;
 			rob[rob_head].ui <= INV;
 			rob[rob_head].cause <= FLT_NONE;
 			rob[rob_head].cmt <= FALSE;
 			rob[rob_head].rfwr <= FALSE;
 			rob[rob_head].jump <= FALSE;
-			rob[rob_head].branch <= FALSE;
-			rob_head <= rob_head + 2'd1;
+			if (rob_head != rob_tail)
+				rob_head <= rob_head + 2'd1;
 		end
 	end
 /*
@@ -2505,23 +2826,23 @@ default:	;
 */
 	for (n = 0; n < 64; n = n + 1) begin
 		for (m = 0; m < 64; m = m + 1) begin
-			if (!rob[n].iav && rob[n].ias.rid==m && rob[m].cmt) begin
+			if (!rob[n].iav && rob[n].ias.rid==m && rob[m].cmt2) begin
 				rob[n].iav <= TRUE;
 				rob[n].ia <= rob[m].res;
 			end
-			if (!rob[n].ibv && rob[n].ibs.rid==m && rob[m].cmt) begin
+			if (!rob[n].ibv && rob[n].ibs.rid==m && rob[m].cmt2) begin
 				rob[n].ibv <= TRUE;
 				rob[n].ib <= rob[m].res;
 			end
-			if (!rob[n].icv && rob[n].ics.rid==m && rob[m].cmt) begin
+			if (!rob[n].icv && rob[n].ics.rid==m && rob[m].cmt2) begin
 				rob[n].icv <= TRUE;
 				rob[n].ic <= rob[m].res;
 			end
-			if (!rob[n].idv && rob[n].ids.rid==m && rob[m].cmt) begin
+			if (!rob[n].idv && rob[n].ids.rid==m && rob[m].cmt2) begin
 				rob[n].idv <= TRUE;
 				rob[n].id <= rob[m].res;
 			end
-			if (!rob[n].itv && rob[n].its.rid==m && rob[m].cmt) begin
+			if (!rob[n].itv && rob[n].its.rid==m && rob[m].cmt2) begin
 				rob[n].itv <= TRUE;
 			end
 		end
@@ -2530,7 +2851,7 @@ default:	;
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	// Decode
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-	if (a2d_out.Stream == dcStream && a2d_v)// && !dcStall)
+	if (a2d_out.Stream == dcStream && pop_a2dd)// && !dcStall)
 	if (decbuf.rfwr) begin
 		regfilesrc[decbuf.Rt[5:0]].rf <= 1'b1;
 		regfilesrc[decbuf.Rt[5:0]].rid <= decbuf.rid;
@@ -2605,6 +2926,7 @@ MUL3:
 	begin
 		rob[mulreco.rid].res <= mul_sign ? -mul_p[63:0] : mul_p;
 		rob[mulreco.rid].cmt <= TRUE;
+		rob[mulreco.rid].cmt2 <= TRUE;
 		case(mulreco.ir[7:0])
 		R3:
 			begin
@@ -2692,6 +3014,7 @@ DIV4:
 	if (div_done) begin
 		rob[divreco.rid].res <= div_sign ? -div_q[63:0] : div_q;
 		rob[divreco.rid].cmt <= TRUE;
+		rob[divreco.rid].cmt2 <= TRUE;
 		case(divreco.ir[7:0])
 		R3:
 			begin
@@ -2712,6 +3035,37 @@ end	// clock domain
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 // Support tasks
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+task tMemory1;
+begin
+	iaccess <= FALSE;
+	daccess <= FALSE;
+  icnt <= 4'd0;
+  dcnt <= 4'd0;
+	if (ihit) begin
+		if (!x2m_empty) begin
+			x2m_rd <= TRUE;
+			zero_data <= FALSE;
+			mgoto (MEMORY1c);
+		end
+	end
+	else begin
+`ifdef ANY1_TLB
+    mgoto (IFETCH2a);
+`else
+    mgoto (IFETCH3);
+`endif
+`ifdef VICTIM_CACHE
+		for (n = 0; n < 5; n = n + 1) begin
+			if (ivtag[n]==iadr[AWID-1:6] && ivvalid[n]) begin
+				tLICache(lfsr_o[1:0],ivtag[n],ivcache[n],ivvalid[n]);
+	    	mgoto (MEMORY1);
+    	end
+		end
+`endif
+  end
+end
+endtask
 
 task tBackupRegfileSrc;
 input [3:0] ndx;
@@ -2751,53 +3105,58 @@ end
 endtask
 
 task tReadCSR;
-output reg [63:0] res;
+output sValue res;
 input [15:0] regno;
 begin
+	res.tag <= TAG_INT;
 	if (regno[14:12] <= omode) begin
 		casez(regno[15:0])
-		CSR_SEMA: res <= sema;
-		CSR_ASID:	res <= ASID;
-		CSR_MBADADDR:	res <= badaddr[regno[14:12]];
-		CSR_TICK:	res <= tick;
-		CSR_CAUSE:	res <= cause[regno[14:12]];
+		CSR_DCR0:	res.val <= cr0;
+		CSR_MCR0:	res.val <= cr0;
+		CSR_SEMA: res.val <= sema;
+		CSR_ASID:	res.val <= ASID;
+		CSR_MBADADDR:	res.val <= badaddr[regno[14:12]];
+		CSR_TICK:	res.val <= tick;
+		CSR_CAUSE:	res.val <= cause[regno[14:12]];
 		CSR_MTVEC,CSR_DTVEC:
-			res <= tvec[regno[2:0]];
-		CSR_DPMSTACK:	res <= pmStack;
-		CSR_MPMSTACK:	res <= pmStack;
-		CSR_DEIP: res <= eip;
-		CSR_MEIP: res <= eip;
-		CSR_TIME:	res <= wc_time;
-		CSR_MSTATUS:	res <= status[4];
-		CSR_DSTATUS:	res <= status[4];
-		default:	res <= 64'd0;
+			res.val <= tvec[regno[2:0]];
+		CSR_DPMSTACK:	res.val <= pmStack;
+		CSR_MPMSTACK:	res.val <= pmStack;
+		CSR_DEIP: res.val <= eip;
+		CSR_MEIP: res.val <= eip;
+		CSR_TIME:	res.val <= wc_time;
+		CSR_MSTATUS:	res.val <= status[4];
+		CSR_DSTATUS:	res.val <= status[4];
+		default:	res.val <= 60'd0;
 		endcase
 	end
 	else
-		res <= 64'd0;
+		res <= 60'd0;
 end
 endtask
 
 task tWriteCSR;
-input [63:0] val;
+input sValue val;
 input [15:0] regno;
 begin
 	if (regno[14:12] <= omode) begin
 		casez(regno[15:0])
-		CSR_SEMA:		sema <= val;
-		CSR_ASID: 	ASID <= val;
-		CSR_MBADADDR:	badaddr[regno[14:12]] <= val;
-		CSR_CAUSE:	cause[regno[14:12]] <= val;
+		CSR_DCR0:		cr0 <= val.val;
+		CSR_MCR0:		cr0 <= val.val;
+		CSR_SEMA:		sema <= val.val;
+		CSR_ASID: 	ASID <= val.val;
+		CSR_MBADADDR:	badaddr[regno[14:12]] <= val.val;
+		CSR_CAUSE:	cause[regno[14:12]] <= val.val;
 		CSR_MTVEC,CSR_DTVEC:
-			tvec[regno[2:0]] <= val;
-		CSR_DPMSTACK:	pmStack <= val;
-		CSR_MPMSTACK:	pmStack <= val;
-		CSR_DEIP:	eip <= val;
-		CSR_MEIP:	eip <= val;
-		CSR_DTIME:	begin wc_time_dat <= val; ld_time <= TRUE; end
-		CSR_MTIME:	begin wc_time_dat <= val; ld_time <= TRUE; end
-		CSR_DSTATUS:	status[4] <= val;
-		CSR_MSTATUS:	status[4] <= val;
+			tvec[regno[2:0]] <= val.val;
+		CSR_DPMSTACK:	pmStack <= val.val;
+		CSR_MPMSTACK:	pmStack <= val.val;
+		CSR_DEIP:	eip <= val.val;
+		CSR_MEIP:	eip <= val.val;
+		CSR_DTIME:	begin wc_time_dat <= val.val; ld_time <= TRUE; end
+		CSR_MTIME:	begin wc_time_dat <= val.val; ld_time <= TRUE; end
+		CSR_DSTATUS:	status[4] <= val.val;
+		CSR_MSTATUS:	status[4] <= val.val;
 		default:	;
 		endcase
 	end
@@ -2805,16 +3164,18 @@ end
 endtask
 
 task tSetbitCSR;
-input [63:0] val;
+input sValue val;
 input [15:0] regno;
 begin
 	if (regno[14:12] <= omode) begin
 		casez(regno[15:0])
-		CSR_SEMA:			sema[val[5:0]] <= 1'b1;
-		CSR_DPMSTACK:	pmStack <= pmStack | val;
-		CSR_MPMSTACK:	pmStack <= pmStack | val;
-		CSR_DSTATUS:	status[4] <= status[4] | val;
-		CSR_MSTATUS:	status[4] <= status[4] | val;
+		CSR_DCR0:			cr0[val.val[5:0]] <= 1'b1;
+		CSR_MCR0:			cr0[val.val[5:0]] <= 1'b1;
+		CSR_SEMA:			sema[val.val[5:0]] <= 1'b1;
+		CSR_DPMSTACK:	pmStack <= pmStack | val.val;
+		CSR_MPMSTACK:	pmStack <= pmStack | val.val;
+		CSR_DSTATUS:	status[4] <= status[4] | val.val;
+		CSR_MSTATUS:	status[4] <= status[4] | val.val;
 		default:	;
 		endcase
 	end
@@ -2822,16 +3183,18 @@ end
 endtask
 
 task tClrbitCSR;
-input [63:0] val;
+input sValue val;
 input [15:0] regno;
 begin
 	if (regno[14:12] <= omode) begin
 		casez(regno[15:0])
-		CSR_SEMA:			sema[val[5:0]] <= 1'b0;
-		CSR_DPMSTACK:	pmStack <= pmStack & ~val;
-		CSR_MPMSTACK:	pmStack <= pmStack & ~val;
-		CSR_DSTATUS:	status[4] <= status[4] & ~val;
-		CSR_MSTATUS:	status[4] <= status[4] & ~val;
+		CSR_DCR0:			cr0[val.val[5:0]] <= 1'b0;
+		CSR_MCR0:			cr0[val.val[5:0]] <= 1'b0;
+		CSR_SEMA:			sema[val.val[5:0]] <= 1'b0;
+		CSR_DPMSTACK:	pmStack <= pmStack & ~val.val;
+		CSR_MPMSTACK:	pmStack <= pmStack & ~val.val;
+		CSR_DSTATUS:	status[4] <= status[4] & ~val.val;
+		CSR_MSTATUS:	status[4] <= status[4] & ~val.val;
 		default:	;
 		endcase
 	end
@@ -2887,15 +3250,16 @@ end
 endtask
 
 task tEA;
+input Address iea;
 begin
   if (MUserMode && d_st && !ea_acr[1])
     rob[membufo.rid].cause <= 16'h8032;
   else if (MUserMode && d_ld && !ea_acr[2])
     rob[membufo.rid].cause <= 16'h8033;
-	if (!MUserMode || ea[AWID-1:24]=={AWID-24{1'b1}})
-		dadr <= ea;
+	if (!MUserMode || iea[AWID-1:24]=={AWID-24{1'b1}})
+		dadr <= iea;
 	else
-		dadr <= ea[AWID-4:0] + {sregfile[segsel][AWID-1:4],`SEG_SHIFT};
+		dadr <= iea[AWID-4:0] + {sregfile[segsel][AWID-1:4],`SEG_SHIFT};
 end
 endtask
 
@@ -2946,6 +3310,20 @@ task mgoto;
 input [5:0] nst;
 begin
 	mstate <= nst;
+end
+endtask
+
+task mgosub;
+input [5:0] nst;
+begin
+	mstk_state <= mstate;
+	mstate <= nst;
+end
+endtask
+
+task mret();
+begin
+	mstate <= mstk_state;
 end
 endtask
 

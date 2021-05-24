@@ -29,9 +29,9 @@ input rst;
 input clk;
 input en;
 input xisBranch;
-input [`AMSB:0] xip;
+input [31:0] xip;
 input takb;
-input [`AMSB:0] ip;
+input [31:0] ip;
 output reg predict_taken;
 
 integer n;
@@ -39,6 +39,9 @@ integer n;
 reg wrhist;
 reg [2:0] gbl_branch_hist;
 reg [1:0] branch_history_table [511:0];
+always @*
+	wrhist <= xisBranch;
+
 // For simulation only, initialize the history table to zeros.
 // In the real world we don't care.
 initial begin
