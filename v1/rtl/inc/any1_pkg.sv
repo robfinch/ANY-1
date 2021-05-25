@@ -26,6 +26,9 @@ package any1_pkg;
 //`define VICTIM_CACHE	1'b1
 `define ANY1_TLB	1'b1
 
+// Uncomment the following to support key checking on memory access
+//`define SUPPORT_KEYCHK		1'b1
+
 parameter ROB_ENTRIES = 64;
 
 parameter TRUE  = 1'b1;
@@ -42,8 +45,8 @@ parameter TAG_INT		= 4'h1;
 parameter TAG_FLT		= 4'h2;
 parameter TAG_PST		= 4'h6;
 parameter TAG_BOOL	= 4'h7;
-parameter TAG_U20		= 4'h8;
-parameter TAG_U10		= 4'h9;
+parameter TAG_U8		= 4'h8;
+parameter TAG_U21		= 4'h9;
 
 parameter OM_USER		= 3'd0;
 parameter OM_SUPER	= 3'd1;
@@ -59,7 +62,10 @@ parameter MUL		= 8'h06;
 parameter AND		= 8'h08;
 parameter OR		= 8'h09;
 parameter XOR		= 8'h0A;
+parameter MIN		= 8'h14;
+parameter MAX		= 8'h15;
 parameter PTRDIF	= 8'h18;
+parameter CHK		= 8'h22;
 parameter R2		= 8'h0C;
 parameter MULU	= 8'h0E;
 parameter MULH	= 8'h0F;
@@ -94,10 +100,12 @@ parameter MULFI	= 8'h15;
 parameter MULSUI= 8'h16;
 parameter PERM	= 8'h17;
 parameter U10NDX= 8'h1A;
+parameter BYTNDX= 8'h1A;
 parameter WYDNDX= 8'h1B;
 parameter BTFLD	=	8'h1C;
 
-parameter U20NDX= 8'h23;
+parameter CHKI	= 8'h22;
+parameter U21NDX= 8'h23;
 parameter EXTU	= 8'h24;
 parameter SEQI	= 8'h26;
 parameter SNEI	= 8'h27;
@@ -177,6 +185,7 @@ parameter FLT_FP_ASSIST = 8'h0E;
 parameter FLT_RESERVED = 8'h2F;
 */
 parameter FLT_NONE	= 8'h00;
+parameter FLT_CHK		= 8'h27;
 parameter FLT_IADR	= 8'h36;
 parameter FLT_UNIMP	= 8'h37;
 parameter FLT_NMI		= 8'hFE;
@@ -283,9 +292,9 @@ typedef struct packed
 
 typedef struct packed
 {
-	DataTag tag;
-	logic [59:0] val;
-} sValue;
+	//DataTag tag;
+	logic [63:0] val;
+} Value;
 
 typedef struct packed
 {
@@ -337,12 +346,13 @@ typedef struct packed
 	Instruction ir;
 	logic ui;							// unimplemented instruction
 	logic rfwr;						// register file write is required
+	logic is_vec;					// is a vector instruction
 	logic [7:0] Ra;
 	logic [7:0] Rb;
 	logic [7:0] Rc;
 	logic [7:0] Rd;
 	logic [7:0] Rt;
-	sValue imm;
+	Value imm;
 } sDecode;
 
 typedef struct packed
@@ -356,17 +366,17 @@ typedef struct packed
 	logic predict_taken;
 	logic ui;							// unimplemented instruction
 	logic rfwr;
-	sValue ia;
-	sValue ib;
-	sValue ic;
-	sValue id;
+	Value ia;
+	Value ib;
+	Value ic;
+	Value id;
 	logic iav;
 	logic ibv;
 	logic icv;
 	logic idv;
 	logic itv;
 	logic [7:0] Rt;
-	sValue imm;
+	Value imm;
 } sExecute;
 
 typedef struct packed
@@ -375,22 +385,23 @@ typedef struct packed
 	logic Stream_inc;
 	logic [5:0] rid;
 	Instruction ir;
-	sValue ia;
+	Value ia;
 	logic rfwr;
 	logic [7:0] Rt;
-	sValue res;
+	Value res;
 } sExecuteOut;
 
 typedef struct packed
 {
+	logic wr;
 	logic [5:0] Stream;
 	logic Stream_inc;
 	logic [5:0] rid;
 	Instruction ir;
-	sValue ia;
-	sValue ib;
-	sValue dato;
-	sValue imm;
+	Value ia;
+	Value ib;
+	Value dato;
+	Value imm;
 	logic rfwr;
 	logic [7:0] Rt;
 } sMemoryIO;
@@ -401,25 +412,26 @@ typedef struct packed
 	logic Stream_inc;
 	logic v;
 	logic issued;
-	logic cmt;
-	logic cmt2;
+	logic cmt;						// commit, clears as soon as committed
+	logic cmt2;						// sticky commit, clears when entry reassigned
 	logic dec;						// instruction decoded
 	Address ip;
 	Instruction ir;
 	logic ui;							// unimplemented instruction
 	logic jump;
 	Address jump_tgt;
-	logic [3:0] btag;
+	logic [3:0] btag;			// Branch tag
 	logic branch;
 	logic takb;
 	logic predict_taken;
 	logic rfwr;
 	logic [7:0] Rt;
-	sValue ia;
-	sValue ib;
-	sValue ic;
-	sValue id;
-	sValue imm;
+	logic [5:0] step;			// vector step
+	Value ia;
+	Value ib;
+	Value ic;
+	Value id;
+	Value imm;
 	logic iav;
 	logic ibv;
 	logic icv;
@@ -430,23 +442,25 @@ typedef struct packed
 	Rid ics;
 	Rid ids;
 	Rid its;
-	sValue res;
+	Value res;
 	logic [15:0] cause;
 } sReorderEntry;
 
 typedef struct packed
 {
+	logic wr;						// write to queue signal
 	logic [5:0] rid;
 	Instruction ir;
-	sValue a;
-	sValue b;
-	sValue c;
-	sValue d;
-	sValue imm;
+	Value a;
+	Value b;
+	Value c;
+	Value d;
+	Value imm;
 } sALUrec;
 
 typedef struct packed
 {
+	logic wr;
 	Address redirect_ip;
 	Address current_ip;
 } sRedirect;

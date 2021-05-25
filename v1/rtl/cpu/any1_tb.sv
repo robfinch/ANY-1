@@ -2,6 +2,7 @@ import any1_pkg::*;
 
 `define ADD1_INSN	{4'h1,32'h00000001,4'h00,8'h04,8'h04,ADDI}
 `define ADD2_INSN	{4'h1,32'h00000002,4'h00,8'h07,8'h06,ADDI}
+`define ADD3_INSN	{4'h1,32'h00000002,4'h00,8'h47,8'h46,ADDI}
 `define STO_INSN	{4'h1,12'h000,4'h3,3'h0,1'b0,8'h00,8'h00,8'h00,8'h8F,8'h70}
 `define BNE_INSN {4'h1,12'hFFF,4'h0,4'hC,8'd63,8'h88,8'h04,8'h00,BNE}
 
@@ -62,7 +63,8 @@ begin
 		3'd0:	dat_i <= {`ADD1_INSN,{8{NOP}}};
 		3'd1:	dat_i <= {`ADD2_INSN,`ADD2_INSN};
 		3'd2: dat_i <= {`STO_INSN,`STO_INSN};
-		3'd3:	dat_i <= {NOP_INSN,`BNE_INSN};
+		3'd3:	dat_i <= {`ADD3_INSN,`ADD3_INSN};
+		3'd4:	dat_i <= {NOP_INSN,`BNE_INSN};
 		default:	dat_i <= {NOP_INSN,NOP_INSN};
 		endcase
 	else

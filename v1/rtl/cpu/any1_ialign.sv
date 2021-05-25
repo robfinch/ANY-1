@@ -1,11 +1,11 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2021  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2020-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
 //
-//	any1_agen.sv
+//	any1_ialign.sv
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -33,25 +33,34 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //                                                                          
+//
+// Input a cache line and address and output a single instruction.
 // ============================================================================
 
 import any1_pkg::*;
 
-module any1_agen(rst,clk,ir,ia,ib,ea);
-input rst;
-input clk;
-input Instruction ir;
-input Value ia;
-input Value ib;
-output reg [AWID-1:0] ea;
+module any1_ialign(i, o);
+input sInstAlignIn i;
+output sInstAlignOut o;
 
-wire [2:0] Sc = ir[43:41];
-wire [63:0] disp = {{44{ir[59]}},ir[59:48],ir[39:32]};
-
-always @(posedge clk)
-if (rst)
-	ea <= 64'd0;
-else
-	ea <= disp + ia.val + (ib.val << Sc);
+always @*
+begin
+	o.Stream <= i.Stream;
+	o.predict_taken <= i.predict_taken;
+  case(i.ip[5:0])
+  6'h00:	o.ir <= i.cacheline[63:0];
+  6'h08:	o.ir <= i.cacheline[127:64];
+  6'h10:	o.ir <= i.cacheline[191:128];
+  6'h18:	o.ir <= i.cacheline[255:192];
+  6'h20:	o.ir <= i.cacheline[319:256];
+  6'h28:	o.ir <= i.cacheline[383:320];
+  6'h30:	o.ir <= i.cacheline[447:384];
+  6'h38:	o.ir <= i.cacheline[511:448];
+  default:	o.ir <= {40'h0,FLT_IADR,16'h0};		// instruction alignment fault
+	endcase
+	o.ip <= i.ip;
+	o.rid <= i.rid;
+	o.pip <= i.pip;
+end
 
 endmodule

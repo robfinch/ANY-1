@@ -37,13 +37,13 @@ import any1_pkg::*;
 `endif
 
 module any1_bitfield(inst, a, b, c, d, o, masko);
-parameter DWIDTH=60;
+parameter DWIDTH=64;
 input Instruction inst;
-input sValue a;
-input sValue b;
-input sValue c;
-input sValue d;
-output sValue o;
+input Value a;
+input Value b;
+input Value c;
+input Value d;
+output Value o;
 output [DWIDTH-1:0] masko;
 
 reg [DWIDTH*2-1:0] o1;
@@ -68,12 +68,12 @@ ffo96 u1 ({36'h0,a.val},ffoo);
 
 always @*
 begin
-o1 = 120'd0;	// prevent inferred latch
-o2 = 120'd0;
+o1 = 128'd0;	// prevent inferred latch
+o2 = 128'd0;
 case (op)
 `BFINS: 
 	begin
-		o2 = {60'd0,b.val} << mb;
+		o2 = {64'd0,b.val} << mb;
 		for (n = 0; n < DWIDTH; n = n + 1) o[n] = (mask[n] ? o2[n] : a.val[n]);
 	end
 `BFSET: 	begin for (n = 0; n < DWIDTH; n = n + 1) o[n] = mask[n] ? 1'b1 : a.val[n]; end
@@ -95,7 +95,7 @@ case (op)
 	begin
 		for (n = 0; n < DWIDTH; n = n + 1)
 			o1[n] = mask[n] ? a.val[n] : 1'b0;
-		o.val = (ffoo==7'd127) ? -60'd1 : ffoo - mb;	// ffoo returns 127 if no one was found
+		o.val = (ffoo==7'd127) ? -64'd1 : ffoo - mb;	// ffoo returns 127 if no one was found
 	end
 default:	o.val = {DWIDTH{1'b0}};
 endcase

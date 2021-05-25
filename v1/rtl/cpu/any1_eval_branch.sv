@@ -24,10 +24,9 @@
 import any1_pkg::*;
 
 module any1_eval_branch(inst, a, b, takb);
-parameter WID=64;
 input Instruction inst;
-input sValue a;
-input sValue b;
+input Value a;
+input Value b;
 output reg takb;
 
 always @*
