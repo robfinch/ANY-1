@@ -57,7 +57,7 @@ always @(posedge clk)
 begin
 	ack_i <= cyc_o;
 	if (adr_o[31:24]==8'hFF)
-		case(adr_o[5:2])
+		case(adr_o[7:4])
 		3'd0:	dat_i <= {`ADD1_INSN,{3{NOP_INSN}}};
 		3'd1:	dat_i <= {4{`ADD2_INSN}};
 		3'd2: dat_i <= {4{`STO_INSN}};

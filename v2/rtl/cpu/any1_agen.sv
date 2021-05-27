@@ -65,7 +65,7 @@ always @(posedge clk)
 if (rst)
 	ea <= 32'd0;
 else begin
-	case(ir.opcode)
+	case(ir.ld.opcode)
 	LEA:	ea <= imm + ia.val;
 	LEAX:	ea <= imm + ia.val + (ib.val << Sc);
 	LDx:	ea <= imm + ia.val;

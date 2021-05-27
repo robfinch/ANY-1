@@ -134,9 +134,12 @@ always @*
 				decbuf.rfwr <= TRUE;
 			end
 		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{dir[31]}},dir[31:26],dir[13:8],3'd0}; end
-		LEA:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{44{dir[59]}},dir[59:48],dir[39:32]}; decbuf.ui <= FALSE; end
-		LDx:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{44{dir[59]}},dir[59:48],dir[39:32]}; decbuf.ui <= FALSE; end
-		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{44{dir[59]}},dir[59:48],dir[39:32]}; decbuf.ui <= FALSE; end
+		LEA:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{dir.ld.disp[7]}},dir.ld.disp}; decbuf.ui <= FALSE; end
+		LEAX: begin decbuf.Rt <= dir.ld.Rt; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+		LDx:	begin decbuf.Rt <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{dir.ld.disp[7]}},dir.ld.disp}; decbuf.ui <= FALSE; end
+		LDxX: begin decbuf.Rt <= dir.ld.Rt; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= dir[15:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{dir.st.disphi[1]}},dir.st.disphi,dir.st.displo}; decbuf.ui <= FALSE; end
+		STxX: begin decbuf.Rt <= 6'd0; decbuf.ui <= FALSE; end
 		SYS:
 			begin
 				case(dir.r2.func)

@@ -66,6 +66,7 @@ wire UserMode, SupervisorMode, HypervisorMode, MachineMode, DebugMode;
 wire MUserMode;
 
 Instruction ir;
+sFuncUnit [3:0] funcUnit;
 sInstAlignIn f2a_in, f2a_out;
 sInstAlignOut a2d_in,a2d_out;
 sDecode decbuf;
@@ -226,6 +227,16 @@ reg [7:0] sel;
 reg [63:0] dat, dati;
 wire [63:0] datis = dati >> {ealow[1:0],3'b0};
 `endif
+
+function [5:0] fnIncNdx;
+input [5:0] ndx;
+begin
+	if (ndx>=6'd15)
+		ndx <= 6'd0;
+	else
+		ndx <= ndx + 2'd1;
+end
+endfunction
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -404,7 +415,7 @@ always @*
 	if (btb[ip[11:3]].tag==ip[AWID-1:12] && btb[ip[11:3]].v)
 		btb_predicted_ip <= btb[ip[11:3]].addr;
 	else
-		btb_predicted_ip <= ip + 4'd8;
+		btb_predicted_ip <= ip + 4'd4;
 
 always @(posedge clk_g)
 if (rst_i) begin
@@ -450,25 +461,43 @@ gselectPredictor ubprd1
 // Data Cache
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
+reg [1:0] waycnt;
 reg daccess;
+reg [2:0] dwait;		// wait state counter for dcache
 reg [3:0] dcnt;
 Address dadr;
 reg [pL1LineSize-1:0] dci;
+wire [pL1LineSize-1:0] dc_line;
 reg [pL1LineSize-1:0] datil;
 reg dcachable;
+reg [1:0] dc_rway,dc_wway;
+reg dcache_wr;
 
-(* ram_style="block" *)
-reg [pL1LineSize-1:0] dcache0 [0:pL1CacheLines-1];
-(* ram_style="block" *)
-reg [pL1LineSize-1:0] dcache1 [0:pL1CacheLines-1];
-(* ram_style="block" *)
-reg [pL1LineSize-1:0] dcache2 [0:pL1CacheLines-1];
-(* ram_style="block" *)
-reg [pL1LineSize-1:0] dcache3 [0:pL1CacheLines-1];
-reg [AWID-7:0] dctag0 [0:pL1CacheLines-1];
-reg [AWID-7:0] dctag1 [0:pL1CacheLines-1];
-reg [AWID-7:0] dctag2 [0:pL1CacheLines-1];
-reg [AWID-7:0] dctag3 [0:pL1CacheLines-1];
+dcache_blkmem your_instance_name (
+  .clka(clk_g),    // input wire clka
+  .ena(1'b1),      // input wire ena
+  .wea(dcache_wr),      // input wire [0 : 0] wea
+  .addra({dc_wway,dadr[11:6]}),  // input wire [8 : 0] addra
+  .dina(dci),    // input wire [511 : 0] dina
+  .clkb(clk_g),    // input wire clkb
+  .enb(1'b1),      // input wire enb
+  .addrb({dc_rway,adr_o[11:6]}),  // input wire [8 : 0] addrb
+  .doutb(dc_line)  // output wire [511 : 0] doutb
+);
+/*
+dcache_mem udcm1 (
+  .a({dc_wway,dadr[pL1msb:6]}),        // input wire [5 : 0] a
+  .d(dci),        // input wire [511 : 0] d
+  .dpra({dc_rway,adr_o[pL1msb:6]}),  // input wire [5 : 0] dpra
+  .clk(clk),    // input wire clk
+  .we(dcache_wr),      // input wire we
+  .dpo(dc_line)    // output wire [511 : 0] dpo
+);
+*/
+reg [AWID-7:0] dctag0 [0:63];
+reg [AWID-7:0] dctag1 [0:63];
+reg [AWID-7:0] dctag2 [0:63];
+reg [AWID-7:0] dctag3 [0:63];
 reg [pL1CacheLines-1:0] dcvalid0;
 reg [pL1CacheLines-1:0] dcvalid1;
 reg [pL1CacheLines-1:0] dcvalid2;
@@ -493,10 +522,6 @@ initial begin
   dcvalid2 = {pL1CacheLines{1'd0}};
   dcvalid3 = {pL1CacheLines{1'd0}};
   for (n = 0; n < pL1CacheLines; n = n + 1) begin
-  	dcache0[n] <= {8{NOP_INSN}};
-  	dcache1[n] <= {8{NOP_INSN}};
-  	dcache2[n] <= {8{NOP_INSN}};
-  	dcache3[n] <= {8{NOP_INSN}};
     dctag0[n] = 32'd1;
     dctag1[n] = 32'd1;
     dctag2[n] = 32'd1;
@@ -504,12 +529,26 @@ initial begin
   end
 end
 
+always @*
+begin
+  case(1'b1)
+  dhit1a: dc_rway <= 2'b00;
+  dhit1b: dc_rway <= 2'b01;
+  dhit1c: dc_rway <= 2'b10;
+  dhit1d: dc_rway <= 2'b11;
+  default:  dc_rway <= 2'b00;
+  endcase
+end
+
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Instruction cache
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 reg ic_update;
 wire [16:0] lfsr_o;
+reg [1:0] ic_rway,ic_wway;
+wire icache_wr;
 
 lfsr ulfsr1
 (
@@ -524,7 +563,16 @@ reg iaccess;
 reg [3:0] icnt;
 reg [pL1LineSize-1:0] ici;
 reg [pL1LineSize-1:0] iri;
-reg [pL1LineSize-1:0] icache [0:3] [0:pL1CacheLines-1];
+wire [pL1LineSize-1:0] ic_line;
+//reg [pL1LineSize-1:0] icache [0:3] [0:pL1CacheLines-1];
+icache_mem uicm1 (
+  .a({waycnt,iadr[pL1msb:6]}),        // input wire [5 : 0] a
+  .d(ici),        // input wire [511 : 0] d
+  .dpra({ic_rway,ip[pL1msb:6]}),  // input wire [5 : 0] dpra
+  .clk(clk_g),    // input wire clk
+  .we(icache_wr),      // input wire we
+  .dpo(ic_line)    // output wire [511 : 0] dpo
+);
 reg [AWID-7:0] ictag [0:3] [0:pL1CacheLines-1];
 reg [pL1CacheLines-1:0] icvalid [0:3];
 reg ic_invline;
@@ -549,15 +597,22 @@ initial begin
   icvalid[2] = {pL1CacheLines{1'd0}};
   icvalid[3] = {pL1CacheLines{1'd0}};
   for (n = 0; n < pL1CacheLines; n = n + 1) begin
-  	icache[0][n] = {16{NOP_INSN}};
-  	icache[1][n] = {16{NOP_INSN}};
-  	icache[2][n] = {16{NOP_INSN}};
-  	icache[3][n] = {16{NOP_INSN}};
     ictag[0][n] = 32'd1;
     ictag[1][n] = 32'd1;
     ictag[2][n] = 32'd1;
     ictag[3][n] = 32'd1;
   end
+end
+
+always @*
+begin
+  case(1'b1)
+  ihit1a: ic_rway <= 2'b00;
+  ihit1b: ic_rway <= 2'b01;
+  ihit1c: ic_rway <= 2'b10;
+  ihit1d: ic_rway <= 2'b11;
+  default:  ic_rway <= 2'b00;
+  endcase
 end
 
 //always @(posedge clk_g)
@@ -673,10 +728,10 @@ begin
 	f2a_in.pip <= btb_predicted_ip;
 	f2a_in.predict_taken <= predict_taken;
   case(1'b1)
-  ihit1a: f2a_in.cacheline <= icache[0][ip[pL1msb:6]];
-  ihit1b: f2a_in.cacheline <= icache[1][ip[pL1msb:6]];
-  ihit1c: f2a_in.cacheline <= icache[2][ip[pL1msb:6]];
-  ihit1d: f2a_in.cacheline <= icache[3][ip[pL1msb:6]];
+  ihit1a: f2a_in.cacheline <= ic_line;//icache[0][ip[pL1msb:6]];
+  ihit1b: f2a_in.cacheline <= ic_line;//icache[1][ip[pL1msb:6]];
+  ihit1c: f2a_in.cacheline <= ic_line;//icache[2][ip[pL1msb:6]];
+  ihit1d: f2a_in.cacheline <= ic_line;//icache[3][ip[pL1msb:6]];
   default:  f2a_in.cacheline <= {16{NOP_INSN}};
   endcase
 end
@@ -944,23 +999,24 @@ else begin
 		wfi <= 1'b1;
 end
 
-BUFGCE u11 (.CE(!wfi), .I(clk_i), .O(clk_g));
+//BUFGCE u11 (.CE(!wfi), .I(clk_i), .O(clk_g));
+assign clk_g = clk_i;
 
 wire [3:0] ea_acr = sregfile[segsel][3:0];
 wire [3:0] pc_acr = sregfile[ip[AWID-1:AWID-4]][3:0];
 wire [127:0] sll_out = {rob[rob_exec].ib.val,rob[rob_exec].ia.val} << rob[rob_exec].ic.val[5:0];
 
+assign icache_wr = mstate==IFETCH5 && icnt[3:2]==2'd3 && ~ack_i;
+
 reg [63:0] exi;
 reg exilo, eximid, exihi, has_exi;
 Address exi_ip;
-Instruction exi_inst;
 reg imod;
 Address imod_ip;
 Value regc, regd;
 Instruction imod_inst;
 reg regcv,regdv;
 reg [5:0] regcsrc,regdsrc;
-reg [1:0] waycnt;
 
 always @*
 	tReadCSR(csrro,rob[exbufo.rid].ir[31:20]);
@@ -1040,13 +1096,8 @@ if (rst_i) begin
 	tlben <= TRUE;
 	iadr <= RSTIP;
 	dadr <= RSTIP;	// prevents TLB miss at startup
-	membufi <= 1'd0;
-	mulreci <= 1'b0;
-	divreci <= 1'b0;
 	dc_redirecti.redirect_ip <= 32'd0;
 	dc_redirecti.current_ip <= 32'd0;
-	ex_redirecti.redirect_ip <= 32'd0;
-	ex_redirecti.current_ip <= 32'd0;
 	wb_redirecti.redirect_ip <= 32'd0;
 	wb_redirecti.current_ip <= 32'd0;
 	dc2if_redirect_rd3 <= FALSE;
@@ -1063,10 +1114,15 @@ if (rst_i) begin
 		keys[n] <= 20'd0;
 	vl <= 8'd4;
 	exihi <= FALSE;
+	eximid <= FALSE;
 	exilo <= FALSE;
 	imod <= FALSE;
 	has_exi <= FALSE;
 	waycnt <= 2'd0;
+	ic_wway <= 2'b00;
+	dcache_wr <= FALSE;
+	dwait <= 3'd0;
+	exi_ip <= RSTIP;
 end
 else begin
 	ic_update <= 1'b0;
@@ -1093,6 +1149,7 @@ else begin
 	x2m_rd <= FALSE;
 	x2mul_rd <= FALSE;
 	x2mul_wr <= FALSE;
+	dcache_wr <= FALSE;
 	if (ld_time==TRUE && wc_time_dat==wc_time)
 		ld_time <= FALSE;
 	if (pe_nmi)
@@ -1147,7 +1204,7 @@ else begin
 		else if (predict_taken & btben)
 			ip <= btb_predicted_ip;
 		else
-			ip <= ip + 4'd8;
+			ip <= ip + 4'd4;
 	end
 
 	$display("Instruction Fetch");
@@ -1216,7 +1273,11 @@ else begin
 			rob[rob_que].cause <= 16'h8000|cause_i;
 		else
 			rob[rob_que].cause <= |decbuf.ip[2:0] ? FLT_IADR : FLT_NONE;
-		rob_que <= rob_que + 2'd1;
+
+		if (rob_que >= ROB_ENTRIES-1)
+			rob_que <= 6'd0;
+		else
+			rob_que <= rob_que + 2'd1;
 
 		case(dir.r2.opcode)
 		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:
@@ -1336,6 +1397,8 @@ else begin
 			rob[rob_exec].ic.val,rob[rob_exec].icv?"v":" ",rob[rob_exec].id.val,rob[rob_exec].idv?"v":" ",
 			rob[rob_exec].imm.val);
 			rob[rob_exec] <= robo;
+			funcUnit[FU_EXEC].rid <= rob_exec;
+			funcUnit[FU_EXEC].res <= robo.res;
 		end
 	end
 	if (restore_rfsrc)
@@ -1469,11 +1532,13 @@ IFETCH5:
 `endif
 `ifdef CPU_B128
     if (icnt[3:2]==2'd3) begin
+    	ic_wway <= waycnt;
 			ictag[waycnt][iadr[pL1msb:6]] <= iadr[AWID-1:6];
-			icache[waycnt][iadr[pL1msb:6]] <= ici;
+			//icache[waycnt][iadr[pL1msb:6]] <= ici;
 			icvalid[waycnt][iadr[pL1msb:6]] <= 1'b1;
 //			tLICache(lfsr_o[1:0],iadr[AWID-1:6],ici,1'b1);
-    	tMemory1();
+//    	tMemory1();
+			mgoto(MEMORY1);
     end
 		else
       mgoto (IFETCH3);
@@ -1615,6 +1680,7 @@ MEMORY2b:
 MEMORY3:
   begin
     xlaten <= FALSE;
+    dwait <= 3'd0;
     mgoto (MEMORY4);
 `ifdef ANY1_TLB
 		if (tlbmiss) begin
@@ -1668,13 +1734,7 @@ MEMORY4:
     	tMemory1();
     end
     else if (dce & dhit) begin
-  		case(1'b1)
-  		dhit1a:	datil <= dcache0[dadr[pL1msb:6]];
-  		dhit1b:	datil <= dcache1[dadr[pL1msb:6]];
-  		dhit1c:	datil <= dcache2[dadr[pL1msb:6]];
-  		dhit1d:	datil <= dcache3[dadr[pL1msb:6]];
-  		default:	;
-  		endcase
+    	datil <= dc_line;
   		if (d_st) begin
   			if (acki) begin
 		      mgoto (MEMORY5);
@@ -1686,8 +1746,11 @@ MEMORY4:
 		      end
 		    end
   		end
-    	else
-	      mgoto (MEMORY5);
+    	else begin
+    		dwait <= dwait + 2'd1;
+    		if (dwait==3'd2)
+	      	mgoto (MEMORY5);
+	    end
   	end
     else if (acki) begin
       mgoto (MEMORY5);
@@ -1770,6 +1833,7 @@ MEMORY_KEYCHK2:
 MEMORY8:
   begin
     xlaten <= FALSE;
+    dwait <= 3'd0;
 //    dadr <= adr_o;
     mgoto (MEMORY9);
 `ifdef ANY1_TLB    
@@ -1798,13 +1862,7 @@ MEMORY8:
   end
 MEMORY9:
   if (dhit & dce) begin
-		case(1'b1)
-		dhit1a:	datil <= dcache0[dadr[pL1msb:6]];
-		dhit1b:	datil <= dcache1[dadr[pL1msb:6]];
-		dhit1c:	datil <= dcache2[dadr[pL1msb:6]];
-		dhit1d:	datil <= dcache3[dadr[pL1msb:6]];
-		default:	;
-		endcase
+  	datil <= dc_line;
 		if (d_st) begin
 			if (acki) begin
 	      mgoto (MEMORY10);
@@ -1816,8 +1874,11 @@ MEMORY9:
 	      end
 	    end
 		end
-  	else
-      mgoto (MEMORY10);
+  	else begin
+    	dwait <= dwait + 2'd1;
+    	if (dwait==3'd2)
+      	mgoto (MEMORY10);
+    end
 	end
   else if (acki) begin
     mgoto (MEMORY10);
@@ -1915,6 +1976,7 @@ MEMORY_KEYCHK3:
 MEMORY13:
   begin
     xlaten <= FALSE;
+    dwait <= 3'd0;
 //    dadr <= adr_o;
     mgoto (MEMORY14);
 `ifdef ANY1_TLB    
@@ -1943,13 +2005,7 @@ MEMORY13:
   end
 MEMORY14:
   if (dhit & dce) begin
-		case(1'b1)
-		dhit1a:	datil <= dcache0[dadr[pL1msb:6]];
-		dhit1b:	datil <= dcache1[dadr[pL1msb:6]];
-		dhit1c:	datil <= dcache2[dadr[pL1msb:6]];
-		dhit1d:	datil <= dcache3[dadr[pL1msb:6]];
-		default:	;
-		endcase
+  	datil <= dc_line;
 		if (d_st) begin
 			if (acki) begin
 	      mgoto (MEMORY15);
@@ -1959,8 +2015,11 @@ MEMORY14:
         sel_o <= 1'h0;
 	    end
 		end
-  	else
-      mgoto (MEMORY15);
+  	else begin
+    	dwait <= dwait + 2'd1;
+    	if (dwait==3'd2)
+      	mgoto (MEMORY15);
+    end
 	end
   else if (acki) begin
     mgoto (MEMORY15);
@@ -2015,12 +2074,12 @@ DATA_ALIGN:
     LDx:
     	begin
     		rob[membufo.rid].rfwr <= TRUE;
-	    	case(membufo.ir.r2.func)
-	    	4'd0:	rob[membufo.rid].res.val <= {{56{datis[7]}},datis[7:0]};
-	    	4'd1:	rob[membufo.rid].res.val <= {{48{datis[15]}},datis[15:0]};
-	    	4'd2:	rob[membufo.rid].res.val <= {{32{datis[31]}},datis[31:0]};
-	    	4'd3:	rob[membufo.rid].res.val <= datis[63:0];
-	    	4'd7:	begin rob[membufo.rid].res.val <= datis[63:0]; end
+	    	case(membufo.ir.ld.func)
+	    	4'd0:	begin funcUnit[FU_MEM].res <= {{56{datis[7]}},datis[7:0]}; funcUnit[FU_MEM].rid <= membufo.rid; rob[membufo.rid].res.val <= {{56{datis[7]}},datis[7:0]}; end
+	    	4'd1:	begin funcUnit[FU_MEM].res <= {{48{datis[15]}},datis[15:0]}; funcUnit[FU_MEM].rid <= membufo.rid; rob[membufo.rid].res.val <= {{48{datis[15]}},datis[15:0]}; end
+	    	4'd2:	begin funcUnit[FU_MEM].res <= {{32{datis[31]}},datis[31:0]}; funcUnit[FU_MEM].rid <= membufo.rid; rob[membufo.rid].res.val <= {{32{datis[31]}},datis[31:0]}; end
+	    	4'd3:	begin funcUnit[FU_MEM].res <= datis[63:0]; funcUnit[FU_MEM].rid <= membufo.rid; rob[membufo.rid].res.val <= datis[63:0]; end
+	    	4'd7:	begin funcUnit[FU_MEM].res <= datis[63:0]; funcUnit[FU_MEM].rid <= membufo.rid; rob[membufo.rid].res.val <= datis[63:0]; end
 	    	default:	;
 	    	endcase
     	end
@@ -2142,18 +2201,14 @@ DFETCH5:
   begin
 `ifdef CPU_B128
     if (dcnt[3:2]==2'd3) begin
+    	dcache_wr <= TRUE;
+    	dc_wway <= lfsr_o[1:0];
     	case(lfsr_o[1:0])
     	2'd0:	dctag0[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	2'd1:	dctag1[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	2'd2:	dctag2[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	2'd3:	dctag3[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	endcase
-    	case(lfsr_o[1:0])
-    	2'd0:	dcache0[dadr[pL1msb:6]] <= dci;
-    	2'd1:	dcache1[dadr[pL1msb:6]] <= dci;
-    	2'd2:	dcache2[dadr[pL1msb:6]] <= dci;
-    	2'd3:	dcache3[dadr[pL1msb:6]] <= dci;
-			endcase
     	case(lfsr_o[1:0])
     	2'd0:	dcvalid0[dadr[pL1msb:6]] <= 1'b1;
     	2'd1:	dcvalid1[dadr[pL1msb:6]] <= 1'b1;
@@ -2164,18 +2219,14 @@ DFETCH5:
 `endif
 `ifdef CPU_B64
     if (dcnt[3:1]==3'd7) begin
+    	dcache_wr <= TRUE;
+    	dc_wway <= lfsr_o[1:0];
     	case(lfsr_o[1:0])
     	2'd0:	dctag0[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	2'd1:	dctag1[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	2'd2:	dctag2[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	2'd3:	dctag3[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	endcase
-    	case(lfsr_o[1:0])
-    	2'd0:	dcache0[dadr[pL1msb:6]] <= dci;
-    	2'd1:	dcache1[dadr[pL1msb:6]] <= dci;
-    	2'd2:	dcache2[dadr[pL1msb:6]] <= dci;
-    	2'd3:	dcache3[dadr[pL1msb:6]] <= dci;
-			endcase
     	case(lfsr_o[1:0])
     	2'd0:	dcvalid0[dadr[pL1msb:6]] <= 1'b1;
     	2'd1:	dcvalid1[dadr[pL1msb:6]] <= 1'b1;
@@ -2186,18 +2237,14 @@ DFETCH5:
 `endif
 `ifdef CPU_B32
     if (dcnt[3:0]==4'd15) begin
+    	dcache_wr <= TRUE;
+    	dc_wway <= lfsr_o[1:0];
     	case(lfsr_o[1:0])
     	2'd0:	dctag0[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	2'd1:	dctag1[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	2'd2:	dctag2[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	2'd3:	dctag3[dadr[pL1msb:6]] <= dadr[AWID-1:6];
     	endcase
-    	case(lfsr_o[1:0])
-    	2'd0:	dcache0[dadr[pL1msb:6]] <= dci;
-    	2'd1:	dcache1[dadr[pL1msb:6]] <= dci;
-    	2'd2:	dcache2[dadr[pL1msb:6]] <= dci;
-    	2'd3:	dcache3[dadr[pL1msb:6]] <= dci;
-			endcase
     	case(lfsr_o[1:0])
     	2'd0:	dcvalid0[dadr[pL1msb:6]] <= 1'b1;
     	2'd1:	dcvalid1[dadr[pL1msb:6]] <= 1'b1;
@@ -2449,16 +2496,16 @@ default:	;
 				end
 				else begin
 					case(rob[rob_deq].ir.r2.opcode)
+					CSR:
+						case(rob[rob_deq].imm[18:16])
+						CSRW:	tWriteCSR(rob[rob_deq].ia,rob[rob_deq].imm[15:0]);
+						CSRS:	tSetbitCSR(rob[rob_deq].ia,rob[rob_deq].imm[15:0]);
+						CSRC:	tClrbitCSR(rob[rob_deq].ia,rob[rob_deq].imm[15:0]);
+						CSRRW:	tWriteCSR(rob[rob_deq].ia,rob[rob_deq].imm[15:0]);
+						default:	;
+						endcase
 					SYS:
 						case(rob[rob_deq].ir.r2.func)
-						CSR:
-							case(rob[rob_deq].ir.r2.func)
-							CSRW:	tWriteCSR(rob[rob_deq].ia,rob[rob_deq].ir[31:20]);
-							CSRS:	tSetbitCSR(rob[rob_deq].ia,rob[rob_deq].ir[31:20]);
-							CSRC:	tClrbitCSR(rob[rob_deq].ia,rob[rob_deq].ir[31:20]);
-							CSRRW:	tWriteCSR(rob[rob_deq].ia,rob[rob_deq].ir[31:20]);
-							default:	;
-							endcase
 						RTE:	
 							begin
 								sema[0] <= 1'b0;
@@ -2477,15 +2524,38 @@ default:	;
 								status[0][pmStack[3:1]] <= pmStack[0];
 								//tBackupRegfileSrc(wbStream + rob[rob_deq].Stream_inc);
 							end
-						TLBRW:	regfile[rob[rob_deq].Rt] <= rob[rob_deq].res;
+						TLBRW:	;
 						default:	;
 						endcase
-					default:
-						if (rob[rob_deq].rfwr==TRUE) begin
-							regfile[rob[rob_deq].Rt[5:0]] <= rob[rob_deq].res;
-							regfilesrc[rob[rob_deq].Rt[5:0]].rf <= 1'h0;
-						end
+					default:	;
 					endcase
+					if (rob[rob_deq].rfwr==TRUE) begin
+						regfile[rob[rob_deq].Rt[5:0]] <= rob[rob_deq].res;
+						regfilesrc[rob[rob_deq].Rt[5:0]].rf <= 1'h0;
+						/*
+						for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+							if (rob[n].ias==rob_deq) begin
+								rob[n].ia <= rob[rob_deq].res;
+								rob[n].iav <= TRUE;
+							end
+							if (rob[n].ibs==rob_deq) begin
+								rob[n].ib <= rob[rob_deq].res;
+								rob[n].ibv <= TRUE;
+							end
+							if (rob[n].ics==rob_deq) begin
+								rob[n].ic <= rob[rob_deq].res;
+								rob[n].icv <= TRUE;
+							end
+							if (rob[n].ids==rob_deq) begin
+								rob[n].id <= rob[rob_deq].res;
+								rob[n].idv <= TRUE;
+							end
+							if (rob[n].its==rob_deq) begin
+								rob[n].itv <= TRUE;
+							end
+						end
+						*/
+					end
 				end
 				begin
 					rob[rob_deq].v <= INV;
@@ -2494,7 +2564,10 @@ default:	;
 					rob[rob_deq].cmt <= FALSE;
 					rob[rob_deq].rfwr <= FALSE;
 					rob[rob_deq].jump <= FALSE;
-					rob_deq <= rob_deq + 2'd1;
+					if (rob_deq >= ROB_ENTRIES-1)
+						rob_deq <= 6'd0;
+					else
+						rob_deq <= rob_deq + 2'd1;
 				end
 			end
 		end
@@ -2507,8 +2580,12 @@ default:	;
 			rob[rob_deq].cmt <= FALSE;
 			rob[rob_deq].rfwr <= FALSE;
 			rob[rob_deq].jump <= FALSE;
-			if (rob_deq != rob_que)
-				rob_deq <= rob_deq + 2'd1;
+			if (rob_deq != rob_que) begin
+				if (rob_deq >= ROB_ENTRIES-1)
+					rob_deq <= 6'd0;
+				else
+					rob_deq <= rob_deq + 2'd1;
+			end
 		end
 	end
 /*
@@ -2522,6 +2599,7 @@ default:	;
 		rob_deq <= rob_deq + 2'd1;
 	end
 */
+/*
 	for (n = 0; n < 64; n = n + 1) begin
 		for (m = 0; m < 64; m = m + 1) begin
 			if (!rob[n].iav && rob[n].ias.rid==m && rob[m].cmt2) begin
@@ -2545,7 +2623,30 @@ default:	;
 			end
 		end
 	end
-
+*/
+	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+		for (m = 0; m < 4; m = m + 1) begin
+			if (!rob[n].iav && rob[n].ias.rid==funcUnit[m].rid) begin
+				rob[n].iav <= TRUE;
+				rob[n].ia <= funcUnit[m].res;
+			end
+			if (!rob[n].ibv && rob[n].ibs.rid==funcUnit[m].rid) begin
+				rob[n].ibv <= TRUE;
+				rob[n].ib <= funcUnit[m].res;
+			end
+			if (!rob[n].icv && rob[n].ics.rid==funcUnit[m].rid) begin
+				rob[n].icv <= TRUE;
+				rob[n].ic <= funcUnit[m].res;
+			end
+			if (!rob[n].idv && rob[n].ids.rid==funcUnit[m].rid) begin
+				rob[n].idv <= TRUE;
+				rob[n].id <= funcUnit[m].res;
+			end
+			if (!rob[n].itv && rob[n].its.rid==funcUnit[m].rid) begin
+				rob[n].itv <= TRUE;
+			end
+		end
+	end
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	// Decode
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -2625,13 +2726,15 @@ MUL3:
 		rob[mulreco.rid].res <= mul_sign ? -mul_p[63:0] : mul_p;
 		rob[mulreco.rid].cmt <= TRUE;
 		rob[mulreco.rid].cmt2 <= TRUE;
+		funcUnit[FU_MUL].res <= mul_sign ? -mul_p[63:0] : mul_p;
+		funcUnit[FU_MUL].rid <= mulreco.rid;
 		case(mulreco.ir[7:0])
 		R3:
 			begin
 				case(mulreco.ir.r2.func)
-				MULH:		rob[mulreco.rid].res <= mul_sign ? -mul_p[127:64] : mul_p[127:64];
-				MULSUH:	rob[mulreco.rid].res <= mul_sign ? -mul_p[127:64] : mul_p[127:64];
-				MULUH:	rob[mulreco.rid].res <= mul_p[127:64];
+				MULH:		begin funcUnit[FU_MUL].res <= mul_sign ? -mul_p[127:64] : mul_p[127:64]; funcUnit[FU_MUL].rid <= mulreco.rid; rob[mulreco.rid].res <= mul_sign ? -mul_p[127:64] : mul_p[127:64]; end
+				MULSUH:	begin funcUnit[FU_MUL].res <= mul_sign ? -mul_p[127:64] : mul_p[127:64]; funcUnit[FU_MUL].rid <= mulreco.rid; rob[mulreco.rid].res <= mul_sign ? -mul_p[127:64] : mul_p[127:64]; end
+				MULUH:	begin funcUnit[FU_MUL].res <= mul_p[127:64]; funcUnit[FU_MUL].rid <= mulreco.rid; rob[mulreco.rid].res <= mul_p[127:64]; end
 				default:	;
 				endcase
 			end
@@ -2713,6 +2816,8 @@ DIV4:
 		rob[divreco.rid].res <= div_sign ? -div_q[63:0] : div_q;
 		rob[divreco.rid].cmt <= TRUE;
 		rob[divreco.rid].cmt2 <= TRUE;
+		funcUnit[FU_DIV].res <= div_sign ? -div_q[63:0] : div_q;
+		funcUnit[FU_DIV].rid <= divreco.rid;
 		case(divreco.ir[7:0])
 		R3:
 			begin
@@ -2926,7 +3031,6 @@ begin
 `else
 
 	ictag[way][iadr[pL1msb:6]] <= tagval;
-	icache[way][iadr[pL1msb:6]] <= lineval;
 	icvalid[way][iadr[pL1msb:6]] <= valval;
 
 `endif

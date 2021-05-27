@@ -437,53 +437,55 @@ else begin
 			tMod();
 		end    	
 		CHKI:
-			case(robi.ir.r2.Rt[2:0])
-			3'd0:
-				if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.imm.val)) begin
-					robo.cause <= FLT_CHK;
-					tMod();
-				end
-			3'd1:
-				if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.imm.val)) begin
-					robo.cause <= FLT_CHK;
-					tMod();
-				end
-			3'd2:
-				if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.imm.val)) begin
-					robo.cause <= FLT_CHK;
-					tMod();
-				end
-			3'd3:
-				if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.imm.val)) begin
-					robo.cause <= FLT_CHK;
-					tMod();
-				end
-			3'd4:
-				if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm.val))) begin
-					robo.cause <= FLT_CHK;
-					tMod();
-				end
-			3'd5:
-				if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm.val))) begin
-					robo.cause <= FLT_CHK;
-					tMod();
-				end
-			3'd6:
-				if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm.val))) begin
-					robo.cause <= FLT_CHK;
-					tMod();
-				end
-			3'd7:
-				if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm.val))) begin
-					robo.cause <= FLT_CHK;
-					tMod();
-				end
-			default:
-				begin
-					robo.ui <= TRUE;
-					tMod();
-				end
-			endcase
+			if (robi.iav && robi.icv) begin
+				case(robi.ir.r2.Rt[2:0])
+				3'd0:
+					if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.imm.val)) begin
+						robo.cause <= FLT_CHK;
+						tMod();
+					end
+				3'd1:
+					if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.imm.val)) begin
+						robo.cause <= FLT_CHK;
+						tMod();
+					end
+				3'd2:
+					if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.imm.val)) begin
+						robo.cause <= FLT_CHK;
+						tMod();
+					end
+				3'd3:
+					if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.imm.val)) begin
+						robo.cause <= FLT_CHK;
+						tMod();
+					end
+				3'd4:
+					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm.val))) begin
+						robo.cause <= FLT_CHK;
+						tMod();
+					end
+				3'd5:
+					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm.val))) begin
+						robo.cause <= FLT_CHK;
+						tMod();
+					end
+				3'd6:
+					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm.val))) begin
+						robo.cause <= FLT_CHK;
+						tMod();
+					end
+				3'd7:
+					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm.val))) begin
+						robo.cause <= FLT_CHK;
+						tMod();
+					end
+				default:
+					begin
+						robo.ui <= TRUE;
+						tMod();
+					end
+				endcase
+			end
 		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:
 			if (robi.iav && robi.ibv) begin
 				robo.branch <= TRUE;
@@ -529,8 +531,8 @@ else begin
 				ex_redirect.wr <= TRUE;
 				tMod();
 			end
-		LEA,LDx,
-		STx:
+		LEA,LDx,LDxX,
+		STx,STxX:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			begin
 				membufi.rid <= rob_exec;
@@ -546,7 +548,7 @@ else begin
 				robo.cmt2 <= FALSE;
 			end
 		CSR:
-			begin
+			if (robi.iav & robi.itv) begin
 				robo.ia <= robi.ia;
 				case(robi.imm[18:16])
 				CSRR:	robo.res <= csrro;
@@ -580,6 +582,10 @@ else begin
 				default:	;
 				endcase
 			end
+		EXI0,EXI1,EXI2:	tMod();
+		IMOD:
+			if (robi.icv & robi.idv)
+				tMod();
 		8'hFF:
 			rob_exec <= rob_exec;
 		default:	;
@@ -589,9 +595,7 @@ else begin
 	// Stream mismatch
 	else begin
 		if (robi.dec) begin
-			robo.cmt <= TRUE;
-			robo.cmt2 <= TRUE;
-			rob_exec <= rob_exec + 2'd1;
+			tMod();
 		end
 	end
 
@@ -601,7 +605,10 @@ task tMod;
 begin
 	robo.cmt <= TRUE;
 	robo.cmt2 <= TRUE;
-	rob_exec <= rob_exec + 2'd1; 
+	if (rob_exec >= ROB_ENTRIES-1)
+		rob_exec <= 6'd0;
+	else
+		rob_exec <= rob_exec + 2'd1; 
 end
 endtask
 
