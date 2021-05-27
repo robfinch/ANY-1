@@ -53,7 +53,7 @@ wire [6:0] ffoo;
 // generate mask
 reg [DWIDTH-1:0] mask;
 assign masko = mask;
-wire [2:0] op = inst.sz;
+wire [2:0] op = inst.r2.func[2:0];
 wire [5:0] mb = c.val[5:0];
 wire [5:0] mw = d.val[5:0];
 wire [5:0] me = mb + mw;

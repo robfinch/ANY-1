@@ -136,7 +136,7 @@ else begin
 		R3:
 			if (robi.iav && robi.ibv && robi.icv && robi.itv) begin
 				case(robi.ir.r2.func)
-				SLL:	begin robo.res.val <= sll_out[63:0]; tMod(); end
+				SLLP:	begin robo.res.val <= sll_out[63:0]; tMod(); end
 				PTRDIF:	
 					begin
 						//robi.res.tag <= TAG_INT;
@@ -202,6 +202,8 @@ else begin
 				AND:	begin	robo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
 				OR:		begin	robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
 				XOR:	begin	robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+				SLL:	begin robo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
+				SLLI:	begin robo.res.val <= robi.ia.val << robi.ir.r2.Rb; tMod(); end
 				DIF:
 					begin
 						robo.res <= $signed(robi.ia.val) < $signed(robi.ib.val) ?
@@ -251,8 +253,8 @@ else begin
 											robo.res.val <= {63'd0,robi.ia.val[0]};
 											prev_res <= {63'd0,robi.ia.val[0]};
 										end
-										else if (robi.z) begin
-											robot.res.val <= 64'd0;
+										else if (robi.irmod.im.z) begin
+											robo.res.val <= 64'd0;
 											prev_res <= 64'd0;
 										end
 									end
@@ -306,7 +308,7 @@ else begin
 		BTFLD:	if (robi.iav && robi.itv) begin robo.res.val <= bf_out.val; tMod(); end
     BYTNDX:
 	    if (robi.iav && robi.itv) begin
-	    	if (robi.ir.sz==4'd1) begin
+	    	if (robi.ir.r2.func!=4'd0) begin
 	        if (robi.ia.val[7:0]==robi.imm.val[7:0])
 	          robo.res.val <= 64'd0;
 	        else if (robi.ia.val[15:8]==robi.imm.val[7:0])
@@ -388,7 +390,7 @@ else begin
 `endif
     U21NDX:
 		if (robi.iav && robi.itv) begin
-    	if (robi.ir.sz==4'd1) begin
+    	if (robi.ir.r2.func!=4'd0) begin
         if (robi.ia.val[20:0]==robi.imm.val[20:0])
           robo.res.val <= 64'd0;
         else if (robi.ia.val[41:21]==robi.imm.val[20:0])
@@ -412,7 +414,7 @@ else begin
     end
     PERM:
 		if (robi.iav && robi.itv) begin
-    	if (robi.ir.sz==4'd1) begin
+    	if (robi.ir.r2.func!=4'd0) begin
     		robo.res.val[7:0] <= robi.ia.val >> {robi.imm.val[2:0],3'b0};
     		robo.res.val[15:8] <= robi.ia.val >> {robi.imm.val[5:3],3'b0};
     		robo.res.val[23:16] <= robi.ia.val >> {robi.imm.val[8:6],3'b0};
@@ -435,7 +437,7 @@ else begin
 			tMod();
 		end    	
 		CHKI:
-			case(robi.ir.sz)
+			case(robi.ir.r2.Rt[2:0])
 			3'd0:
 				if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.imm.val)) begin
 					robo.cause <= FLT_CHK;
@@ -482,8 +484,8 @@ else begin
 					tMod();
 				end
 			endcase
-		BEQ,BNE,BLT,BGE,BLTU,BGEU:
-			if (robi.iav && robi.ibv && robi.itv) begin
+		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:
+			if (robi.iav && robi.ibv) begin
 				robo.branch <= TRUE;
 				robo.takb <= ex_takb;
 				robo.res.val <= robi.ip + 4'd8;
@@ -494,7 +496,7 @@ else begin
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
 					exStream <= exStream + 2'd1;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic.val + robi.imm.val : robi.ip + 4'd8;
+					ex_redirect.redirect_ip <= ex_takb ? robi.ip + robi.imm.val : robi.ip + 4'd8;
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.wr <= TRUE;
 					restore_rfsrc <= TRUE;
@@ -505,33 +507,26 @@ else begin
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
 					exStream <= exStream + 2'd1;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic.val + robi.imm.val : robi.ip + 4'd8;
+					ex_redirect.redirect_ip <= ex_takb ? robi.ip + robi.imm.val : robi.ip + 4'd8;
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.wr <= TRUE;
 					restore_rfsrc <= TRUE;
 				end
 			end
-		JAL:
+		JALR:
 			if (robi.iav && robi.itv) begin
 				robo.jump <= TRUE;
 				robo.jump_tgt <= robi.ia.val + robi.imm.val;
 				robo.jump_tgt[2:0] <= 3'd0;
-				robo.res <= robi.ip + {robi.ir[15:10],3'd0} + 4'd8;
-				case(robi.ir.Ra)
-				6'd0:		;	// already done
-				6'd63:	; // already done
-				default:
-					begin
-						robo.Stream_inc <= 1'b1;
-						f2a_rst <= TRUE;
-						a2d_rst <= TRUE;
-						d2x_rst <= TRUE;
-						exStream <= exStream + 2'd1;
-						ex_redirect.redirect_ip <= robi.ia.val + robi.imm.val;
-						ex_redirect.current_ip <= robi.ip;
-						ex_redirect.wr <= TRUE;
-					end
-				endcase
+				robo.res <= robi.ip + 4'd4;
+				robo.Stream_inc <= 1'b1;
+				f2a_rst <= TRUE;
+				a2d_rst <= TRUE;
+				d2x_rst <= TRUE;
+				exStream <= exStream + 2'd1;
+				ex_redirect.redirect_ip <= robi.ia.val + robi.imm.val;
+				ex_redirect.current_ip <= robi.ip;
+				ex_redirect.wr <= TRUE;
 				tMod();
 			end
 		LEA,LDx,
@@ -542,27 +537,28 @@ else begin
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
 				membufi.ib <= robi.ib;
-				membufi.dato <= robi.ic;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
 				membufi.imm <= robi.imm;
 				membufi.wr <= TRUE;
 				tMod();
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 			end
+		CSR:
+			begin
+				robo.ia <= robi.ia;
+				case(robi.imm[18:16])
+				CSRR:	robo.res <= csrro;
+				CSRW,CSRS,CSRC:	;
+				CSRRW:	robo.res <= csrro;
+				default:	;
+				endcase
+		    tMod();
+			end
 		SYS:
 			if (robi.iav && robi.ibv && robi.itv) begin
-				case(robi.ir.func)
-				CSR:
-					begin
-						robo.ia <= robi.ia;
-						case(robi.ir.sz)
-						CSRR:	robo.res <= csrro;
-						CSRW,CSRS,CSRC:	;
-						CSRRW:	robo.res <= csrro;
-						default:	;
-						endcase
-				    tMod();
-					end
+				case(robi.ir.r2.func)
 				PFI:
 					begin
 		      	if (irq_i != 1'b0)

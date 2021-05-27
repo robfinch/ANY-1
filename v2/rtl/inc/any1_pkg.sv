@@ -55,39 +55,48 @@ parameter OM_MACHINE	= 3'd3;
 parameter OM_DEBUG	= 3'd4;
 
 parameter BRK		= 8'h00;
+parameter R1		= 8'h01;
+parameter R2		= 8'h02;
 parameter R3		= 8'h03;
-parameter ADD		= 8'h04;
-parameter SUB		= 8'h05;
-parameter MUL		= 8'h06;
-parameter AND		= 8'h08;
-parameter OR		= 8'h09;
-parameter XOR		= 8'h0A;
-parameter MIN		= 8'h14;
-parameter MAX		= 8'h15;
-parameter PTRDIF	= 8'h18;
-parameter CHK		= 8'h22;
-parameter R2		= 8'h0C;
-parameter MULU	= 8'h0E;
-parameter MULH	= 8'h0F;
-parameter DIV		= 8'h10;
-parameter DIVU	= 8'h11;
-parameter DIVSU	= 8'h12;
-parameter MULSU =	8'h16;
-parameter DIF		= 8'h18;
-parameter MULF	= 8'h1C;
-parameter MULSUH= 8'h1D;
-parameter MULUH = 8'h1E;
-parameter SEQ		= 8'h26;
-parameter SNE		= 8'h27;
-parameter SLT		= 8'h2C;
-parameter SGE		= 8'h2D;
-parameter SLTU	= 8'h2E;
-parameter SGEU	= 8'h2F;
-parameter R1		= 8'h0C;
-parameter NOT		= 8'h04;
-parameter ABS		= 8'h06;
-parameter V2BITS=	8'h18;
-parameter SLL		= 8'h10;
+
+// R3 ops
+parameter SLLP		= 6'h10;
+parameter SLLPI		= 6'h11;
+parameter PTRDIF	= 6'h18;
+parameter CHK		= 6'h22;
+// R2 ops
+parameter ADD		= 6'h04;
+parameter SUB		= 6'h05;
+parameter MUL		= 6'h06;
+parameter AND		= 6'h08;
+parameter OR		= 6'h09;
+parameter XOR		= 6'h0A;
+parameter MULU	= 6'h0E;
+parameter MULH	= 6'h0F;
+parameter DIV		= 6'h10;
+parameter DIVU	= 6'h11;
+parameter DIVSU	= 6'h12;
+parameter MIN		= 6'h14;
+parameter MAX		= 6'h15;
+parameter MULSU =	6'h16;
+parameter DIF		= 6'h18;
+parameter SLL		= 6'h19;
+parameter SLLI	= 6'h1A;
+parameter MULF	= 6'h1C;
+parameter MULSUH= 6'h1D;
+parameter MULUH = 6'h1E;
+parameter SEQ		= 6'h26;
+parameter SNE		= 6'h27;
+parameter SLT		= 6'h2C;
+parameter SGE		= 6'h2D;
+parameter SLTU	= 6'h2E;
+parameter SGEU	= 6'h2F;
+// R1 ops
+parameter CTLZ	= 6'h00;
+parameter CTPOP	= 6'h02;
+parameter NOT		= 6'h04;
+parameter ABS		= 6'h06;
+parameter V2BITS=	6'h18;
 
 parameter ADDI	= 8'h04;
 parameter SUBFI	= 8'h05;
@@ -120,6 +129,8 @@ parameter EXT		= 8'h2C;
 
 parameter NOP  	= 8'h3F;
 parameter JAL		= 8'h40;
+parameter BAL		= 8'h41;
+parameter JALR	= 8'h42;
 
 parameter SYS		= 8'h44;
 parameter CSR		= 8'h0F;
@@ -145,21 +156,20 @@ parameter BEQ		= 8'h4E;
 parameter BNE		= 8'h4F;
 
 parameter LDx		= 8'h60;
-parameter LEA		= 8'h6D;
+parameter LDxX	= 8'h61;
+parameter LEA		= 8'h68;
+parameter LEAX	= 8'h69;
 parameter CACHE	= 8'h6E;
 parameter STx		= 8'h70;
+parameter STxX	= 8'h71;
 
 parameter EXI0	= 8'hF0;
 parameter EXI1	= 8'hF1;
 parameter EXI2	= 8'hF2;
-parameter EXI3	= 8'hF3;
-parameter EXI4	= 8'hF4;
-parameter EXI5	= 8'hF5;
-parameter EXI6	= 8'hF6;
-parameter EXI7	= 8'hF7;
 parameter IMOD	= 8'hF8;
+parameter BTFLDX	= 8'hF9;
 
-parameter NOP_INSN = {56'd0,NOP};
+parameter NOP_INSN = {4{NOP}};
 
 parameter CSR_CAUSE	= 16'h?006;
 parameter CSR_SEMA	= 16'h?00C;
@@ -290,6 +300,47 @@ typedef logic [3:0] DataTag;
 
 typedef struct packed
 {
+	logic [3:0] func;
+	logic [7:0] disp;
+	logic [5:0] Ra;
+	logic [5:0] Rt;
+	logic [7:0] opcode;
+} LoadInst;
+
+typedef struct packed
+{
+	logic [3:0] func;
+	logic pad1;
+	logic S;
+	logic [5:0] Rb;
+	logic [5:0] Ra;
+	logic [5:0] Rt;
+	logic [7:0] opcode;
+} NdxLoadInst;
+
+typedef struct packed
+{
+	logic [3:0] func;
+	logic [1:0] disphi;
+	logic [5:0] Rb;
+	logic [5:0] Ra;
+	logic [5:0] displo;
+	logic [7:0] opcode;
+} StoreInst;
+
+typedef struct packed
+{
+	logic [3:0] func;
+	logic pad1;
+	logic S;
+	logic [5:0] Rb;
+	logic [5:0] Ra;
+	logic [5:0] empty;
+	logic [7:0] opcode;
+} NdxStoreInst;
+
+typedef struct packed
+{
 	logic [11:0] imm;
 	logic [5:0] Ra;
 	logic [5:0] Rt;
@@ -314,7 +365,7 @@ typedef struct packed
 	logic [7:0] opcode;
 } BrInst;
 
-typedef struct pacled
+typedef struct packed
 {
 	logic [2:0] DT3;
 	logic [2:0] Rm3;
@@ -328,6 +379,10 @@ typedef struct pacled
 
 typedef union packed
 {
+	LoadInst ld;
+	NdxLoadInst nld;
+	StoreInst st;
+	NdxStoreInst nst;
 	RIInst ri;
 	R2Inst r2;
 	InstMod im;
@@ -444,6 +499,7 @@ typedef struct packed
 	Instruction ir;
 	Value ia;
 	Value ib;
+	Value ic;						// index register for store
 	Value dato;
 	Value imm;
 	logic rfwr;
@@ -461,6 +517,7 @@ typedef struct packed
 	logic dec;						// instruction decoded
 	Address ip;
 	Instruction ir;
+	Instruction irmod;
 	logic ui;							// unimplemented instruction
 	logic jump;
 	Address jump_tgt;

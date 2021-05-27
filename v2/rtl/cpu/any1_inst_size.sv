@@ -1,11 +1,11 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2021  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2020-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
 //
-//	any1_select.sv
+//	any1_inst_size.sv
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -37,21 +37,16 @@
 
 import any1_pkg::*;
 
-module any1_select(ir, sel);
-input Instruction ir;
-output reg [7:0] sel;
+module any1_inst_size(i,o);
+input Instruction i;
+output [2:0] o;
 
-always @*
-case(ir.r2.opcode)
-LDx,STx:
-	case(ir.r2.func)
-	4'd0:	sel <= 8'h01;
-	4'd1:	sel <= 8'h03;
-	4'd2:	sel <= 8'h0F;
-	4'd3:	sel <= 8'hFF;
-	4'd7:	sel <= 8'hFF;
-	default:	sel <= 8'h00;
-	endcase
-default:	sel <= 8'h00;
+always @(i)
+casez(i.r2.opcode)
+LDxL:			o <= 3'd6;
+STxL:			o <= 3'd6;
+8'h5?:		o <= 3'd2;
+default:	o <= 3'd4;
 endcase
+
 endmodule

@@ -30,7 +30,7 @@ input Value b;
 output reg takb;
 
 always @*
-case(inst.opcode)
+case(inst.br.opcode)
 BEQ: takb =  a.val==b.val;
 BNE: takb =  a.val!=b.val;
 BLT: takb = 	$signed(a.val) <  $signed(b.val);

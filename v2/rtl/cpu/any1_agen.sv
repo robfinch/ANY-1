@@ -37,21 +37,43 @@
 
 import any1_pkg::*;
 
-module any1_agen(rst,clk,ir,ia,ib,ea);
+module any1_agen(rst,clk,ir,ia,ib,ic,imm,ea);
 input rst;
 input clk;
 input Instruction ir;
 input Value ia;
 input Value ib;
-output reg [AWID-1:0] ea;
+input Value ic;
+input Value imm;
+output Address ea;
 
-wire [2:0] Sc = ir[43:41];
-wire [63:0] disp = {{44{ir[59]}},ir[59:48],ir[39:32]};
+reg [5:0] Sc;
+always @*
+if (ir.nld.S==0)
+	Sc <= 6'd0;
+else
+	case(ir.ld.func)
+	4'd0:	Sc <= 6'd0;
+	4'd1:	Sc <= 6'd1;
+	4'd2:	Sc <= 6'd2;
+	4'd3:	Sc <= 6'd3;
+	4'd7:	Sc <= 6'd3;
+	default:	Sc <= 6'd0;
+	endcase
 
 always @(posedge clk)
 if (rst)
-	ea <= 64'd0;
-else
-	ea <= disp + ia.val + (ib.val << Sc);
+	ea <= 32'd0;
+else begin
+	case(ir.opcode)
+	LEA:	ea <= imm + ia.val;
+	LEAX:	ea <= imm + ia.val + (ib.val << Sc);
+	LDx:	ea <= imm + ia.val;
+	LDxX:	ea <= imm + ia.val + (ib.val << Sc);
+	STx:	ea <= imm + ia.val;
+	STxX:	ea <= imm + ia.val + (ic.val << Sc);
+	default:	ea <= 32'd0;
+	endcase
+end
 
 endmodule
