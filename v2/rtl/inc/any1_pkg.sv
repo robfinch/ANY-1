@@ -29,7 +29,7 @@ package any1_pkg;
 // Uncomment the following to support key checking on memory access
 //`define SUPPORT_KEYCHK		1'b1
 
-parameter ROB_ENTRIES = 64;
+parameter ROB_ENTRIES = 8;
 
 parameter TRUE  = 1'b1;
 parameter FALSE = 1'b0;
@@ -168,6 +168,7 @@ parameter EXI1	= 8'hF1;
 parameter EXI2	= 8'hF2;
 parameter IMOD	= 8'hF8;
 parameter BTFLDX	= 8'hF9;
+parameter BRMOD	= 8'hFA;
 
 parameter NOP_INSN = {4{NOP}};
 
@@ -285,6 +286,11 @@ parameter DIV1 = 3'd1;
 parameter DIV2 = 3'd2;
 parameter DIV3 = 3'd3;
 parameter DIV4 = 3'd4;
+
+parameter FU_EXEC	= 2'd0;
+parameter FU_MUL = 2'd1;
+parameter FU_DIV = 2'd2;
+parameter FU_MEM = 2'd3;
 
 parameter pL1CacheLines = 64;
 parameter pL1LineSize = 512;
@@ -417,7 +423,6 @@ typedef struct packed
 typedef struct packed
 {
 	logic [5:0] Stream;
-	logic [5:0] rid;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;
 	logic predict_taken;
@@ -427,7 +432,6 @@ typedef struct packed
 typedef struct packed
 {
 	logic [5:0] Stream;
-	logic [5:0] rid;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;
 	logic predict_taken;
@@ -438,7 +442,6 @@ typedef struct packed
 {
 	logic [5:0] Stream;
 	logic Stream_inc;
-	logic [5:0] rid;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;	// predicted pc
 	logic predict_taken;
@@ -446,10 +449,12 @@ typedef struct packed
 	logic ui;							// unimplemented instruction
 	logic rfwr;						// register file write is required
 	logic is_vec;					// is a vector instruction
+	logic is_mod;					// is an instruction modifier
+	logic branch;
+	logic needRc;					// STx/CHK
 	logic [7:0] Ra;
 	logic [7:0] Rb;
-	logic [7:0] Rc;
-	logic [7:0] Rd;
+	logic [7:0] Rc;				// Sometimes Rt is transferred here
 	logic [7:0] Rt;
 	Value imm;
 } sDecode;
@@ -458,11 +463,11 @@ typedef struct packed
 {
 	logic [5:0] Stream;
 	logic Stream_inc;
-	logic [5:0] rid;
 	Instruction ir;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;	// predicted pc
 	logic predict_taken;
+	logic branch;
 	logic ui;							// unimplemented instruction
 	logic rfwr;
 	Value ia;
@@ -511,7 +516,6 @@ typedef struct packed
 	logic [5:0] Stream;
 	logic Stream_inc;
 	logic v;
-	logic issued;
 	logic cmt;						// commit, clears as soon as committed
 	logic cmt2;						// sticky commit, clears when entry reassigned
 	logic dec;						// instruction decoded
@@ -527,6 +531,7 @@ typedef struct packed
 	logic predict_taken;
 	logic rfwr;
 	logic [7:0] Rt;
+	logic [7:0] pRt;			// physical Rt
 	logic [5:0] step;			// vector step
 	Value ia;
 	Value ib;
@@ -546,6 +551,7 @@ typedef struct packed
 	Rid its;
 	Value res;
 	logic [15:0] cause;
+	logic wr_fu;				// write to functional unit
 } sReorderEntry;
 
 typedef struct packed
@@ -566,6 +572,13 @@ typedef struct packed
 	Address redirect_ip;
 	Address current_ip;
 } sRedirect;
+
+typedef struct packed
+{
+	logic cmt;
+	logic [5:0] rid;
+	Value res;
+} sFuncUnit;
 
 endpackage
 

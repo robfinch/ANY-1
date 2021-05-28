@@ -39,7 +39,7 @@ import any1_pkg::*;
 
 module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,rob_exec,Stream_inc,ex_redirect,
 	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,ifStream,rst_exStream,exStream,
-	restore_rfsrc);
+	restore_rfsrc,set_wfi);
 input rst;
 input clk;
 input sReorderEntry robi;
@@ -63,6 +63,7 @@ input [5:0] ifStream;
 input rst_exStream;
 output reg [5:0] exStream;
 output reg restore_rfsrc;
+output reg set_wfi= 1'b0;
 
 integer n;
 
@@ -89,6 +90,7 @@ any1_bitfield ubf1
 always @(posedge clk)
 if (rst) begin
 	rob_exec <= 6'd0;
+	robo <= 1'd0;
 	exStream <= 6'd0;
 	f2a_rst <= TRUE;
 	a2d_rst <= TRUE;
@@ -97,7 +99,10 @@ if (rst) begin
 	divreci.wr <= FALSE;
 	membufi.wr <= FALSE;
 	ex_redirect.wr <= FALSE;
+	ex_redirect.redirect_ip <= RSTIP;
+	ex_redirect.current_ip <= RSTIP;
 	restore_rfsrc <= FALSE;
+	set_wfi <= FALSE;
 end
 else begin
 	f2a_rst <= FALSE;
@@ -108,6 +113,7 @@ else begin
 	membufi.wr <= FALSE;
 	ex_redirect.wr <= FALSE;
 	restore_rfsrc <= FALSE;
+	set_wfi <= FALSE;
 
 	$display("Execute");
 	if (robi.Stream == exStream + Stream_inc) begin
@@ -131,7 +137,14 @@ else begin
 		else
 
 		//robi.res.tag <= robi.ir.tag;
+		robo <= robi;
+		robo.btag <= 4'd0;
+		robo.takb <= FALSE;
+		robo.im <= -64'd1;
+		robo.jump_tgt <= 32'd0;
+		robo.wr_fu <= TRUE;
 		case(robi.ir.r2.opcode)
+		BRK:	robo.cause <= robi.ir[21:14];
 		NOP:	tMod();
 		R3:
 			if (robi.iav && robi.ibv && robi.icv && robi.itv) begin
@@ -220,6 +233,7 @@ else begin
 						tMod();
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
+						robo.wr_fu <= FALSE;
 					end
 				DIV,DIVU,DIVSU:
 					begin
@@ -231,6 +245,7 @@ else begin
 						tMod();
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
+						robo.wr_fu <= FALSE;
 					end
 				MULF:	begin robo.res.val <= robi.ia.val[23:0] + robi.ib.val[15:0]; tMod(); end
 				SEQ:	begin robo.res.val <= robi.ia.val == robi.ib.val; tMod(); end
@@ -284,6 +299,7 @@ else begin
 						tMod(); 
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
+						robo.wr_fu <= FALSE;
 					end
 				end
 		DIVI,DIVUI,DIVSUI:
@@ -296,6 +312,7 @@ else begin
 						tMod(); 
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
+						robo.wr_fu <= FALSE;
 					end
 				end
 		MULFI:if (robi.iav && robi.itv) begin robo.res.val <= robi.ia.val[23:0] + robi.imm.val[15:0]; tMod(); end
@@ -479,18 +496,13 @@ else begin
 						robo.cause <= FLT_CHK;
 						tMod();
 					end
-				default:
-					begin
-						robo.ui <= TRUE;
-						tMod();
-					end
 				endcase
 			end
 		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:
-			if (robi.iav && robi.ibv) begin
+			if (robi.iav && robi.ibv && robi.icv) begin
 				robo.branch <= TRUE;
 				robo.takb <= ex_takb;
-				robo.res.val <= robi.ip + 4'd8;
+				robo.res.val <= robi.ip + 4'd4;
 				tMod();
 				if (brMispredict) begin
 					robo.Stream_inc <= 1'b1;
@@ -498,7 +510,7 @@ else begin
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
 					exStream <= exStream + 2'd1;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ip + robi.imm.val : robi.ip + 4'd8;
+					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : robi.ip + 4'd4;
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.wr <= TRUE;
 					restore_rfsrc <= TRUE;
@@ -509,7 +521,7 @@ else begin
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
 					exStream <= exStream + 2'd1;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ip + robi.imm.val : robi.ip + 4'd8;
+					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : robi.ip + 4'd4;
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.wr <= TRUE;
 					restore_rfsrc <= TRUE;
@@ -519,8 +531,8 @@ else begin
 			if (robi.iav && robi.itv) begin
 				robo.jump <= TRUE;
 				robo.jump_tgt <= robi.ia.val + robi.imm.val;
-				robo.jump_tgt[2:0] <= 3'd0;
-				robo.res <= robi.ip + 4'd4;
+				robo.jump_tgt[1:0] <= 3'd0;
+				robo.res <= robi.ip + {robi.ir[13:10],2'b0};
 				robo.Stream_inc <= 1'b1;
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
@@ -534,6 +546,7 @@ else begin
 		LEA,LDx,LDxX,
 		STx,STxX:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
 			begin
 				membufi.rid <= rob_exec;
 				membufi.ir <= robi.ir;
@@ -546,6 +559,7 @@ else begin
 				tMod();
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
+				robo.wr_fu <= FALSE;
 			end
 		CSR:
 			if (robi.iav & robi.itv) begin
@@ -559,32 +573,35 @@ else begin
 		    tMod();
 			end
 		SYS:
-			if (robi.iav && robi.ibv && robi.itv) begin
-				case(robi.ir.r2.func)
-				PFI:
-					begin
-		      	if (irq_i != 1'b0)
-				    	robo.cause <= 16'h8000|cause_i;
-				    tMod();
-			  	end
-				TLBRW:
-					begin
-						membufi.rid <= rob_exec;
-						membufi.ir <= robi.ir;
-						membufi.ia <= robi.ia;
-						membufi.ib <= robi.ib;
-						membufi.imm <= robi.imm;
-						membufi.wr <= TRUE;
-						tMod();
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-					end
-				default:	;
-				endcase
-			end
+			case(robi.ir.r2.func)
+			PFI:
+				begin
+	      	if (irq_i != 1'b0)
+			    	robo.cause <= 16'h8000|cause_i;
+			    tMod();
+		  	end
+		  WFI:	begin set_wfi <= TRUE; tMod(); end
+			TLBRW:
+				begin
+					membufi.rid <= rob_exec;
+					membufi.ir <= robi.ir;
+					membufi.ia <= robi.ia;
+					membufi.ib <= robi.ib;
+					membufi.imm <= robi.imm;
+					membufi.wr <= TRUE;
+					tMod();
+					robo.cmt <= FALSE;
+					robo.cmt2 <= FALSE;
+					robo.wr_fu <= FALSE;
+				end
+			default:	;
+			endcase
 		EXI0,EXI1,EXI2:	tMod();
 		IMOD:
 			if (robi.icv & robi.idv)
+				tMod();
+		BRMOD:
+			if (robi.icv)
 				tMod();
 		8'hFF:
 			rob_exec <= rob_exec;

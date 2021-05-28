@@ -52,7 +52,6 @@ begin
   else
 		o.ir <= i.cacheline >> {i.ip[5:2],5'b0};
 	o.ip <= i.ip;
-	o.rid <= i.rid;
 	o.pip <= i.pip;
 end
 
