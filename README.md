@@ -20,6 +20,8 @@ machines (RISC-V, x286+) have four operating modes or levels.
 
 
 # Instruction Set
+
+## Version 1.
 The instructions are of a fixed format. In order to get all desired features
 into an instruction a 64-bit instruction size has been choosen. The least
 significant eight bits of the instruction are the major opcode of the
@@ -27,6 +29,13 @@ instruction. Up to four register reads ports may be present in an instruction.
 The register spec field allows the selection of either a scalar or a vector
 register rather than using opcodes to select scalar or vector operations. As
 such there are relatively few instructions.
+
+## Version 2.
+For version2 of the ISA a 32 bit instruction size was chosen. This is much
+more code dense than version 1. However there are only two source registers
+allowed per instruction. To implement some of the instructions requiring more
+source registers, there are instruction modifiers that prefix instructions to
+add additional features.
 
 # Register File
 There are two primary register files for the cpu. A scalar register file and a
@@ -37,3 +46,8 @@ posit values.
 
 The instruction pointer is referencable as x63 for use in generating ip relative
 addressing modes.
+
+# Status
+A version of version 2 of the ISA has been coded. Only the scalar integer
+instruction set is supported. It is being simulated.
+
