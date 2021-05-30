@@ -64,13 +64,18 @@ always @*
 		decbuf.Stream <= a2d_out.Stream;
 		decbuf.Stream_inc <= 1'b0;
 		decbuf.rfwr <= FALSE;
+		decbuf.vrfwr <= FALSE;
 		decbuf.Ra <= dir.r2.Ra;
 		decbuf.Rb <= dir.r2.Rb;
 		decbuf.Rc <= 6'd0;
 		decbuf.Rt <= 6'd0;
-		decbuf.is_vec <= dir.r2.opcode[7] && dir.r2.opcode[7:4]!=4'hF;
+		decbuf.Ravec <= FALSE;
+		decbuf.Rbvec <= FALSE;
+		decbuf.Rtvec <= FALSE;
+		decbuf.is_vec <= dir.r2.opcode[7];
 		decbuf.branch <= dir.r2.opcode[7:3]=={4'h4,1'b1};
-		decbuf.is_mod <= dir.r2.opcode[7:4]==4'hF;
+		decbuf.vex <= FALSE;
+		decbuf.is_mod <= dir.r2.opcode[7:4]==4'h5;
 		decbuf.needRc <= FALSE;
 		decbuf.imm.val <= 64'd0;
 //		dcRedirectIp <= dip + {{25{dir[63]}},dir[63:28],3'h0};
@@ -91,7 +96,7 @@ always @*
 			MULF:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			DIV,DIVU,DIVSU:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
-			SEQ,SNE,SLT,SGE,SLTU,SGEU:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+			SEQ,SNE,SLT,SGE,SLTU,SGEU,CMP:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			default:	;
 			endcase
 		R3:
@@ -142,7 +147,6 @@ always @*
 			end
 		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{50{dir[31]}},dir[31:26],dir[13:8],2'd0}; end
 		LEA:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{dir.ld.disp[7]}},dir.ld.disp}; decbuf.ui <= FALSE; end
-		LEAX: begin decbuf.Rt <= dir.ld.Rt; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 		LDx:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{dir.ld.disp[7]}},dir.ld.disp}; decbuf.ui <= FALSE; end
 		LDxX: begin decbuf.Rt <= dir.ld.Rt; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{dir.st.disphi[1]}},dir.st.disphi,dir.st.displo}; decbuf.ui <= FALSE; decbuf.needRc <= TRUE; end
@@ -157,6 +161,23 @@ always @*
 			end
 		CSR:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.imm.val <= {52'd0,dir[31:20]}; end
 		EXI0,EXI1,EXI2,IMOD,BRMOD:	decbuf.ui <= FALSE;
+		VR1:
+			case(dir.r2.func)
+			ABS:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; end
+			NOT:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; end
+			VEX:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.rfwr <= TRUE; decbuf.vex <= TRUE; decbuf.Rbvec <= TRUE; end
+			default:	;
+			endcase			
+		VR2:
+			case(dir.r2.func)
+			ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
+			DIF:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
+			MULF:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
+			MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
+			DIV,DIVU,DIVSU:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
+			SEQ,SNE,SLT,SGE,SLTU,SGEU,CMP:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
+			default:	;
+			endcase
 		default:	;
 		endcase
 	end

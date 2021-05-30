@@ -66,8 +66,6 @@ if (rst)
 	ea <= 32'd0;
 else begin
 	case(ir.ld.opcode)
-	LEA:	ea <= imm + ia.val;
-	LEAX:	ea <= imm + ia.val + (ib.val << Sc);
 	LDx:	ea <= imm + ia.val;
 	LDxX:	ea <= imm + ia.val + (ib.val << Sc);
 	STx:	ea <= imm + ia.val;
