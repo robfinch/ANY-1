@@ -66,7 +66,6 @@ output reg [5:0] exStream;
 output reg restore_rfsrc;
 output reg set_wfi= 1'b0;
 input [7:0] vl;
-input sov;
 
 integer n;
 
@@ -571,7 +570,7 @@ else begin
 		LDSx:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			// This does not wait for registers to be valid.
-			if (vmask[robi.step]) begin
+			if (robi.vmask[robi.step]) begin
 				membufi.rid <= rob_exec;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
@@ -585,7 +584,7 @@ else begin
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
 			end
-			else if (robi.im.z)
+			else if (robi.irmod.im.z)
 				tDoOp(64'd0);
 			else begin
 				tDoOp(64'd0);
@@ -594,7 +593,7 @@ else begin
 		STSx:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			// This does not wait for registers to be valid.
-			if (vmask[robi.step]) begin
+			if (robi.vmask[robi.step]) begin
 				membufi.rid <= rob_exec;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
@@ -608,7 +607,7 @@ else begin
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
 			end
-			else if (robi.im.z) begin
+			else if (robi.irmod.im.z) begin
 				membufi.rid <= rob_exec;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
@@ -723,14 +722,14 @@ else begin
 					end
 				BITS2V:
 					if (robi.iav) begin
-						tDoOp(robi.ia.val[step]);
+						tDoOp(robi.ia.val[robi.step]);
 					end
 				VCMPRSS:
 					begin
 						if (robi.step==6'd0)
 							vec_y <= 6'd0;
 						robo.res <= robi.ia;
-						if (vmask[robi.step]) begin
+						if (robi.vmask[robi.step]) begin
 							robo.res_ele <= |robi.step ? vec_y : 6'd0;
 							vec_y <= vec_y + 2'd1;
 						end
@@ -741,7 +740,7 @@ else begin
 						if (robi.step==6'd0)
 							vec_y <= 6'd0;
 						robo.res <= robi.ia * robi.step;
-						if (vmask[robi.step]) begin
+						if (robi.vmask[robi.step]) begin
 							robo.res_ele <= |robi.step ? vec_y : 6'd0;
 							vec_y <= vec_y + 2'd1;
 						end
@@ -754,7 +753,7 @@ else begin
 							vscan_sum <= 64'd0;
 							robo.res.val <= 64'd0;
 						end
-						else if (vmask[robi.step])
+						else if (robi.vmask[robi.step])
 							vscan_sum <= vscan_sum + robi.ia.val;
 						tMod();
 					end
@@ -822,7 +821,7 @@ else begin
 				VEINS:
 					if (robi.step_v)
 						tDoOp(robi.ib);
-					else
+					else begin
 						robo.step_v <= TRUE;
 						robo.step <= robi.ia[5:0];
 					end

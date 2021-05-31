@@ -1508,7 +1508,7 @@ else begin
 		rob[rob_que].cmt2 <= FALSE;
 		if (decbuf.veins) begin
 			rob[rob_que].step_v <= FALSE;
-			rob[rob_que].step <= decbuf.ia[5:0];
+			rob[rob_que].step <= exbufi.ia.val[5:0];
 		end
 		else
 			rob[rob_que].step <= decven;
@@ -1686,6 +1686,8 @@ else begin
 			// the entry that was processed by exec, so i'ts one less.
 			if (robo.update_rob) begin
 				rob_pexec <= rob_exec;
+				rob[rob_pexec] <= robo;
+				/*
 				rob[rob_pexec].wr_fu <= robo.wr_fu;
 				rob[rob_pexec].takb <= robo.takb;
 				rob[rob_pexec].cause <= robo.cause;
@@ -1693,6 +1695,7 @@ else begin
 				rob[rob_pexec].cmt <= robo.cmt;
 				rob[rob_pexec].cmt2 <= robo.cmt2;
 				rob[rob_pexec].vcmt <= robo.vcmt;
+				*/
 				//rob[rob_exec-2'd1] <= robo;
 			// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
 				if (robo.wr_fu) begin

@@ -191,7 +191,7 @@ always @*
 			VEX:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.rfwr <= TRUE; decbuf.vex <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= FALSE; end
 			VEINS:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.veins <= TRUE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= TRUE; end
 			VSLLV:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
-			VSLRV:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+			VSRLV:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
 			default:	;
 			endcase
 		VR3:

@@ -93,6 +93,8 @@ parameter SLT		= 6'h2C;
 parameter SGE		= 6'h2D;
 parameter SLTU	= 6'h2E;
 parameter SGEU	= 6'h2F;
+parameter VSLLV	= 6'h38;
+parameter VSRLV	= 6'h39;
 parameter VEX		= 6'h3A;
 parameter VEINS	= 6'h3B;
 // R1 ops
@@ -102,8 +104,6 @@ parameter NOT		= 6'h04;
 parameter ABS		= 6'h06;
 parameter V2BITS=	6'h18;
 parameter BITS2V=	6'h19;
-parameter VSLLV	= 6'h1A;
-parameter VSLRV	= 6'h1B;
 parameter VCMPRSS = 6'h1C;
 parameter VCIDX	= 6'h1D;
 parameter VSCAN	= 6'h1E;
