@@ -37,6 +37,7 @@
 // ============================================================================
 `define SIM   1'b1
 import any1_pkg::*;
+import fp::*;
 
 module any1oo(rst_i, clk_i, wc_clk_i, nmi_i, irq_i, cause_i,
 	vpa_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o, dat_i, dat_o, sr_o, cr_o, rb_i);
@@ -71,17 +72,19 @@ wire UserMode, SupervisorMode, HypervisorMode, MachineMode, DebugMode;
 wire MUserMode;
 
 Instruction ir;
-sFuncUnit [3:0] funcUnit;
+sFuncUnit [4:0] funcUnit;
 sInstAlignIn f2a_in, f2a_out;
 sInstAlignOut a2d_in,a2d_out;
 sDecode decbuf;
 sExecute exbufi, exbufo;
 sMemoryIO membufi;
 sReorderEntry [ROB_ENTRIES-1:0] rob;
-sALUrec mulreci,mulreco, divreci, divreco;
+sALUrec mulreci,mulreco, divreci, divreco, fpreci,fpreco;
 sFuncUnit memfu;
 reg x2mul_wr,x2mul_rd;
 wire x2mul_full,x2mul_empty;
+reg x2fp_wr,x2fp_rd;
+wire x2fp_full,x2fp_empty;
 reg mul_sign;
 reg [63:0] mul_a;
 reg [63:0] mul_b;
@@ -93,6 +96,7 @@ reg [5:0] rob_pexec;
 reg [5:0] mstate, mstk_state;			// memory state
 reg [2:0] mul_state;	// multipler state
 reg [2:0] div_state;
+reg [2:0] fp_state;
 reg [63:0] csrro;
 
 reg [63:0] regalloc;
@@ -1062,6 +1066,18 @@ ALU_fifo ux2div
   .empty(x2div_empty)  		// output wire empty
 );
 
+ALU_fifo ux2fp
+(
+  .clk(clk_g),      // input wire clk
+  .srst(rst_i),    // input wire srst
+  .din(fpreci),      // input wire [134 : 0] din
+  .wr_en(!x2fp_full && fpreci.wr),	// input wire wr_en
+  .rd_en(x2fp_rd),  // input wire rd_en
+  .dout(fpreco),    // output wire [134 : 0] dout
+  .full(x2dfp_full),    // output wire full
+  .empty(x2dfp_empty)  		// output wire empty
+);
+
 if_redirect_fifo udc2if
 (
   .clk(clk_g),      // input wire clk
@@ -1104,6 +1120,95 @@ if_redirect_fifo uwb2if
 sReorderEntry robo,robo1;
 wire brAddrMispredict = exbufi.pip != ex_redirecti.redirect_ip;//exRedirectIp;
 wire rst_exStream = push_f2a ? (wb2if_redirect_rd3|ex2if_redirect_rd3|dc2if_redirect_rd3) : 1'b0;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Floating point logic
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+reg d_fltcmp;
+wire [5:0] fltfunct5 = robi.ir.r2.func;
+reg [FPWID-1:0] fcmp_res, ftoi_res, itof_res, fres;
+wire [2:0] rmq = rm3==3'b111 ? rm : rm3;
+
+wire [63:0] fcmp_o;
+wire [EX:0] fas_o, fmul_o, fdiv_o, fsqrt_o;
+wire [EX:0] fma_o;
+wire fma_uf;
+wire mul_of, div_of;
+wire mul_uf, div_uf;
+wire norm_nx;
+wire sqrt_done;
+wire cmpnan, cmpsnan;
+reg [EX:0] fnorm_i;
+wire [MSB+3:0] fnorm_o;
+reg ld1;
+wire sqrneg, sqrinf;
+wire fa_inf, fa_xz, fa_vz;
+wire fa_qnan, fa_snan, fa_nan;
+wire fb_qnan, fb_snan, fb_nan;
+wire finf, fdn;
+always @(posedge clk_g)
+	ld1 <= ld;
+fpDecomp #(FPWID) u12 (.i(ia), .sgn(), .exp(), .man(), .fract(), .xz(fa_xz), .mz(), .vz(fa_vz), .inf(fa_inf), .xinf(), .qnan(fa_qnan), .snan(fa_snan), .nan(fa_nan));
+fpDecomp #(FPWID) u13 (.i(ib), .sgn(), .exp(), .man(), .fract(), .xz(), .mz(), .vz(), .inf(), .xinf(), .qnan(fb_qnan), .snan(fb_snan), .nan(fb_nan));
+fpCompare #(.FPWID(FPWID)) u1 (.a(exbufi.ia.val), .b(exbufi.ib.val), .o(fcmp_o), .nan(cmpnan), .snan(cmpsnan));
+assign fcmp_res = fcmp_o[1] ? {FPWID{1'd1}} : fcmp_o[0] ? 1'd0 : 1'd1;
+i2f #(.FPWID(FPWID)) u2 (.clk(clk_g), .ce(1'b1), .op(~fpreco.ir.r2.Rb[0]), .rm(rmq), .i(fpreco.ia.val), .o(itof_res));
+f2i #(.FPWID(FPWID)) u3 (.clk(clk_g), .ce(1'b1), .op(~fpreco.ir.r2.Rb[0]), .i(fpreco.ia.val), .o(ftoi_res), .overflow());
+fpAddsub #(.FPWID(FPWID)) u4 (.clk(clk_g), .ce(1'b1), .rm(rmq), .op(fltfunct5==SUB), .a(fpreco.ia.val), .b(fpreco.ib.val), .o(fas_o));
+fpMul #(.FPWID(FPWID)) u5 (.clk(clk_g), .ce(1'b1), .a(fpreco.ia.val), .b(fpreco.ib.val), .o(fmul_o), .sign_exe(), .inf(), .overflow(nmul_of), .underflow(mul_uf));
+fpDiv #(.FPWID(FPWID)) u6 (.rst(rst_i), .clk(clk_g), .clk4x(1'b0), .ce(1'b1), .ld(ld), .op(1'b0),
+	.a(fpreco.ia.val), .b(fpreco.ib.val), .o(fdiv_o), .done(), .sign_exe(), .overflow(div_of), .underflow(div_uf));
+fpSqrt #(.FPWID(FPWID)) u7 (.rst(rst_i), .clk(clk_g), .ce(1'b1), .ld(ld),
+	.a(fpreco.ia.val), .o(fsqrt_o), .done(sqrt_done), .sqrinf(sqrinf), .sqrneg(sqrneg));
+fpFMA #(.FPWID(FPWID)) u14
+(
+	.clk(clk_g),
+	.ce(1'b1),
+	.op(opcode==FMS||opcode==FNMS),
+	.rm(rmq),
+	.a(fpreco.ir.r3.opcode==NMADD||opcode==NMSUB ? {~fpreco.ia.val[FPWID-1],fpreco.ia.val[FPWID-2:0]} : fpreco.ia.val),
+	.b(fpreco.ib.val),
+	.c(fpreco.ic.val),
+	.o(fma_o),
+	.under(fma_uf),
+	.over(),
+	.inf(),
+	.zero()
+);
+
+always @(posedge clk)
+case(fpreco.ir.opcode)
+MADD,MSUB,NMADD,NMSUB:
+	fnorm_i <= fma_o;
+F2:
+	case(fpreco.ir.r2.func)
+	ADD:	fnorm_i <= fas_o;
+	SUB:	fnorm_i <= fas_o;
+	MUL:	fnorm_i <= fmul_o;
+	DIV:	fnorm_i <= fdiv_o;
+	SQRT:	fnorm_i <= fsqrt_o;
+	default:	fnorm_i <= 1'd0;
+	endcase
+default:	fnorm_i <= 1'd0;
+endcase
+reg fnorm_uf;
+wire norm_uf;
+always @(posedge clk)
+case(opcode)
+MADD,MSUB,NMADD,NMSUB:
+	fnorm_uf <= fma_uf;
+F2:
+	case(fpreco.ir.r2.func)
+	MUL:	fnorm_uf <= mul_uf;
+	DIV:	fnorm_uf <= div_uf;
+	default:	fnorm_uf <= 1'b0;
+	endcase
+default:	fnorm_uf <= 1'b0;
+endcase
+fpNormalize #(.FPWID(FPWID)) u8 (.clk(clk_g), .ce(1'b1), .i(fnorm_i), .o(fnorm_o), .under_i(fnorm_uf), .under_o(norm_uf), .inexact_o(norm_nx));
+fpRound #(.FPWID(FPWID)) u9 (.clk(clk_g), .ce(1'b1), .rm(rmq), .i(fnorm_o), .o(fres));
+fpDecompReg #(FPWID) u10 (.clk(clk_g), .ce(1'b1), .i(fres), .sgn(), .exp(), .fract(), .xz(fdn), .vz(), .inf(finf), .nan() );
 
 
 any1_execute uex1(
@@ -1358,6 +1463,8 @@ else begin
 	x2mul_wr <= FALSE;
 	x2div_rd <= FALSE;
 	x2div_wr <= FALSE;
+	x2fp_rd <= FALSE;
+	x2fp_wr <= FALSE;
 	dcache_wr <= FALSE;
 	if (ld_time==TRUE && wc_time_dat==wc_time)
 		ld_time <= FALSE;
@@ -1686,8 +1793,8 @@ else begin
 			// the entry that was processed by exec, so i'ts one less.
 			if (robo.update_rob) begin
 				rob_pexec <= rob_exec;
-				rob[rob_pexec] <= robo;
-				/*
+				//rob[rob_pexec] <= robo;		// takes a lot more hardware
+				
 				rob[rob_pexec].wr_fu <= robo.wr_fu;
 				rob[rob_pexec].takb <= robo.takb;
 				rob[rob_pexec].cause <= robo.cause;
@@ -1695,8 +1802,7 @@ else begin
 				rob[rob_pexec].cmt <= robo.cmt;
 				rob[rob_pexec].cmt2 <= robo.cmt2;
 				rob[rob_pexec].vcmt <= robo.vcmt;
-				*/
-				//rob[rob_exec-2'd1] <= robo;
+				
 			// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
 				if (robo.wr_fu) begin
 					funcUnit[FU_EXEC].rid <= rob_exec;
@@ -3319,6 +3425,62 @@ DIV4:
 	end
 	default:
 		div_state <= DIV1;
+	endcase
+
+// -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  
+// Handle float type operations.
+// -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  
+
+	case (fp_state)
+ST_FP1:
+	if (!x2fp_empty) begin
+		x2fp_rd <= TRUE;
+		fp_state <= ST_FP2;
+	end
+ST_FP2:
+	begin
+		case(fpreco.ir.r2.opcode)
+		MADD,MSUB,NMADD,NMSUB:
+			if (rob[fpreco.rid].iav && rob[fpreco.rid].ibv && rob[fpreco.rid].icv) begin
+				fp_state <= ST_FP3;
+				fp_cnt <= 8'd15;
+			end
+		R2:
+			begin
+				case(fpreco.ir.r2.func)
+				ADD,SUB,MUL:
+					if (rob[fpreco.rid].iav && rob[fpreco.rid].ibv) begin
+						fp_state <= ST_FP3;
+						fp_cnt <= 8'd10;
+					end
+				DIV:
+					if (rob[fpreco.rid].iav && rob[fpreco.rid].ibv) begin
+						fp_state <= ST_FP3;
+						fp_cnt <= 8'd60;
+					end
+				default:	;
+				endcase
+			end
+		default:	;
+		endcase
+	end
+ST_FP3:
+	begin
+		fp_cnt <= fp_cnt - 2'd1;
+		if (fp_cnt[7]) begin
+			rob[fpreco.rid].res <= fres;
+			rob[fpreco.rid].cmt <= TRUE;
+			rob[fpreco.rid].cmt2 <= TRUE;
+			if (rob[fpreco.rid].is_vec && rob[fpreco.rid].step >= vl)
+				rob[fpreco.rid].vcmt <= TRUE;
+			funcUnit[FU_FP].res <= fres;
+			funcUnit[FU_FP].rid <= fpreco.rid;
+			funcUnit[FU_FP].ele <= rob[fpreco.rid].step;
+			fp_state <= ST_FP1;
+		end
+	end
+default:
+	f[_state <= ST_FP1;
 	endcase
 
 end	// clock domain

@@ -84,11 +84,14 @@ parameter SLLI	= 6'h1A;
 parameter MULF	= 6'h1C;
 parameter MULSUH= 6'h1D;
 parameter MULUH = 6'h1E;
+parameter CMP		= 6'h20;
+parameter FCMP	= 6'h21;
+parameter DFCMP	= 6'h22;
+parameter PCMP	= 6'd23;
 parameter SEQ		= 6'h26;
 parameter SNE		= 6'h27;
 parameter MIN		= 6'h28;
 parameter MAX		= 6'h29;
-parameter CMP		= 6'h2A;
 parameter SLT		= 6'h2C;
 parameter SGE		= 6'h2D;
 parameter SLTU	= 6'h2E;
@@ -99,9 +102,12 @@ parameter VEX		= 6'h3A;
 parameter VEINS	= 6'h3B;
 // R1 ops
 parameter CTLZ	= 6'h00;
+parameter CTLO	= 6'h01;
 parameter CTPOP	= 6'h02;
 parameter NOT		= 6'h04;
+parameter NEG		= 6'h05;
 parameter ABS		= 6'h06;
+parameter NABS	= 6'h07;
 parameter V2BITS=	6'h18;
 parameter BITS2V=	6'h19;
 parameter VCMPRSS = 6'h1C;
@@ -134,6 +140,12 @@ parameter SLTI	= 8'h28;
 parameter SGTI	= 8'h29;
 parameter SLTUI	= 8'h2A;
 parameter SGTUI = 8'h2B;
+
+parameter MADD	= 8'h30;
+parameter MSUB	= 8'h31;
+parameter NMADD	= 8'h32;
+parameter NMSUB	= 8'h33;
+parameter F2		= 8'h35;
 
 parameter NOP  	= 8'h3F;
 parameter JAL		= 8'h40;
@@ -335,10 +347,15 @@ parameter DIV2 = 3'd2;
 parameter DIV3 = 3'd3;
 parameter DIV4 = 3'd4;
 
-parameter FU_EXEC	= 2'd0;
-parameter FU_MUL = 2'd1;
-parameter FU_DIV = 2'd2;
-parameter FU_MEM = 2'd3;
+parameter ST_FP1 = 3'd1;
+parameter ST_FP2 = 3'd2;
+parameter ST_FP3 = 3'd3;
+
+parameter FU_EXEC	= 3'd0;
+parameter FU_MUL = 3'd1;
+parameter FU_DIV = 3'd2;
+parameter FU_MEM = 3'd3;
+parameter FU_FP	= 3'd4;
 
 parameter pL1CacheLines = 64;
 parameter pL1LineSize = 512;

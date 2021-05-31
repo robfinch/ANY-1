@@ -37,7 +37,7 @@
 
 import any1_pkg::*;
 
-module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,rob_exec,Stream_inc,ex_redirect,
+module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,fpreci,rob_exec,Stream_inc,ex_redirect,
 	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,ifStream,rst_exStream,exStream,
 	restore_rfsrc,set_wfi,vregfilesrc,vl);
 input rst;
@@ -46,6 +46,7 @@ input sReorderEntry robi;
 output sReorderEntry robo;
 output sALUrec mulreci;
 output sALUrec divreci;
+output sALUrec fpreci;
 output sMemoryIO membufi;
 output reg [5:0] rob_exec;
 input Stream_inc;
@@ -75,6 +76,20 @@ reg [63:0] prev_res;
 reg [63:0] vscan_sum;
 reg [5:0] vec_y;
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Count: leading zeros, leading ones, population.
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+wire [6:0] cntlzo, cntloo, cntpopo;
+
+cntlz64 uclz1 (robi.ia.val, cntlzo);
+cntlo64 uclo1 (robi.ia.val, cntloo);
+cntpop64 ucpop1 (robi.ia.val, cntpopo);
+
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Bitfield
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
 Value bf_out;
 any1_bitfield ubf1
 (
@@ -86,6 +101,7 @@ any1_bitfield ubf1
 	.o(bf_out),
 	.masko()
 );
+
 
 	// Execute
 	// Lots to do here.
@@ -266,8 +282,31 @@ else begin
 		R1:
 			if (robi.iav) begin
 				case(robi.ir.r2.func)
-				ABS:	begin robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia; tMod(); end
+				ABS:
+					case(robi.ir.r2.Rb)
+					6'd0:	begin robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia; tMod(); end
+					6'd1:	begin robo.res.val <= {1'b0,robi.ia.val[62:0]}; tMod(); end
+					6'd2:	begin robo.res.val <= {1'b0,robi.ia.val[62:0]}; tMod(); end
+					default:	begin robo.res.val <= 64'hDEADDEADDEADDEAD; tMod(); end
+					endcase
+				NABS:
+					case(robi.ir.r2.Rb)
+					6'd0:	begin robo.res.val <= robi.ia[63] ? robi.ia : -robi.ia; tMod(); end
+					6'd1:	begin robo.res.val <= {1'b1,robi.ia.val[62:0]}; tMod(); end
+					6'd2:	begin robo.res.val <= {1'b1,robi.ia.val[62:0]}; tMod(); end
+					default:	begin robo.res.val <= 64'hDEADDEADDEADDEAD; tMod(); end
+					endcase
+				NEG:
+					case(robi.ir.r2.Rb)
+					6'd0:	begin robo.res.val <= -robi.ia; tMod(); end
+					6'd1:	begin robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]}; tMod(); end
+					6'd2:	begin robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]}; tMod(); end
+					6'd3:	begin robo.res.val <= -robi.ia; tMod(); end
+					default:	begin robo.res.val <= 64'hDEADDEADDEADDEAD; tMod(); end
+					endcase					
 				NOT:	begin robo.res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0; tMod(); end
+				CTLZ:	begin robo.res.val <= cntlzo; tMod(); end
+				CTPOP:	begin robo.res.val <= cntlpop; tMod(); end
 				V2BITS:	begin
 									if (robi.step==0) begin
 										if (robi.vmask[0]) begin
@@ -680,7 +719,45 @@ else begin
 								robo.update_rob <= TRUE;
 								rob_exec <= rob_exec + 2'd1;
 								if (robi.vmask.val[robi.step]) begin
-									robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia;
+									case(robi.ir.r2.Rb)
+									6'd0:	robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia;
+									6'd1:	robo.res.val <= {1'b0,robi.ia.val[62:0]};
+									6'd2:	robo.res.val <= {1'b0,robi.ia.val[62:0]};
+									default:	robo.res.val <= 64'hDEADDEADDEADDEAD;
+									endcase
+									robo.cmt <= TRUE;
+									robo.cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									robo.res.val <= 64'd0;
+						  end
+				NABS:	begin
+								robo.update_rob <= TRUE;
+								rob_exec <= rob_exec + 2'd1;
+								if (robi.vmask.val[robi.step]) begin
+									case(robi.ir.r2.Rb)
+									6'd0:	robo.res.val <= robi.ia[63] ? robi.ia : -robi.ia;
+									6'd1:	robo.res.val <= {1'b1,robi.ia.val[62:0]};
+									6'd2:	robo.res.val <= {1'b1,robi.ia.val[62:0]};
+									default:	robo.res.val <= 64'hDEADDEADDEADDEAD;
+									endcase
+									robo.cmt <= TRUE;
+									robo.cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									robo.res.val <= 64'd0;
+						  end
+				NEG:	begin
+								robo.update_rob <= TRUE;
+								rob_exec <= rob_exec + 2'd1;
+								if (robi.vmask.val[robi.step]) begin
+									case(robi.ir.r2.Rb)
+									6'd0:	robo.res.val <= -robi.ia;
+									6'd1:	robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]};
+									6'd2:	robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]};
+									6'd3:	robo.res.val <= -robi.ia;
+									default:	robo.res.val <= 64'hDEADDEADDEADDEAD;
+									endcase					
 									robo.cmt <= TRUE;
 									robo.cmt2 <= TRUE;
 								end
@@ -692,6 +769,28 @@ else begin
 								rob_exec <= rob_exec + 2'd1;
 								if (robi.vmask.val[robi.step]) begin
 									robo.res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0;
+									robo.cmt <= TRUE;
+									robo.cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									robo.res.val <= 64'd0;
+							end
+				CTLZ:	begin
+								robo.update_rob <= TRUE;
+								rob_exec <= rob_exec + 2'd1;
+								if (robi.vmask.val[robi.step]) begin
+									robo.res.val <= cntlzo;
+									robo.cmt <= TRUE;
+									robo.cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									robo.res.val <= 64'd0;
+							end
+				CTPOP:begin
+								robo.update_rob <= TRUE;
+								rob_exec <= rob_exec + 2'd1;
+								if (robi.vmask.val[robi.step]) begin
+									robo.res.val <= cntlpop;
 									robo.cmt <= TRUE;
 									robo.cmt2 <= TRUE;
 								end
