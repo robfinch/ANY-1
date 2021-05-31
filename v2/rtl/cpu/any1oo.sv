@@ -239,6 +239,7 @@ reg [63:0] sema;
 Address keytbl;
 reg [19:0] keys [0:7];
 reg [7:0] vl;
+reg [2:0] rm;
 
 sMemoryIO membufo;
 wire d_cache = membufo.ir.r2.opcode==CACHE;
@@ -1125,8 +1126,10 @@ wire rst_exStream = push_f2a ? (wb2if_redirect_rd3|ex2if_redirect_rd3|dc2if_redi
 // Floating point logic
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+reg [7:0] fp_cnt;
+reg [2:0] rm3;
 reg d_fltcmp;
-wire [5:0] fltfunct5 = robi.ir.r2.func;
+wire [5:0] fltfunct5 = fpreco.ir.r2.func;
 reg [FPWID-1:0] fcmp_res, ftoi_res, itof_res, fres;
 wire [2:0] rmq = rm3==3'b111 ? rm : rm3;
 
@@ -1149,27 +1152,27 @@ wire fb_qnan, fb_snan, fb_nan;
 wire finf, fdn;
 always @(posedge clk_g)
 	ld1 <= ld;
-fpDecomp #(FPWID) u12 (.i(ia), .sgn(), .exp(), .man(), .fract(), .xz(fa_xz), .mz(), .vz(fa_vz), .inf(fa_inf), .xinf(), .qnan(fa_qnan), .snan(fa_snan), .nan(fa_nan));
-fpDecomp #(FPWID) u13 (.i(ib), .sgn(), .exp(), .man(), .fract(), .xz(), .mz(), .vz(), .inf(), .xinf(), .qnan(fb_qnan), .snan(fb_snan), .nan(fb_nan));
-fpCompare #(.FPWID(FPWID)) u1 (.a(exbufi.ia.val), .b(exbufi.ib.val), .o(fcmp_o), .nan(cmpnan), .snan(cmpsnan));
+fpDecomp u12 (.i(fpreco.a.val), .sgn(), .exp(), .man(), .fract(), .xz(fa_xz), .mz(), .vz(fa_vz), .inf(fa_inf), .xinf(), .qnan(fa_qnan), .snan(fa_snan), .nan(fa_nan));
+fpDecomp u13 (.i(fpreco.b.val), .sgn(), .exp(), .man(), .fract(), .xz(), .mz(), .vz(), .inf(), .xinf(), .qnan(fb_qnan), .snan(fb_snan), .nan(fb_nan));
+fpCompare u1 (.a(exbufi.ia.val), .b(exbufi.ib.val), .o(fcmp_o), .nan(cmpnan), .snan(cmpsnan));
 assign fcmp_res = fcmp_o[1] ? {FPWID{1'd1}} : fcmp_o[0] ? 1'd0 : 1'd1;
-i2f #(.FPWID(FPWID)) u2 (.clk(clk_g), .ce(1'b1), .op(~fpreco.ir.r2.Rb[0]), .rm(rmq), .i(fpreco.ia.val), .o(itof_res));
-f2i #(.FPWID(FPWID)) u3 (.clk(clk_g), .ce(1'b1), .op(~fpreco.ir.r2.Rb[0]), .i(fpreco.ia.val), .o(ftoi_res), .overflow());
-fpAddsub #(.FPWID(FPWID)) u4 (.clk(clk_g), .ce(1'b1), .rm(rmq), .op(fltfunct5==SUB), .a(fpreco.ia.val), .b(fpreco.ib.val), .o(fas_o));
-fpMul #(.FPWID(FPWID)) u5 (.clk(clk_g), .ce(1'b1), .a(fpreco.ia.val), .b(fpreco.ib.val), .o(fmul_o), .sign_exe(), .inf(), .overflow(nmul_of), .underflow(mul_uf));
-fpDiv #(.FPWID(FPWID)) u6 (.rst(rst_i), .clk(clk_g), .clk4x(1'b0), .ce(1'b1), .ld(ld), .op(1'b0),
-	.a(fpreco.ia.val), .b(fpreco.ib.val), .o(fdiv_o), .done(), .sign_exe(), .overflow(div_of), .underflow(div_uf));
-fpSqrt #(.FPWID(FPWID)) u7 (.rst(rst_i), .clk(clk_g), .ce(1'b1), .ld(ld),
-	.a(fpreco.ia.val), .o(fsqrt_o), .done(sqrt_done), .sqrinf(sqrinf), .sqrneg(sqrneg));
-fpFMA #(.FPWID(FPWID)) u14
+i2f u2 (.clk(clk_g), .ce(1'b1), .op(~fpreco.ir.r2.Rb[0]), .rm(rmq), .i(fpreco.a.val), .o(itof_res));
+f2i u3 (.clk(clk_g), .ce(1'b1), .op(~fpreco.ir.r2.Rb[0]), .i(fpreco.a.val), .o(ftoi_res), .overflow());
+fpAddsub u4 (.clk(clk_g), .ce(1'b1), .rm(rmq), .op(fltfunct5==SUB), .a(fpreco.a.val), .b(fpreco.b.val), .o(fas_o));
+fpMultiply u5 (.clk(clk_g), .ce(1'b1), .a(fpreco.a.val), .b(fpreco.b.val), .o(fmul_o), .sign_exe(), .inf(), .overflow(nmul_of), .underflow(mul_uf));
+fpDivide u6 (.rst(rst_i), .clk(clk_g), .clk4x(1'b0), .ce(1'b1), .ld(ld), .op(1'b0),
+	.a(fpreco.a.val), .b(fpreco.b.val), .o(fdiv_o), .done(), .sign_exe(), .overflow(div_of), .underflow(div_uf));
+fpSqrt u7 (.rst(rst_i), .clk(clk_g), .ce(1'b1), .ld(ld),
+	.a(fpreco.a.val), .o(fsqrt_o), .done(sqrt_done), .sqrinf(sqrinf), .sqrneg(sqrneg));
+fpFMA u14
 (
 	.clk(clk_g),
 	.ce(1'b1),
 	.op(opcode==FMS||opcode==FNMS),
 	.rm(rmq),
-	.a(fpreco.ir.r3.opcode==NMADD||opcode==NMSUB ? {~fpreco.ia.val[FPWID-1],fpreco.ia.val[FPWID-2:0]} : fpreco.ia.val),
-	.b(fpreco.ib.val),
-	.c(fpreco.ic.val),
+	.a(fpreco.ir.r2.opcode==NMADD||fpreco.ir.r2.opcode==NMSUB ? {~fpreco.a.val[FPWID-1],fpreco.a.val[FPWID-2:0]} : fpreco.a.val),
+	.b(fpreco.b.val),
+	.c(fpreco.c.val),
 	.o(fma_o),
 	.under(fma_uf),
 	.over(),
@@ -1177,24 +1180,28 @@ fpFMA #(.FPWID(FPWID)) u14
 	.zero()
 );
 
-always @(posedge clk)
-case(fpreco.ir.opcode)
+always @(posedge clk_g)
+case(fpreco.ir.r2.opcode)
 MADD,MSUB,NMADD,NMSUB:
 	fnorm_i <= fma_o;
+F1:
+	case(fpreco.ir.r2.func)
+	SQRT:	fnorm_i <= fsqrt_o;
+	default:	fnorm_i <= 1'd0;
+	endcase
 F2:
 	case(fpreco.ir.r2.func)
 	ADD:	fnorm_i <= fas_o;
 	SUB:	fnorm_i <= fas_o;
 	MUL:	fnorm_i <= fmul_o;
 	DIV:	fnorm_i <= fdiv_o;
-	SQRT:	fnorm_i <= fsqrt_o;
 	default:	fnorm_i <= 1'd0;
 	endcase
 default:	fnorm_i <= 1'd0;
 endcase
 reg fnorm_uf;
 wire norm_uf;
-always @(posedge clk)
+always @(posedge clk_g)
 case(opcode)
 MADD,MSUB,NMADD,NMSUB:
 	fnorm_uf <= fma_uf;
@@ -1206,9 +1213,9 @@ F2:
 	endcase
 default:	fnorm_uf <= 1'b0;
 endcase
-fpNormalize #(.FPWID(FPWID)) u8 (.clk(clk_g), .ce(1'b1), .i(fnorm_i), .o(fnorm_o), .under_i(fnorm_uf), .under_o(norm_uf), .inexact_o(norm_nx));
-fpRound #(.FPWID(FPWID)) u9 (.clk(clk_g), .ce(1'b1), .rm(rmq), .i(fnorm_o), .o(fres));
-fpDecompReg #(FPWID) u10 (.clk(clk_g), .ce(1'b1), .i(fres), .sgn(), .exp(), .fract(), .xz(fdn), .vz(), .inf(finf), .nan() );
+fpNormalize u8 (.clk(clk_g), .ce(1'b1), .i(fnorm_i), .o(fnorm_o), .under_i(fnorm_uf), .under_o(norm_uf), .inexact_o(norm_nx));
+fpRound u9 (.clk(clk_g), .ce(1'b1), .rm(rmq), .i(fnorm_o), .o(fres));
+fpDecompReg u10 (.clk(clk_g), .ce(1'b1), .i(fres), .sgn(), .exp(), .fract(), .xz(fdn), .vz(), .inf(finf), .nan() );
 
 
 any1_execute uex1(
@@ -3480,7 +3487,7 @@ ST_FP3:
 		end
 	end
 default:
-	f[_state <= ST_FP1;
+	fp_state <= ST_FP1;
 	endcase
 
 end	// clock domain

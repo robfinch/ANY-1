@@ -306,7 +306,7 @@ else begin
 					endcase					
 				NOT:	begin robo.res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0; tMod(); end
 				CTLZ:	begin robo.res.val <= cntlzo; tMod(); end
-				CTPOP:	begin robo.res.val <= cntlpop; tMod(); end
+				CTPOP:	begin robo.res.val <= cntpopo; tMod(); end
 				V2BITS:	begin
 									if (robi.step==0) begin
 										if (robi.vmask[0]) begin
@@ -790,7 +790,7 @@ else begin
 								robo.update_rob <= TRUE;
 								rob_exec <= rob_exec + 2'd1;
 								if (robi.vmask.val[robi.step]) begin
-									robo.res.val <= cntlpop;
+									robo.res.val <= cntpopo;
 									robo.cmt <= TRUE;
 									robo.cmt2 <= TRUE;
 								end
