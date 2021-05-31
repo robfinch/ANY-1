@@ -37,10 +37,11 @@
 
 import any1_pkg::*;
 
-module any1_decode(a2d_out, decbuf, predicted_ip);
+module any1_decode(a2d_out, decbuf, predicted_ip, ven);
 input sInstAlignOut a2d_out;
 output sDecode decbuf;
 input Address predicted_ip;
+input [5:0] ven;
 
 // Rename these signals for convenience
 Address dip;
@@ -72,6 +73,9 @@ always @*
 		decbuf.Ravec <= FALSE;
 		decbuf.Rbvec <= FALSE;
 		decbuf.Rtvec <= FALSE;
+		decbuf.RaStep <= ven;
+		decbuf.RbStep <= ven;
+		decbuf.step <= ven;
 		decbuf.is_vec <= dir.r2.opcode[7];
 		decbuf.branch <= dir.r2.opcode[7:3]=={4'h4,1'b1};
 		decbuf.vex <= FALSE;
@@ -118,7 +122,7 @@ always @*
 		DIVUI,DIVSUI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {52'd0,dir[31:20]}; end
 		ORI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {32'd0,dir[31:20]}; decbuf.ui <= FALSE; end
 		XORI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {32'd0,dir[31:20]}; decbuf.ui <= FALSE; end
-		EXT,EXTU:		begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+		BTFLD:		begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 		SEQI,SNEI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{dir[31]}},dir[31:20]}; decbuf.ui <= FALSE; end
 		SLTI,SGTI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{dir[31]}},dir[31:20]}; decbuf.ui <= FALSE; end
 		SLTUI,SGTUI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {52'd0,dir[31:20]}; decbuf.ui <= FALSE; end
@@ -145,12 +149,16 @@ always @*
 				decbuf.imm.val <= {{50{dir[31]}},dir[31:20],2'h0};
 				decbuf.rfwr <= TRUE;
 			end
-		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{50{dir[31]}},dir[31:26],dir[13:8],2'd0}; end
+		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{50{dir[31]}},dir[31:26],dir[13:8],2'd0}; decbuf.branch <= TRUE; end
 		LEA:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{dir.ld.disp[7]}},dir.ld.disp}; decbuf.ui <= FALSE; end
 		LDx:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{dir.ld.disp[7]}},dir.ld.disp}; decbuf.ui <= FALSE; end
 		LDxX: begin decbuf.Rt <= dir.ld.Rt; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+		LDSx: begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{56{dir.ld.disp[7]}},dir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; end
+		LDxVX:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{56{dir.ld.disp[7]}},dir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; end
 		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{dir.st.disphi[1]}},dir.st.disphi,dir.st.displo}; decbuf.ui <= FALSE; decbuf.needRc <= TRUE; end
 		STxX: begin decbuf.Rt <= 6'd0; decbuf.ui <= FALSE; end
+		STSx: begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{56{dir.st.disphi[1]}},dir.st.disphi,dir.st.displo}; decbuf.ui <= FALSE; end
+		STxVX:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{56{dir.st.disphi[1]}},dir.st.disphi,dir.st.displo}; decbuf.ui <= FALSE; end
 		SYS:
 			begin
 				case(dir.r2.func)
@@ -160,24 +168,67 @@ always @*
 				endcase
 			end
 		CSR:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.imm.val <= {52'd0,dir[31:20]}; end
-		EXI0,EXI1,EXI2,IMOD,BRMOD:	decbuf.ui <= FALSE;
+		EXI0,EXI1,EXI2,IMOD,BRMOD,STRIDE:	decbuf.ui <= FALSE;
+`ifdef SUPPORT_VECTOR
 		VR1:
 			case(dir.r2.func)
-			ABS:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; end
-			NOT:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; end
-			VEX:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.rfwr <= TRUE; decbuf.vex <= TRUE; decbuf.Rbvec <= TRUE; end
+			ABS:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+			NOT:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+			V2BITS:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= FALSE; end
+			BITS2V:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= FALSE; decbuf.Rtvec <= TRUE; end
+			VCMPRSS:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+			VCIDX:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= FALSE; decbuf.Rtvec <= TRUE; end
 			default:	;
 			endcase			
 		VR2:
 			case(dir.r2.func)
-			ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
-			DIF:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
-			MULF:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
-			MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
-			DIV,DIVU,DIVSU:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
-			SEQ,SNE,SLT,SGE,SLTU,SGEU,CMP:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; end
+			ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
+			DIF:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
+			MULF:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
+			MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
+			DIV,DIVU,DIVSU:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
+			SEQ,SNE,SLT,SGE,SLTU,SGEU,CMP:	begin decbuf.Rt <= dir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
+			VEX:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.rfwr <= TRUE; decbuf.vex <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= FALSE; end
+			VEINS:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.veins <= TRUE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= TRUE; end
+			VSLLV:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+			VSLRV:	begin decbuf.Rt <= dir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
 			default:	;
 			endcase
+		VR3:
+			case(dir.r2.func)
+			PTRDIF:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
+			SLL:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
+			CHK:
+				begin
+					decbuf.Ravec <= TRUE;
+					decbuf.Rbvec <= TRUE; 
+					decbuf.Rc <= dir[13:8];
+					decbuf.ui <= FALSE;
+					decbuf.needRc <= TRUE;
+				end
+			default:	;
+			endcase
+		VADDI,VSUBFI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{dir[31]}},dir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VANDI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{1'b1}},dir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VMULI,VDIVI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{52{dir[31]}},dir[31:20]}; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VMULUI,VMULSUI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {52'd0,dir[31:20]}; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VDIVUI,VDIVSUI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {52'd0,dir[31:20]}; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VORI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {32'd0,dir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VXORI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {32'd0,dir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VBTFLD:		begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+		VSEQI,VSNEI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{dir[31]}},dir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VSLTI,VSGTI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{dir[31]}},dir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VSLTUI,VSGTUI:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {52'd0,dir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VBYTNDX:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {56'd0,dir[27:20]}; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VU21NDX:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {56'd0,dir[27:20]}; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VPERM:	begin decbuf.Rt <= dir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{1'b0}},dir[27:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VCHKI:
+			begin
+				decbuf.ui <= FALSE;
+				decbuf.Ravec <= TRUE; 
+				decbuf.imm.val <= decbuf.imm.val <= {{52{dir[31]}},dir[31:20]};
+			end
+`endif			
 		default:	;
 		endcase
 	end

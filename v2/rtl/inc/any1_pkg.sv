@@ -23,7 +23,8 @@ package any1_pkg;
 `endif
 
 `define SEG_SHIFT	14'd0
-//`define VICTIM_CACHE	1'b1
+`define SUPPORT_VECTOR	1'b1
+`define SUPPORT_VICTIM_CACHE	1'b1
 `define ANY1_TLB	1'b1
 
 // Uncomment the following to support key checking on memory access
@@ -76,8 +77,6 @@ parameter MULH	= 6'h0F;
 parameter DIV		= 6'h10;
 parameter DIVU	= 6'h11;
 parameter DIVSU	= 6'h12;
-parameter MIN		= 6'h14;
-parameter MAX		= 6'h15;
 parameter MULSU =	6'h16;
 parameter DIF		= 6'h18;
 parameter SLL		= 6'h19;
@@ -87,16 +86,27 @@ parameter MULSUH= 6'h1D;
 parameter MULUH = 6'h1E;
 parameter SEQ		= 6'h26;
 parameter SNE		= 6'h27;
+parameter MIN		= 6'h28;
+parameter MAX		= 6'h29;
+parameter CMP		= 6'h2A;
 parameter SLT		= 6'h2C;
 parameter SGE		= 6'h2D;
 parameter SLTU	= 6'h2E;
 parameter SGEU	= 6'h2F;
+parameter VEX		= 6'h3A;
+parameter VEINS	= 6'h3B;
 // R1 ops
 parameter CTLZ	= 6'h00;
 parameter CTPOP	= 6'h02;
 parameter NOT		= 6'h04;
 parameter ABS		= 6'h06;
 parameter V2BITS=	6'h18;
+parameter BITS2V=	6'h19;
+parameter VSLLV	= 6'h1A;
+parameter VSLRV	= 6'h1B;
+parameter VCMPRSS = 6'h1C;
+parameter VCIDX	= 6'h1D;
+parameter VSCAN	= 6'h1E;
 
 parameter ADDI	= 8'h04;
 parameter SUBFI	= 8'h05;
@@ -118,14 +128,12 @@ parameter BTFLD	=	8'h1C;
 
 parameter CHKI	= 8'h22;
 parameter U21NDX= 8'h23;
-parameter EXTU	= 8'h24;
 parameter SEQI	= 8'h26;
 parameter SNEI	= 8'h27;
 parameter SLTI	= 8'h28;
 parameter SGTI	= 8'h29;
 parameter SLTUI	= 8'h2A;
 parameter SGTUI = 8'h2B;
-parameter EXT		= 8'h2C;
 
 parameter NOP  	= 8'h3F;
 parameter JAL		= 8'h40;
@@ -155,20 +163,58 @@ parameter BBS		= 8'h4C;
 parameter BEQ		= 8'h4E;
 parameter BNE		= 8'h4F;
 
+parameter EXI0	= 8'h50;
+parameter EXI1	= 8'h51;
+parameter EXI2	= 8'h52;
+parameter IMOD	= 8'h58;
+parameter BTFLDX	= 8'h59;
+parameter BRMOD	= 8'h5A;
+parameter STRIDE= 8'h5C;
+
 parameter LDx		= 8'h60;
+parameter LEA		= 4'd14;
+parameter CACHE	= 4'd15;
 parameter LDxX	= 8'h61;
-parameter LEA		= 8'h68;
-parameter LEAX	= 8'h69;
-parameter CACHE	= 8'h6E;
 parameter STx		= 8'h70;
 parameter STxX	= 8'h71;
 
-parameter EXI0	= 8'hF0;
-parameter EXI1	= 8'hF1;
-parameter EXI2	= 8'hF2;
-parameter IMOD	= 8'hF8;
-parameter BTFLDX	= 8'hF9;
-parameter BRMOD	= 8'hFA;
+parameter VR1		= 8'h81;
+parameter VR2		= 8'h82;
+parameter VR3		= 8'h83;
+
+parameter VADDI	= 8'h84;
+parameter VSUBFI= 8'h85;
+parameter VMULI	= 8'h86;
+parameter VANDI = 8'h88;
+parameter VORI	= 8'h89;
+parameter VXORI	= 8'h8A;
+parameter VMULUI= 8'h8E;
+parameter VDIVI	= 8'h90;
+parameter VDIVUI= 8'h91;
+parameter VDIVSUI= 8'h92;
+parameter VMULFI	= 8'h95;
+parameter VMULSUI= 8'h96;
+parameter VPERM	= 8'h97;
+parameter VU10NDX= 8'h9A;
+parameter VBYTNDX= 8'h9A;
+parameter VWYDNDX= 8'h9B;
+parameter VBTFLD	=	8'h9C;
+
+parameter VCHKI	= 8'hA2;
+parameter VU21NDX= 8'hA3;
+parameter VEXTU	= 8'hA4;
+parameter VSEQI	= 8'hA6;
+parameter VSNEI	= 8'hA7;
+parameter VSLTI	= 8'hA8;
+parameter VSGTI	= 8'hA9;
+parameter VSLTUI	= 8'hAA;
+parameter VSGTUI = 8'hAB;
+parameter VEXT		= 8'hAC;
+
+parameter LDSx	= 8'hE2;
+parameter LDxVX	= 8'hE3;
+parameter STSx	= 8'hF2;
+parameter STxVX = 8'hF3;
 
 parameter NOP_INSN = {4{NOP}};
 
@@ -225,6 +271,7 @@ parameter REGFETCH1 = 6'd6;
 parameter REGFETCH2 = 6'd7;
 parameter EXECUTE = 6'd8;
 parameter WRITEBACK = 6'd9;
+parameter IFETCH6 = 6'd10;
 parameter MEMORY1 = 6'd11;
 parameter MEMORY2 = 6'd12;
 parameter MEMORY3 = 6'd13;
@@ -241,6 +288,7 @@ parameter MEMORY13 = 6'd23;
 parameter MEMORY14 = 6'd24;
 parameter MEMORY15 = 6'd25;
 parameter MEMORY2b = 6'd26;
+parameter IFETCH7 = 6'd27;
 parameter PAM	 = 6'd28;
 parameter TMO = 6'd29;
 parameter PAGEMAPA = 6'd30;
@@ -294,6 +342,7 @@ parameter FU_MEM = 2'd3;
 
 parameter pL1CacheLines = 64;
 parameter pL1LineSize = 512;
+parameter pL1ICacheLines = 128;
 localparam pL1msb = $clog2(pL1CacheLines-1)-1+6;
 parameter RSTIP = 32'hFFFD0000;
 parameter RIBO = 1;
@@ -316,7 +365,7 @@ typedef struct packed
 typedef struct packed
 {
 	logic [3:0] func;
-	logic pad1;
+	logic A;
 	logic S;
 	logic [5:0] Rb;
 	logic [5:0] Ra;
@@ -448,14 +497,24 @@ typedef struct packed
 	Instruction ir;
 	logic ui;							// unimplemented instruction
 	logic rfwr;						// register file write is required
+	logic vrfwr;					// vector register file write
 	logic is_vec;					// is a vector instruction
 	logic is_mod;					// is an instruction modifier
+	logic jump;
 	logic branch;
 	logic needRc;					// STx/CHK
+	logic veins;
+	logic vex;
+	logic [5:0] step;
+	logic [5:0] RaStep;
+	logic [5:0] RbStep;
 	logic [7:0] Ra;
 	logic [7:0] Rb;
 	logic [7:0] Rc;				// Sometimes Rt is transferred here
 	logic [7:0] Rt;
+	logic Ravec;
+	logic Rbvec;
+	logic Rtvec;
 	Value imm;
 } sDecode;
 
@@ -518,10 +577,12 @@ typedef struct packed
 	logic v;
 	logic cmt;						// commit, clears as soon as committed
 	logic cmt2;						// sticky commit, clears when entry reassigned
+	logic vcmt;						// entire vector is committed.
 	logic dec;						// instruction decoded
 	Address ip;
 	Instruction ir;
 	Instruction irmod;
+	logic is_vec;
 	logic ui;							// unimplemented instruction
 	logic jump;
 	Address jump_tgt;
@@ -530,15 +591,22 @@ typedef struct packed
 	logic takb;
 	logic predict_taken;
 	logic rfwr;
+	logic vrfwr;					// write vector register file
 	logic [7:0] Rt;
+	logic [7:0] Rb;				// for VEX
 	logic [7:0] pRt;			// physical Rt
 	logic [5:0] step;			// vector step
+	logic step_v;
 	Value ia;
 	Value ib;
 	Value ic;
 	Value id;
+	Value [5:0] ia_ele;
+	Value [5:0] ib_ele;
+	Value [5:0] ic_ele;
+	Value [5:0] id_ele;
 	Value imm;
-	Value im;							// vector mask register value
+	Value vmask;						// vector mask register value
 	logic iav;
 	logic ibv;
 	logic icv;
@@ -550,8 +618,11 @@ typedef struct packed
 	Rid ids;
 	Rid its;
 	Value res;
+	logic [5:0] res_ele;
 	logic [15:0] cause;
+	Address badAddr;
 	logic wr_fu;				// write to functional unit
+	logic update_rob;
 } sReorderEntry;
 
 typedef struct packed
@@ -577,7 +648,10 @@ typedef struct packed
 {
 	logic cmt;
 	logic [5:0] rid;
+	logic [5:0] ele;
 	Value res;
+	logic [7:0] cause;	// exception code if any
+	Address badAddr;
 } sFuncUnit;
 
 endpackage

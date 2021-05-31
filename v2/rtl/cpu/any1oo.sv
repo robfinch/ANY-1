@@ -89,6 +89,7 @@ reg [127:0] mul_p;
 reg [5:0] rob_que;
 reg [5:0] rob_deq;
 wire [5:0] rob_exec;
+reg [5:0] rob_pexec;
 reg [5:0] mstate, mstk_state;			// memory state
 reg [2:0] mul_state;	// multipler state
 reg [2:0] div_state;
@@ -315,6 +316,7 @@ any1_agen uagen
 	.ib(rob[membufo.rid].ib),
 	.ic(rob[membufo.rid].ic),
 	.imm(rob[membufo.rid].imm),
+	.step(rob[membufo.rid].step),
 	.ea(ea)
 );
 
@@ -581,7 +583,6 @@ reg [pL1CacheLines-1:0] dcvalid0;
 reg [pL1CacheLines-1:0] dcvalid1;
 reg [pL1CacheLines-1:0] dcvalid2;
 reg [pL1CacheLines-1:0] dcvalid3;
-reg dc_invline;
 reg dhit1a;
 reg dhit1b;
 reg dhit1c;
@@ -778,6 +779,7 @@ end
 
 
 reg [2:0] ivcnt;
+reg [2:0] vcn;
 reg [511:0] ivcache [0:4];
 reg [AWID-1:6] ivtag [0:4];
 reg [4:0] ivvalid;
@@ -866,9 +868,9 @@ wire push_d2x = (!d2x_full && pop_a2dd && !dcStall && rob[rob_que].v!=VAL) || (d
 wire pop_d2x = !x2m_full && !x2mul_full && !x2div_full && !d2x_empty;
 
 always @*
-	push_vec <= decbuf.is_vec && !decbuf.vex && decven < vl && !d2x_full;
+	push_vec <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl && !d2x_full;
 always @*
-	vecStall <= decbuf.is_vec && !decbuf.vex && decven < vl && !d2x_full;
+	vecStall <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl && !d2x_full;
 
 always @(posedge clk_g)
 	ifStall1 <= ifStall;
@@ -948,7 +950,8 @@ any1_decode udec1
 (
 	.a2d_out(a2d_out),
 	.decbuf(decbuf),
-	.predicted_ip(btb_predicted_ip)
+	.predicted_ip(btb_predicted_ip),
+	.ven(decven)
 );
 
 
@@ -1196,7 +1199,7 @@ assign icache_wr = mstate==IFETCH5 && icnt[3:2]==2'd3 && ~ack_i;
 reg [63:0] exi;
 reg exilo, eximid, exihi, has_exi;
 Address exi_ip;
-reg imod,brmod;
+reg imod,brmod,stride;
 Address imod_ip;
 Value regc, regd;
 Instruction imod_inst;
@@ -1223,12 +1226,14 @@ if (rst_i) begin
 	dcachable <= TRUE;
 	ivvalid <= 5'h00;
 	ivcnt <= 3'd0;
+	vcn <= 3'd0;
 	for (n = 0; n < 5; n = n + 1) begin
 		ivtag[n] <= 32'd1;
 		ivcache[n] <= {8{NOP_INSN}};
 	end
 	rob_deq <= 6'd0;
 	rob_que <= 6'd0;
+	rob_pexec <= 6'd0;
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		rob[n].Stream <= 6'd0;
 		rob[n].Stream_inc <= FALSE;
@@ -1310,6 +1315,7 @@ if (rst_i) begin
 	exilo <= FALSE;
 	imod <= FALSE;
 	brmod <= FALSE;
+	stride <= FALSE;
 	has_exi <= FALSE;
 	waycnt <= 2'd0;
 	ic_wway <= 2'b00;
@@ -1453,6 +1459,7 @@ else begin
 		rob[rob_que].ip <= decbuf.ip;
 		rob[rob_que].ir <= decbuf.ir;
 		rob[rob_que].irmod <= 32'd0;
+		rob[rob_que].is_vec <= decbuf.is_vec;
 		rob[rob_que].Rt <= decbuf.Rt;
 		rob[rob_que].ia <= exbufi.ia;
 		rob[rob_que].ib <= exbufi.ib;
@@ -1471,18 +1478,23 @@ else begin
 		rob[rob_que].icv <= TRUE;
 		rob[rob_que].idv <= TRUE;
 		rob[rob_que].itv <= exbufi.itv;
+`ifdef SUPPORT_VECTOR
 		if (decbuf.Ravec)
 			rob[rob_que].ias <= vregfilesrc[decbuf.Ra[5:0]];
 		else
+`endif
 			rob[rob_que].ias <= regfilesrc[regmap[decbuf.Ra[5:0]]];
 		rob[rob_que].step_v <= TRUE;
+`ifdef SUPPORT_VECTOR
 		if (decbuf.vex) begin
 			rob[rob_que].ibs <= vregfilesrc[decbuf.Rb[5:0]];
 			rob[rob_que].step_v <= FALSE;
 		end
 		else if (decbuf.Rbvec)
 			rob[rob_que].ibs <= vregfilesrc[decbuf.Rb[5:0]];
-		else begin
+		else
+`endif
+		begin
 			rob[rob_que].ibs <= regfilesrc[regmap[decbuf.Rb[5:0]]];
 		end
 		rob[rob_que].ics <= {1'b0,6'd0};
@@ -1490,16 +1502,21 @@ else begin
 		rob[rob_que].its <= {1'b0,6'd0};;//regfilesrc[decbuf.Rt[5:0]];
 		rob[rob_que].rfwr <= decbuf.rfwr;
 		rob[rob_que].vrfwr <= decbuf.vrfwr;
-		rob[rob_que].branch <= FALSE;
+		rob[rob_que].branch <= decbuf.branch;
+		rob[rob_que].jump <= decbuf.jump;
 		rob[rob_que].dec <= TRUE;
 		rob[rob_que].cmt2 <= FALSE;
-		rob[rob_que].vcmt = rob[rob_que].step >= vl;
-		rob[rob_que].step <= decven;
+		if (decbuf.veins) begin
+			rob[rob_que].step_v <= FALSE;
+			rob[rob_que].step <= decbuf.ia[5:0];
+		end
+		else
+			rob[rob_que].step <= decven;
 		if (nmif) begin
 			nmif <= 1'b0;
 			rob[rob_que].cause <= 16'h8000|FLT_NMI;
 		end
-		else if (irq_i & die)
+		else if (irq_i && die && decbuf.ir[6:4]!=4'h5)	// not prefix inst.
 			rob[rob_que].cause <= 16'h8000|cause_i;
 		else
 			rob[rob_que].cause <= |decbuf.ip[2:0] ? FLT_IADR : FLT_NONE;
@@ -1535,23 +1552,16 @@ else begin
 			begin
 				exilo <= TRUE;
 				exi <= {{32{exbufi.ir[31]}},exbufi.ir[31:8],8'd0};
-				exi_ip <= exbufi.ip;
 			end
 		EXI1:
 			begin
 				eximid <= TRUE;
 				exi[63:32] <= {{40{exbufi.ir[31]}},exbufi.ir[31:8]};
-				exi_ip <= exbufi.ip;
-				if (!exilo)
-					exi_ip <= exbufi.ip;
 			end
 		EXI2:
 			begin
 				exihi <= TRUE;
 				exi[63:56] <= exbufi.ir[15:8];
-				exi_ip <= exbufi.ip;
-				if (!eximid && !exilo)
-					exi_ip <= exbufi.ip;
 			end
 		IMOD:
 			if (exbufi.iav && exbufi.ibv) begin
@@ -1562,7 +1572,6 @@ else begin
 				regdv <= exbufi.idv;
 				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
 				regdsrc <= regfilesrc[regmap[decbuf.Rb]];
-				imod_ip <= exbufi.ip;
 				imod_inst <= exbufi.ir;
 			end
 		BRMOD:
@@ -1572,7 +1581,21 @@ else begin
 				regcv <= exbufi.iav;
 				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
 				exi <= {{41{exbufi[28]}},exbufi.ir[28:20],14'h0};
-				exi_ip <= exbufi.ip;
+				imod_inst <= exbufi.ir;
+			end
+		STRIDE:
+			if (exbufi.ir[20]) begin
+				stride <= TRUE;
+				regc <= {58'd0,exbufi.ir[19:14]};
+				regcv <= TRUE;
+				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
+				imod_inst <= exbufi.ir;
+			end
+			else if (exbufi.iav) begin
+				stride <= TRUE;
+				regc <= exbufi.ia;
+				regcv <= exbufi.iav;
+				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
 				imod_inst <= exbufi.ir;
 			end
 		default:	;
@@ -1600,7 +1623,6 @@ else begin
 		end
 		if (imod) begin
 			imod <= FALSE;
-			rob[rob_que].ip <= imod_ip;
 			rob[rob_que].irmod <= imod_inst;
 			rob[rob_que].ic <= regc;
 			rob[rob_que].id <= regd;
@@ -1615,7 +1637,6 @@ else begin
 		end
 		if (brmod) begin
 			brmod <= FALSE;
-			rob[rob_que].ip <= exi_ip;
 			rob[rob_que].irmod <= imod_inst;
 			rob[rob_que].ic <= regc;
 			rob[rob_que].icv <= regcv;
@@ -1627,7 +1648,17 @@ else begin
 				rob[rob_que].rfwr <= TRUE;
 			end
 		end
-		if (!(exihi||eximid||exilo||imod))
+		if (stride) begin
+			stride <= FALSE;
+			rob[rob_que].ic <= regc;
+			rob[rob_que].icv <= regcv;
+			rob[rob_que].ics <= regcsrc;
+			if (has_exi) begin
+				has_exi <= FALSE;
+				rob[rob_que].imm.val[63:8] <= exi[63:8];
+			end
+		end
+		if (!(exihi||eximid||exilo||imod||stride))
 			has_exi <= FALSE;
 	end
 
@@ -1654,7 +1685,15 @@ else begin
 			// incrementing it to the next entry. We actually want to update
 			// the entry that was processed by exec, so i'ts one less.
 			if (robo.update_rob) begin
-				rob[rob_exec-2'd1] <= robo;
+				rob_pexec <= rob_exec;
+				rob[rob_pexec].wr_fu <= robo.wr_fu;
+				rob[rob_pexec].takb <= robo.takb;
+				rob[rob_pexec].cause <= robo.cause;
+				rob[rob_pexec].res <= robo.res;
+				rob[rob_pexec].cmt <= robo.cmt;
+				rob[rob_pexec].cmt2 <= robo.cmt2;
+				rob[rob_pexec].vcmt <= robo.vcmt;
+				//rob[rob_exec-2'd1] <= robo;
 			// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
 				if (robo.wr_fu) begin
 					funcUnit[FU_EXEC].rid <= rob_exec;
@@ -1709,6 +1748,7 @@ MEMORY1:
 `ifdef SUPPORT_VICTIM_CACHE
 		for (n = 0; n < 5; n = n + 1) begin
 			if (ivtag[n]==iadr[AWID-1:6] && ivvalid[n]) begin
+				vcn <= n;
 	    	mgoto (IFETCH6);
     	end
 		end
@@ -1721,10 +1761,10 @@ IFETCH6:
 	mgoto(IFETCH7);
 IFETCH7:
 	begin
-		ici <= ivcache[n];
 		icnt <= 4'd15;	// trigger update
-		ivcache[n] <= ic_line;
-		ivtag[n] <= ic_tag;
+		ici <= ivcache[vcn];
+		ivcache[vcn] <= ic_line;
+		ivtag[vcn] <= ic_tag;
 		mgoto (IFETCH5);
 	end
 
@@ -1830,7 +1870,6 @@ IFETCH4:
       mgoto (IFETCH5);
 `endif
 `ifdef CPU_B32
-			// ToDo: fill remaining cases
       case(icnt[3:0])
       4'd0: ici[31:0] <= dat_i;
       4'd1: ici[63:32] <= dat_i;
@@ -1840,6 +1879,14 @@ IFETCH4:
       4'd5: ici[191:160] <= dat_i;
       4'd6; ici[223:192] <= dat_i;
       4'd7: ici[255:224] <= dat_i;
+      4'd8: ici[287:256] <= dat_i;
+      4'd9:	ici[319:288] <= dat_i;
+      4'd10:	ici[351:320] <= dat_i;
+      4'd11:	ici[383:352] <= dat_i;
+      4'd12:	ici[415:384] <= dat_i;
+      4'd13:	ici[447:416] <= dat_i;
+      4'd14:	ici[479:448] <= dat_i;
+      4'd15:	ici[511:480] <= dat_i;
       endcase
       mgoto (IFETCH5);
 `endif
@@ -1910,6 +1957,7 @@ MEMORY1c:
 			ic_invall	<= membufo.Rt[2:0]==3'd2;
 			dc_invline <= membufo.Rt[5:3]==3'd3;
 			dc_invall	<= membufo.Rt[5:3]==3'd4;
+			memfu.ele <= rob[membufo.rid].step;
   		mgoto (MEMORY1d);
 			if (membufo.Rt[5:3]==3'd1) begin
 				cr0[30] <= TRUE;
@@ -2619,6 +2667,14 @@ DFETCH4:
       4'd5: dci[191:160] <= dat_i;
       4'd6; dci[223:192] <= dat_i;
       4'd7: dci[255:224] <= dat_i;
+      4'd8: dci[287:256] <= dat_i;
+      4'd9:	dci[319:288] <= dat_i;
+      4'd10:	dci[351:320] <= dat_i;
+      4'd11:	dci[383:352] <= dat_i;
+      4'd12:	dci[415:384] <= dat_i;
+      4'd13:	dci[447:416] <= dat_i;
+      4'd14:	dci[479:448] <= dat_i;
+      4'd15:	dci[511:480] <= dat_i;
       endcase
       mgoto (DFETCH5);
 `endif
@@ -2814,6 +2870,14 @@ KYLD4:
       4'd5: dci[191:160] <= dat_i;
       4'd6; dci[223:192] <= dat_i;
       4'd7: dci[255:224] <= dat_i;
+      4'd8: dci[287:256] <= dat_i;
+      4'd9:	dci[319:288] <= dat_i;
+      4'd10:	dci[351:320] <= dat_i;
+      4'd11:	dci[383:352] <= dat_i;
+      4'd12:	dci[415:384] <= dat_i;
+      4'd13:	dci[447:416] <= dat_i;
+      4'd14:	dci[479:448] <= dat_i;
+      4'd15:	dci[511:480] <= dat_i;
       endcase
       mgoto (KYLD5);
 `endif
@@ -2967,6 +3031,7 @@ default:	;
 						regalloc[rob[rob_deq].pRt[5:0]] <= 1'b0;	// deallocate mapped register
 						regmap[rob[rob_deq].Rt[5:0]] <= rob[rob_deq].Rt[5:0];
 					end
+`ifdef SUPPORT_VECTOR					
 					if (rob[rob_deq].vrfwr) begin
 						vrf_update <= TRUE;
 						vrf_din <= rob[rob_deq].res;
@@ -2974,6 +3039,7 @@ default:	;
 						if (rob[rob_deq].vcmt)
 							vregfilesrc[rob[rob_deq].Rt[5:0]].rf <= 1'h0;
 					end
+`endif					
 				end
 				begin
 					rob[rob_deq].v <= INV;
@@ -3000,6 +3066,7 @@ default:	;
 			rob[rob_deq].rfwr <= FALSE;
 			rob[rob_deq].vrfwr <= FALSE;
 			rob[rob_deq].jump <= FALSE;
+			rob[rob_deq].branch <= FALSE;
 			if (rob_deq != rob_que) begin
 				if (rob_deq >= ROB_ENTRIES-1)
 					rob_deq <= 6'd0;
@@ -3008,17 +3075,6 @@ default:	;
 			end
 		end
 	end
-/*
-	else begin
-		rob[rob_deq].v <= INV;
-		rob[rob_deq].ui <= INV;
-		rob[rob_deq].cause <= FLT_NONE;
-		rob[rob_deq].cmt <= FALSE;
-		rob[rob_deq].jump <= FALSE;
-		rob[rob_deq].branch <= FALSE;
-		rob_deq <= rob_deq + 2'd1;
-	end
-*/
 /*
 	for (n = 0; n < 64; n = n + 1) begin
 		for (m = 0; m < 64; m = m + 1) begin
@@ -3149,8 +3205,11 @@ MUL3:
 		rob[mulreco.rid].res <= mul_sign ? -mul_p[63:0] : mul_p;
 		rob[mulreco.rid].cmt <= TRUE;
 		rob[mulreco.rid].cmt2 <= TRUE;
+		if (rob[mulreco.rid].is_vec && rob[mulreco.rid].step >= vl)
+			rob[mulreco.rid].vcmt <= TRUE;
 		funcUnit[FU_MUL].res <= mul_sign ? -mul_p[63:0] : mul_p;
 		funcUnit[FU_MUL].rid <= mulreco.rid;
+		funcUnit[FU_MUL].ele <= rob[mulreco.rid].step;
 		case(mulreco.ir[7:0])
 		R3:
 			begin
@@ -3239,8 +3298,11 @@ DIV4:
 		rob[divreco.rid].res <= div_sign ? -div_q[63:0] : div_q;
 		rob[divreco.rid].cmt <= TRUE;
 		rob[divreco.rid].cmt2 <= TRUE;
+		if (rob[divreco.rid].is_vec && rob[divreco.rid].step >= vl)
+			rob[divreco.rid].vcmt <= TRUE;
 		funcUnit[FU_DIV].res <= div_sign ? -div_q[63:0] : div_q;
 		funcUnit[FU_DIV].rid <= divreco.rid;
+		funcUnit[FU_MUL].ele <= rob[divreco.rid].step;
 		case(divreco.ir[7:0])
 		R3:
 			begin
@@ -3307,6 +3369,10 @@ begin
 	for (n = 0; n < 64; n = n + 1)
 		regmap_hist[ndx][n] <= regmap[n];
 	regalloc_hist[ndx] <= regalloc;
+`ifdef SUPPORT_VECTOR
+	for (n = 0; n < 64; n = n + 1)
+		vregfilesrc_hist[ndx][n] <= vregfilesrc[n];
+`endif
 end
 endtask
 
@@ -3318,6 +3384,10 @@ begin
 	for (n = 0; n < 64; n = n + 1)
 		regmap[n] <= regmap_hist[ndx][n];
 	regalloc <= regalloc_hist[ndx];
+`ifdef SUPPORT_VECTOR
+	for (n = 0; n < 64; n = n + 1)
+		vregfilesrc[n] <= vregfilesrc_hist[ndx][n];
+`endif
 end
 endtask
 

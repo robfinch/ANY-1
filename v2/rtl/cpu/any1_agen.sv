@@ -37,7 +37,7 @@
 
 import any1_pkg::*;
 
-module any1_agen(rst,clk,ir,ia,ib,ic,imm,ea);
+module any1_agen(rst,clk,ir,ia,ib,ic,imm,step,ea);
 input rst;
 input clk;
 input Instruction ir;
@@ -45,6 +45,7 @@ input Value ia;
 input Value ib;
 input Value ic;
 input Value imm;
+input [5:0] step;
 output Address ea;
 
 reg [5:0] Sc;
@@ -70,6 +71,10 @@ else begin
 	LDxX:	ea <= imm + ia.val + (ib.val << Sc);
 	STx:	ea <= imm + ia.val;
 	STxX:	ea <= imm + ia.val + (ic.val << Sc);
+	LDSx:	ea <= imm + ia.val + ic.val * step;
+	STSx:	ea <= imm + ia.val + ic.val * step;
+	LDxVX:	ea <= imm + ia.val + ic.val;
+	STxVX:	ea <= imm + ia.val + ic.val;
 	default:	ea <= 32'd0;
 	endcase
 end

@@ -64,7 +64,7 @@ always @(mb or me or nn)
 	for (nn = 0; nn < DWIDTH; nn = nn + 1)
 		mask[nn] <= (nn >= mb) ^ (nn <= me) ^ (me >= mb);
 
-ffo96 u1 ({36'h0,a.val},ffoo);
+ffo96 u1 ({32'h0,a.val},ffoo);
 
 always @*
 begin
