@@ -197,6 +197,8 @@ reg [WID-1:0] sregfile [0:15];
 wire restore_rfsrc;
 Rid vregfilesrc [0:63];					// bit 7 = 0 = regfile, 1 = reorder buffer
 Rid vregfilesrc_hist [0:15][0:63];
+Rid vm_regfilesrc [0:7];
+Rid vm_regfilesrc_hist[0:15][0:7];
 
 reg vrf_update;
 reg [11:0] vrf_wa;
@@ -234,6 +236,8 @@ vec_regfile_blkmem uvrfB (
   .dinb(64'd0),    // input wire [63 : 0] dinb
   .doutb(vrfoB)  // output wire [63 : 0] doutb
 );
+
+reg [63:0] vm_regfile [0:7];
 
 reg [5:0] ifStream,dcStream,rfStream,wbStream;	// Stream associated with instructions
 wire [5:0] exStream;
@@ -1132,6 +1136,9 @@ begin
 	// To detect WAW hazard for vector instructions
 	exbufi.itv <= decbuf.Rtvec ? (decbuf.Rt[5:0]==6'd0 || vregfilesrc[decbuf.Rt[5:0]].rf==1'b0) : !decbuf.is_vec;
 	exbufi.imm <= decbuf.imm;
+	exbufi.vmask <= vm_regfile[decbuf.Vm];
+	exbufi.vmv <= vm_regfilesrc[decbuf.Vm].rf==1'b0 || rob[vm_regfilesrc[decbuf.Vm]].cmt;
+
 //	dcStall <=  !(exbufi.iav & exbufi.ibv & exbufi.icv & exbufi.idv & exbufi.itv);
 	dcStall <= !exbufi.itv & decbuf.is_vec;
 //	dcStall <= 1'b0;
@@ -1449,10 +1456,10 @@ reg exilo, eximid, exihi, has_exi;
 Address exi_ip;
 reg imod,brmod,stride;
 Address imod_ip;
-Value regc, regd;
+Value regc, regd, regm;
 Instruction imod_inst;
-reg regcv,regdv;
-reg [5:0] regcsrc,regdsrc;
+reg regcv,regdv,regmv;
+reg [5:0] regcsrc,regdsrc,regmsrc;
 reg [5:0] br_Rt;
 reg [7:0] ip_cnt;
 reg [63:0] a2d_buf [0:127];
@@ -1507,17 +1514,20 @@ if (rst_i) begin
 		rob[n].ib.val <= 64'd0;
 		rob[n].ic.val <= 64'd0;
 		rob[n].id.val <= 64'd0;
+		rob[n].vmask <= 64'hFFFFFFFFFFFFFFFF;
 		rob[n].imm <= 64'd0;
 		rob[n].iav <= FALSE;
 		rob[n].ibv <= FALSE;
 		rob[n].icv <= FALSE;
 		rob[n].idv <= FALSE;
 		rob[n].itv <= FALSE;
+		rob[n].vmv <= FALSE;
 		rob[n].ias <= 1'b0;
 		rob[n].ibs <= 1'b0;
 		rob[n].ics <= 1'b0;
 		rob[n].ids <= 1'b0;
 		rob[n].its <= 1'b0;
+		rob[n].vms <= 1'b0;
 		rob[n].ia_ele <= 6'd0;
 		rob[n].ib_ele <= 6'd0;
 		rob[n].ic_ele <= 6'd0;
@@ -1543,6 +1553,8 @@ if (rst_i) begin
 		sregfile[n] <= 64'd0;
 	for (n = 0; n < 16; n = n + 1)
 		tZeroRegfileSrc(n);
+	for (n = 0; n < 8; n = n + 1)
+		vm_regfile[n] <= 64'hFFFFFFFFFFFFFFFF;
 	active_branch <= 2'd0;
 	tlben <= TRUE;
 	iadr <= RSTIP;
@@ -1759,11 +1771,13 @@ else begin
 			rob[rob_que].ic <= 64'd0;
 		rob[rob_que].id <= 64'd0;
 		rob[rob_que].imm <= exbufi.imm;
+		rob[rob_que].vmask <= exbufi.vmask;
 		rob[rob_que].iav <= exbufi.iav;
 		rob[rob_que].ibv <= exbufi.ibv;
 		rob[rob_que].icv <= TRUE;
 		rob[rob_que].idv <= TRUE;
 		rob[rob_que].itv <= exbufi.itv;
+		rob[rob_que].vmv <= exbufi.vmv;
 `ifdef SUPPORT_VECTOR
 		if (decbuf.Ravec)
 			rob[rob_que].ias <= vregfilesrc[decbuf.Ra[5:0]];
@@ -1785,7 +1799,8 @@ else begin
 		end
 		rob[rob_que].ics <= {1'b0,6'd0};
 		rob[rob_que].ids <= {1'b0,6'd0};
-		rob[rob_que].its <= {1'b0,6'd0};;//regfilesrc[decbuf.Rt[5:0]];
+		rob[rob_que].its <= {1'b0,6'd0};//regfilesrc[decbuf.Rt[5:0]];
+		rob[rob_que].vms <= vm_regfilesrc[decbuf.Vm];
 		rob[rob_que].rfwr <= decbuf.rfwr;
 		rob[rob_que].vrfwr <= decbuf.vrfwr;
 		rob[rob_que].branch <= decbuf.branch;
@@ -1860,6 +1875,9 @@ else begin
 				regdv <= exbufi.idv;
 				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
 				regdsrc <= regfilesrc[regmap[decbuf.Rb]];
+				regmsrc <= vm_regfilesrc[decbuf.Vm];
+				regm <= exbufi.vmask;
+				regz <= exbufi.z;
 				imod_inst <= exbufi.ir;
 			end
 		BRMOD:
@@ -1915,6 +1933,11 @@ else begin
 			rob[rob_que].idv <= regdv;
 			rob[rob_que].ics <= regcsrc;
 			rob[rob_que].ids <= regdsrc;
+			if (imod_inst[12]) begin
+				rob[rob_que].vms <= regmsrc;
+				rob[rob_que].vmask <= regm;
+				rob[rob_que].vmv <= regmv;
+			end
 			if (has_exi) begin
 				has_exi <= FALSE;
 				rob[rob_que].imm.val[63:8] <= exi[63:8];
@@ -1993,6 +2016,9 @@ else begin
 		tRestoreRegfileSrc(rob[rob_exec].btag);
 		rob_que <= rob_exec;
 		rob_q <= rob_q - fnBackupCnt(rob_exec);
+		for (n = 0; n < 64; n = n + 1)
+			if (branchInvalidateMask[n]==-1'b0)
+				rob[n].v <= 1'b0;
 	end
 
 	if (memfu.cmt) begin
@@ -3334,6 +3360,7 @@ default:	;
 								fpscr[27] <= rob[rob_deq].fp_flags.eq;
 								fpscr[26] <= rob[rob_deq].fp_flags.inf;
 							end
+						FRM:	fpscr[46:44] <= rob[rob_deq].res[2:0];
 						default:	;
 						endcase
 					F2:
@@ -3712,10 +3739,15 @@ ST_FP2:
 		F2,VF2:
 			begin
 				case(fpreco.ir.r2.func)
-				FADD,FSUB,FMUL:
+				FADD,FSUB:
 					if (rob[fpreco.rid].iav && rob[fpreco.rid].ibv) begin
 						fp_state <= ST_FP3;
-						fp_cnt <= 8'd10;
+						fp_cnt <= 8'd25;
+					end
+				FMUL:
+					if (rob[fpreco.rid].iav && rob[fpreco.rid].ibv) begin
+						fp_state <= ST_FP3;
+						fp_cnt <= 8'd23;
 					end
 				FDIV:
 					if (rob[fpreco.rid].iav && rob[fpreco.rid].ibv) begin
@@ -3730,7 +3762,7 @@ ST_FP2:
 			MADD,MSUB,NMADD,NMSUB:
 				if (rob[fpreco.rid].iav && rob[fpreco.rid].ibv && rob[fpreco.rid].icv) begin
 					fp_state <= ST_FP3;
-					fp_cnt <= 8'd15;
+					fp_cnt <= 8'd35;
 				end
 			default:	;
 			endcase

@@ -79,6 +79,7 @@ wire brMispredict = ex_takb != robi.predict_taken;//exbufi.predict_taken;
 reg [63:0] prev_res;
 reg [63:0] vscan_sum;
 reg [5:0] vec_y;
+reg [63:0] vbytndx;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Count: leading zeros, leading ones, population.
@@ -110,8 +111,15 @@ any1_bitfield ubf1
 // Floating Point
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
+wire fa_inf, fa_xz, fa_vz;
+wire fa_qnan, fa_snan, fa_nan;
+wire fb_qnan, fb_snan, fb_nan;
 wire [63:0] fcmp_o;
 wire cmpnan,cmpsnan;
+
+`ifdef SUPPORT_FLOAT
+fpDecomp u12 (.i(robi.ia.val), .sgn(), .exp(), .man(), .fract(), .xz(fa_xz), .mz(), .vz(fa_vz), .inf(fa_inf), .xinf(), .qnan(fa_qnan), .snan(fa_snan), .nan(fa_nan));
+fpDecomp u13 (.i(robi.ib.val), .sgn(), .exp(), .man(), .fract(), .xz(), .mz(), .vz(), .inf(), .xinf(), .qnan(fb_qnan), .snan(fb_snan), .nan(fb_nan));
 
 fpCompare u1 (
 	.a(robi.ia.val),
@@ -120,6 +128,7 @@ fpCompare u1 (
 	.nan(cmpnan),
 	.snan(cmpsnan)
 );
+`endif
 
 	// Execute
 	// Lots to do here.
@@ -142,6 +151,7 @@ if (rst) begin
 	ex_redirect.current_ip <= RSTIP;
 	restore_rfsrc <= FALSE;
 	set_wfi <= FALSE;
+	vbytndx <= 64'hFFFFFFFFFFFFFFFF;
 end
 else begin
 	f2a_rst <= FALSE;
@@ -352,6 +362,7 @@ else begin
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
 					end
+				FRM:	begin robo.res.val <= robi.ia.val; tMod(); end
 				default:	;
 				endcase
 			end
@@ -371,6 +382,34 @@ else begin
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
 					end
+				FMIN:	// FMIN	
+					if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
+						robo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+					else if (fa_qnan & !fb_nan)
+						robo.res.val <= robi.ib.val;
+					else if (!fa_nan & fb_qnan)
+						robo.res.val <= robi.ia.val;
+					else if (fcmp_o[1])
+						robo.res.val <= robi.ia.val;
+					else
+						robo.res.val <= robi.ib.val;
+				FMAX:	// FMAX
+					if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
+						robo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+					else if (fa_qnan & !fb_nan)
+						robo.res.val <= robi.ib.val;
+					else if (!fa_nan & fb_qnan)
+						robo.res.val <= robi.ia.val;
+					else if (fcmp_o[1])
+						robo.res.val <= robi.ib.val;
+					else
+						robo.res.val <= robi.ia.val;
+				FCMP:	robo.res.val <=  cmpnan ? 64'h4000000000000000 : fcmp_o[1] ? 64'hBFF0000000000000 : fcmp_o[0] ? 64'd0 : 64'h3FF0000000000000;	//2,-1,0,1
+				FCMPB:	robo.res.val <=  fcmp_o;
+				FSEQ:	robo.res.val <=  fcmp_o[0] & ~cmpnan;
+				FSNE: robo.res.val <= ~fcmp_o[0] & ~cmpnan;
+				FSLT:	robo.res.val <=  fcmp_o[1] & ~cmpnan;
+				FSLE:	robo.res.val <=  fcmp_o[2] & ~cmpnan;
 				default:	;
 				endcase
 			end
@@ -917,7 +956,7 @@ else begin
 		VR2:
 			if (robi.iav && robi.ibv) begin
 				case(robi.ir.r2.func)
-				ADD:	tDoOp(robi.ia.val + robi.ib.val);
+				ADD,VADDSC:	tDoOp(robi.ia.val + robi.ib.val);
 				SUB:	tDoOp(robi.ia.val - robi.ib.val);
 				AND:	tDoOp(robi.ia.val & robi.ib.val);
 				OR:		tDoOp(robi.ia.val | robi.ib.val);
@@ -929,7 +968,8 @@ else begin
 						tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ?
 							robo.ib.val - robi.ia.val : robi.ia.val - robi.ib.val);
 					end
-				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH,
+				VMULSC:
 					begin
 						mulreci.rid <= rob_exec;
 						mulreci.ir <= robi.ir;
@@ -1108,46 +1148,82 @@ else begin
 		VBTFLD:	if (robi.iav) tDoOp(bf_out.val);
     VBYTNDX:
 	    if (robi.iav) begin
-	    	if (robi.ir.r2.func!=4'd0) begin
-	        if (robi.ia.val[7:0]==robi.imm.val[7:0])
-	          tDoOp(64'd0);
-	        else if (robi.ia.val[15:8]==robi.imm.val[7:0])
-	          tDoOp(64'd1);
-	        else if (robi.ia.val[23:16]==robi.imm.val[7:0])
-	          tDoOp(64'd2);
-	        else if (robi.ia.val[31:24]==robi.imm.val[7:0])
-	          tDoOp(64'd3);
-	        else if (robi.ia.val[39:32]==robi.imm.val[7:0])
-	          tDoOp(64'd4);
-	        else if (robi.ia.val[47:40]==robi.imm.val[7:0])
-	          tDoOp(64'd5);
-	        else if (robi.ia.val[55:40]==robi.imm.val[7:0])
-	          tDoOp(64'd6);
-	        else if (robi.ia.val[63:56]==robi.imm.val[7:0])
-	          tDoOp(64'd7);
-	        else
-	          tDoOp({64{1'b1}});  // -1
+	   		if (vbytndx[63] | robi.vrfwr) begin
+		    	if (robi.ir.r2.func!=4'd0) begin
+		        if (robi.ia.val[7:0]==robi.imm.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'b0};
+		          tDoOp({robi.step,3'b0});
+		        end
+		        else if (robi.ia.val[15:8]==robi.imm.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd1};
+		          tDoOp({robi.step,3'd1});
+		        end
+		        else if (robi.ia.val[23:16]==robi.imm.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd2};
+		          tDoOp({robi.step,3'd2});
+		        end
+		        else if (robi.ia.val[31:24]==robi.imm.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd3};
+		          tDoOp({robi.step,3'd3});
+		        end
+		        else if (robi.ia.val[39:32]==robi.imm.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd4};
+		          tDoOp({robi.step,3'd4});
+		        end
+		        else if (robi.ia.val[47:40]==robi.imm.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd5};
+		          tDoOp({robi.step,3'd5});
+		        end
+		        else if (robi.ia.val[55:40]==robi.imm.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd6};
+		          tDoOp({robi.step,3'd6});
+		        end
+		        else if (robi.ia.val[63:56]==robi.imm.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd7};
+		          tDoOp({robi.step,3'd7});
+		        end
+		        else
+		          tDoOp({64{1'b1}});  // -1
+	        end
+		      else begin
+		        if (robi.ia.val[7:0]==robi.ib.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'b0};
+		          tDoOp({robi.step,3'b0});
+		        end
+		        else if (robi.ia.val[15:8]==robi.ib.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd1};
+		          tDoOp({robi.step,3'd1});
+		        end
+		        else if (robi.ia.val[23:16]==robi.ib.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd2};
+		          tDoOp({robi.step,3'd2});
+		        end
+		        else if (robi.ia.val[31:24]==robi.ib.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd3};
+		          tDoOp({robi.step,3'd3});
+		        end
+		        else if (robi.ia.val[39:32]==robi.ib.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd4};
+		          tDoOp({robi.step,3'd4});
+		        end
+		        else if (robi.ia.val[47:40]==robi.ib.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd5};
+		          tDoOp({robi.step,3'd5});
+		        end
+		        else if (robi.ia.val[55:40]==robi.ib.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd6};
+		          tDoOp({robi.step,3'd6});
+		        end
+		        else if (robi.ia.val[63:56]==robi.ib.val[7:0]) begin
+		        	vbytndx <= {robi.step,3'd7};
+		          tDoOp({robi.step,3'd7});
+		        end
+		        else
+		          tDoOp({64{1'b1}});  // -1
+		      end
 	      end
-	      else begin
-	        if (robi.ia.val[7:0]==robi.ib.val[7:0])
-	          tDoOp(64'd0);
-	        else if (robi.ia.val[15:8]==robi.ib.val[7:0])
-	          tDoOp(64'd1);
-	        else if (robi.ia.val[23:16]==robi.ib.val[7:0])
-	          tDoOp(64'd2);
-	        else if (robi.ia.val[31:24]==robi.ib.val[7:0])
-	          tDoOp(64'd3);
-	        else if (robi.ia.val[39:32]==robi.ib.val[7:0])
-	          tDoOp( 64'd4);
-	        else if (robi.ia.val[47:40]==robi.ib.val[7:0])
-	          tDoOp( 64'd5);
-	        else if (robi.ia.val[55:40]==robi.ib.val[7:0])
-	          tDoOp( 64'd6);
-	        else if (robi.ia.val[63:56]==robi.ib.val[7:0])
-	          tDoOp( 64'd7);
-	        else
-	          tDoOp({64{1'b1}});  // -1
-	      end
+        else
+          tDoOp(vbytndx);  // -1
 	    end
 `ifdef U10NDX
     VU10NDX:
@@ -1317,6 +1393,8 @@ begin
 	robo.cmt <= TRUE;
 	robo.cmt2 <= TRUE;
 	robo.vcmt <= robi.step >= vl;
+	if (robi.step >= vl)
+		vbytndx <= 64'hFFFFFFFFFFFFFFFF;
 end
 endtask
 
@@ -1327,6 +1405,8 @@ begin
 	robo.update_rob <= TRUE;
 	tIncExec();
 	robo.vcmt <= robi.step >= vl;
+	if (robi.step >= vl)
+		vbytndx <= 64'hFFFFFFFFFFFFFFFF;
 end
 endtask
 

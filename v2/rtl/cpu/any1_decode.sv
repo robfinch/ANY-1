@@ -57,6 +57,8 @@ always @*//(a2d_out, predicted_ip, ven)
 		decbuf.vrfwr <= FALSE;
 		decbuf.Ra <= a2d_out.ir.r2.Ra;
 		decbuf.Rb <= a2d_out.ir.r2.Rb;
+		decbuf.Vm <= 3'd0;
+		decbuf.z <= 1'b0;
 		decbuf.Rc <= 6'd0;
 		decbuf.Rt <= 6'd0;
 		decbuf.Ravec <= FALSE;
@@ -79,7 +81,6 @@ always @*//(a2d_out, predicted_ip, ven)
 			case(a2d_out.ir.r2.func)
 			ABS:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			NOT:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
-			V2BITS:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			default:	;
 			endcase
 		R2:
@@ -113,12 +114,16 @@ always @*//(a2d_out, predicted_ip, ven)
 			FSQRT:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			I2F:		begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			F2I:		begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+			FRM:		begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			default:	;
 			endcase
 		F2:
 			case(a2d_out.ir.r2.func)
 			CPYSGN,SGNINV:		begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			FADD,FSUB,FMUL,FDIV:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+			FMIN,FMAX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+			FCMP,FCMPB:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+			FSEQ,FSNE,FSLT,FSLE:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			default:	;
 			endcase
 		F3:
@@ -184,12 +189,12 @@ always @*//(a2d_out, predicted_ip, ven)
 `ifdef SUPPORT_VECTOR
 		VR1:
 			case(a2d_out.ir.r2.func)
-			ABS:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
-			NOT:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
-			V2BITS:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= FALSE; end
-			BITS2V:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= FALSE; decbuf.Rtvec <= TRUE; end
-			VCMPRSS:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
-			VCIDX:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= FALSE; decbuf.Rtvec <= TRUE; end
+			ABS:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; decbuf.Vm <= a2d_out.ir[23:21]; decbuf.z <= a2d_out.ir[20]; end
+			NOT:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; decbuf.Vm <= a2d_out.ir[23:21]; decbuf.z <= a2d_out.ir[20]; end
+			V2BITS:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= FALSE; decbuf.Vm <= a2d_out.ir[23:21]; decbuf.z <= a2d_out.ir[20]; end
+			BITS2V:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= FALSE; decbuf.Rtvec <= TRUE; decbuf.Vm <= a2d_out.ir[23:21]; decbuf.z <= a2d_out.ir[20]; end
+			VCMPRSS:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; decbuf.Vm <= a2d_out.ir[23:21]; decbuf.z <= a2d_out.ir[20]; end
+			VCIDX:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= FALSE; decbuf.Rtvec <= TRUE; decbuf.Vm <= a2d_out.ir[23:21]; decbuf.z <= a2d_out.ir[20]; end
 			default:	;
 			endcase			
 		VR2:
@@ -204,6 +209,8 @@ always @*//(a2d_out, predicted_ip, ven)
 			VEINS:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.veins <= TRUE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= TRUE; end
 			VSLLV:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
 			VSRLV:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+			VADDSC:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= TRUE; end
+			VMULSC:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= TRUE; end
 			default:	;
 			endcase
 		VR3:
@@ -254,8 +261,8 @@ always @*//(a2d_out, predicted_ip, ven)
 		VSEQI,VSNEI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{a2d_out.ir[31]}},a2d_out.ir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
 		VSLTI,VSGTI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{a2d_out.ir[31]}},a2d_out.ir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
 		VSLTUI,VSGTUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {52'd0,a2d_out.ir[31:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
-		VBYTNDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {56'd0,a2d_out.ir[27:20]}; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
-		VU21NDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {56'd0,a2d_out.ir[27:20]}; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+		VBYTNDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= a2d_out.ir[29]; decbuf.vrfwr <= ~a2d_out.ir[29]; decbuf.ui <= FALSE; decbuf.imm.val <= {56'd0,a2d_out.ir[27:20]}; decbuf.Ravec <= TRUE; decbuf.Rtvec <= ~a2d_out.ir[29]; end
+		VU21NDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= a2d_out.ir[29]; decbuf.vrfwr <= ~a2d_out.ir[29]; decbuf.ui <= FALSE; decbuf.imm.val <= {56'd0,a2d_out.ir[27:20]}; decbuf.Ravec <= TRUE; decbuf.Rtvec <= ~a2d_out.ir[29]; end
 		VPERM:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{1'b0}},a2d_out.ir[27:20]}; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
 		VCHKI:
 			begin
