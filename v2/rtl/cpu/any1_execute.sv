@@ -39,7 +39,7 @@ import any1_pkg::*;
 
 module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,fpreci,rob_exec,Stream_inc,ex_redirect,
 	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,ifStream,rst_exStream,exStream,
-	restore_rfsrc,set_wfi,vregfilesrc,vl);
+	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q, rst_robx, new_robx);
 input rst;
 input clk;
 input sReorderEntry robi;
@@ -49,6 +49,8 @@ output sALUrec divreci;
 output sALUrec fpreci;
 output sMemoryIO membufi;
 output reg [5:0] rob_exec;
+output reg [47:0] rob_x;
+input [47:0] rob_q;
 input Stream_inc;
 output sRedirect ex_redirect;
 output reg f2a_rst;
@@ -67,6 +69,8 @@ output reg [5:0] exStream;
 output reg restore_rfsrc;
 output reg set_wfi= 1'b0;
 input [7:0] vl;
+input rst_robx;
+input [47:0] new_robx;
 
 integer n;
 
@@ -102,6 +106,20 @@ any1_bitfield ubf1
 	.masko()
 );
 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Floating Point
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+wire [63:0] fcmp_o;
+wire cmpnan,cmpsnan;
+
+fpCompare u1 (
+	.a(robi.ia.val),
+	.b(robi.ib.val),
+	.o(fcmp_o),
+	.nan(cmpnan),
+	.snan(cmpsnan)
+);
 
 	// Execute
 	// Lots to do here.
@@ -109,6 +127,7 @@ any1_bitfield ubf1
 	// Multi-cycle instructions are placed in instruction queues.
 always @(posedge clk)
 if (rst) begin
+	rob_x <= 48'd0;
 	rob_exec <= 6'd0;
 	robo <= 1'd0;
 	exStream <= 6'd0;
@@ -131,12 +150,16 @@ else begin
 	mulreci.wr <= FALSE;
 	divreci.wr <= FALSE;
 	membufi.wr <= FALSE;
+	fpreci.wr <= FALSE;
 	ex_redirect.wr <= FALSE;
 	restore_rfsrc <= FALSE;
 	set_wfi <= FALSE;
 
 	$display("Execute");
-	if (robi.Stream == exStream + Stream_inc) begin
+	if (rst_robx)
+		rob_x <= new_robx;
+	if (rob_x + 2'd1 < rob_q) begin
+	if (robi.Stream == exStream + Stream_inc && robi.v==VAL) begin
 		if (robi.dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, robi.ip, robi.ir,
 			robi.ia.val,robi.iav?"v":" ",robi.ib.val,robi.ibv?"v":" ",
@@ -154,6 +177,7 @@ else begin
 			robo.cmt <= TRUE;
 			robo.cmt2 <= TRUE;
 			rob_exec <= rob_exec + 2'd1;
+			rob_x <= rob_x + 2'd1;
 		end
 		else
 		//robi.res.tag <= robi.ir.tag;
@@ -270,6 +294,7 @@ else begin
 					end
 				MULF:	begin robo.res.val <= robi.ia.val[23:0] * robi.ib.val[15:0]; tMod(); end
 				CMP:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1; tMod(); end
+				FCMP:	begin robo.res.val <= fcmp_o; tMod(); end
 				SEQ:	begin robo.res.val <= robi.ia.val == robi.ib.val; tMod(); end
 				SNE:	begin robo.res.val <= robi.ia.val != robi.ib.val; tMod(); end
 				SLT:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val); tMod(); end
@@ -282,28 +307,9 @@ else begin
 		R1:
 			if (robi.iav) begin
 				case(robi.ir.r2.func)
-				ABS:
-					case(robi.ir.r2.Rb)
-					6'd0:	begin robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia; tMod(); end
-					6'd1:	begin robo.res.val <= {1'b0,robi.ia.val[62:0]}; tMod(); end
-					6'd2:	begin robo.res.val <= {1'b0,robi.ia.val[62:0]}; tMod(); end
-					default:	begin robo.res.val <= 64'hDEADDEADDEADDEAD; tMod(); end
-					endcase
-				NABS:
-					case(robi.ir.r2.Rb)
-					6'd0:	begin robo.res.val <= robi.ia[63] ? robi.ia : -robi.ia; tMod(); end
-					6'd1:	begin robo.res.val <= {1'b1,robi.ia.val[62:0]}; tMod(); end
-					6'd2:	begin robo.res.val <= {1'b1,robi.ia.val[62:0]}; tMod(); end
-					default:	begin robo.res.val <= 64'hDEADDEADDEADDEAD; tMod(); end
-					endcase
-				NEG:
-					case(robi.ir.r2.Rb)
-					6'd0:	begin robo.res.val <= -robi.ia; tMod(); end
-					6'd1:	begin robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]}; tMod(); end
-					6'd2:	begin robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]}; tMod(); end
-					6'd3:	begin robo.res.val <= -robi.ia; tMod(); end
-					default:	begin robo.res.val <= 64'hDEADDEADDEADDEAD; tMod(); end
-					endcase					
+				ABS:	begin robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia; tMod(); end
+				NABS:	begin robo.res.val <= robi.ia[63] ? robi.ia : -robi.ia; tMod(); end
+				NEG:	begin robo.res.val <= -robi.ia; tMod(); end
 				NOT:	begin robo.res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0; tMod(); end
 				CTLZ:	begin robo.res.val <= cntlzo; tMod(); end
 				CTPOP:	begin robo.res.val <= cntpopo; tMod(); end
@@ -329,6 +335,64 @@ else begin
 				default:	;
 				endcase
 			end
+`ifdef SUPPORT_FLOAT			
+		F1,VF1:
+			if (robi.iav) begin
+				case(robi.ir.r2.func)
+				FABS:	begin robo.res.val <= {1'b0,robi.ia.val[62:0]}; tMod(); end
+				FNABS:begin robo.res.val <= {1'b1,robi.ia.val[62:0]}; tMod(); end
+				FNEG:	begin robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]}; tMod(); end
+				I2F,F2I,FSQRT:
+					begin
+						fpreci.rid <= rob_exec;
+						fpreci.a <= robi.ia;
+						fpreci.wr <= TRUE;
+						tMod(); 
+						robo.cmt <= FALSE;
+						robo.cmt2 <= FALSE;
+						robo.wr_fu <= FALSE;
+					end
+				default:	;
+				endcase
+			end
+		F2,VF2:
+			if (robi.iav && robi.ibv) begin
+				case(robi.ir.r2.func)
+				CPYSGN: begin robo.res.val <= { robi.ib.val[63],robi.ia.val[62:0]}; tMod(); end
+				SGNINV: begin robo.res.val <= {~robi.ib.val[63],robi.ia.val[62:0]}; tMod(); end
+				FADD,FSUB,FMUL,FDIV:
+					begin
+						fpreci.rid <= rob_exec;
+						fpreci.a <= robi.ia;
+						fpreci.b <= robi.ib;
+						fpreci.wr <= TRUE;
+						tMod(); 
+						robo.cmt <= FALSE;
+						robo.cmt2 <= FALSE;
+						robo.wr_fu <= FALSE;
+					end
+				default:	;
+				endcase
+			end
+		F3,VF3:
+			if (robi.iav && robi.ibv && robi.icv) begin
+				case(robi.ir.r2.func)
+				MADD,MSUB,NMADD,NMSUB:
+					begin
+						fpreci.rid <= rob_exec;
+						fpreci.a <= robi.ia;
+						fpreci.b <= robi.ib;
+						fpreci.c <= robi.ic;
+						fpreci.wr <= TRUE;
+						tMod(); 
+						robo.cmt <= FALSE;
+						robo.cmt2 <= FALSE;
+						robo.wr_fu <= FALSE;
+					end
+				default:	;
+				endcase
+			end
+`endif
 		ADDI:	if (robi.iav) begin robo.res.val <= robi.ia.val + robi.imm.val; tMod(); end
 		SUBFI:if (robi.iav) begin robo.res.val <= robi.imm.val - robi.ia.val; tMod(); end
 		ANDI:	if (robi.iav) begin robo.res.val <= robi.ia.val & robi.imm.val; tMod(); end
@@ -557,6 +621,7 @@ else begin
 					exStream <= exStream + 2'd1;
 					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : robi.ip + 4'd4;
 					ex_redirect.current_ip <= robi.ip;
+					ex_redirect.xrid <= rob_exec;
 					ex_redirect.wr <= TRUE;
 					restore_rfsrc <= TRUE;
 				end
@@ -568,6 +633,7 @@ else begin
 					exStream <= exStream + 2'd1;
 					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : robi.ip + 4'd4;
 					ex_redirect.current_ip <= robi.ip;
+					ex_redirect.xrid <= rob_exec;
 					ex_redirect.wr <= TRUE;
 					restore_rfsrc <= TRUE;
 				end
@@ -585,14 +651,15 @@ else begin
 				exStream <= exStream + 2'd1;
 				ex_redirect.redirect_ip <= robi.ia.val + robi.imm.val;
 				ex_redirect.current_ip <= robi.ip;
+				ex_redirect.xrid <= rob_exec;
 				ex_redirect.wr <= TRUE;
 				tMod();
 			end
 		LEA,LDx,LDxX,
-		STx,STxX,STSx:
+		STx,STxX:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			// This does not wait for registers to be valid.
-			begin
+			if (robi.iav && robi.ibv && robi.icv) begin
 				membufi.rid <= rob_exec;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
@@ -609,6 +676,7 @@ else begin
 		LDSx:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			// This does not wait for registers to be valid.
+			if (robi.iav && robi.ibv && robi.icv) begin
 			if (robi.vmask[robi.step]) begin
 				membufi.rid <= rob_exec;
 				membufi.ir <= robi.ir;
@@ -629,9 +697,11 @@ else begin
 				tDoOp(64'd0);
 				robo.vrfwr <= FALSE;
 			end
+			end
 		STSx:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			// This does not wait for registers to be valid.
+			if (robi.iav && robi.ibv && robi.icv) begin
 			if (robi.vmask[robi.step]) begin
 				membufi.rid <= rob_exec;
 				membufi.ir <= robi.ir;
@@ -664,6 +734,7 @@ else begin
 				tDoOp(64'd0);
 				robo.vrfwr <= FALSE;
 			end
+			end
 		CSR:
 			if (robi.iav) begin
 				robo.ia <= robi.ia;
@@ -685,7 +756,7 @@ else begin
 		  	end
 		  WFI:	begin set_wfi <= TRUE; tMod(); end
 			TLBRW:
-				begin
+				if (robi.iav && robi.ibv) begin
 					membufi.rid <= rob_exec;
 					membufi.ir <= robi.ir;
 					membufi.ia <= robi.ia;
@@ -719,12 +790,7 @@ else begin
 								robo.update_rob <= TRUE;
 								rob_exec <= rob_exec + 2'd1;
 								if (robi.vmask.val[robi.step]) begin
-									case(robi.ir.r2.Rb)
-									6'd0:	robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia;
-									6'd1:	robo.res.val <= {1'b0,robi.ia.val[62:0]};
-									6'd2:	robo.res.val <= {1'b0,robi.ia.val[62:0]};
-									default:	robo.res.val <= 64'hDEADDEADDEADDEAD;
-									endcase
+									robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia;
 									robo.cmt <= TRUE;
 									robo.cmt2 <= TRUE;
 								end
@@ -735,12 +801,7 @@ else begin
 								robo.update_rob <= TRUE;
 								rob_exec <= rob_exec + 2'd1;
 								if (robi.vmask.val[robi.step]) begin
-									case(robi.ir.r2.Rb)
-									6'd0:	robo.res.val <= robi.ia[63] ? robi.ia : -robi.ia;
-									6'd1:	robo.res.val <= {1'b1,robi.ia.val[62:0]};
-									6'd2:	robo.res.val <= {1'b1,robi.ia.val[62:0]};
-									default:	robo.res.val <= 64'hDEADDEADDEADDEAD;
-									endcase
+									robo.res.val <= robi.ia[63] ? robi.ia : -robi.ia;
 									robo.cmt <= TRUE;
 									robo.cmt2 <= TRUE;
 								end
@@ -751,13 +812,7 @@ else begin
 								robo.update_rob <= TRUE;
 								rob_exec <= rob_exec + 2'd1;
 								if (robi.vmask.val[robi.step]) begin
-									case(robi.ir.r2.Rb)
-									6'd0:	robo.res.val <= -robi.ia;
-									6'd1:	robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]};
-									6'd2:	robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]};
-									6'd3:	robo.res.val <= -robi.ia;
-									default:	robo.res.val <= 64'hDEADDEADDEADDEAD;
-									endcase					
+									robo.res.val <= -robi.ia;
 									robo.cmt <= TRUE;
 									robo.cmt2 <= TRUE;
 								end
@@ -902,6 +957,7 @@ else begin
 					end
 				MULF:	tDoOp(robi.ia.val[23:0] * robi.ib.val[15:0]);
 				CMP:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1);
+				FCMP:	tDoOp(fcmp_o);
 				SEQ:	tDoOp(robi.ia.val == robi.ib.val);
 				SNE:	tDoOp(robi.ia.val != robi.ib.val);
 				SLT:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val));
@@ -1230,17 +1286,30 @@ else begin
 	end
 	// Stream mismatch
 	else begin
-		if (robi.dec) begin
+		if (robi.v==INV)
+			tIncExec();
+		else if (robi.dec) begin
 			tMod();
 		end
 	end
+	end
 end
+
+task tIncExec;
+begin
+	rob_x <= rob_x + 2'd1;
+	if (rob_exec >= ROB_ENTRIES-1)
+		rob_exec <= 6'd0;
+	else
+		rob_exec <= rob_exec + 2'd1;
+end
+endtask
 
 task tDoOp;
 input [63:0] res;
 begin
 	robo.update_rob <= TRUE;
-	rob_exec <= rob_exec + 2'd1;
+	tIncExec();
 	if (robi.vmask.val[robi.step])
 		robo.res.val <= res;
 	else if (robi.irmod.im.z)
@@ -1256,10 +1325,7 @@ begin
 	robo.cmt <= TRUE;
 	robo.cmt2 <= TRUE;
 	robo.update_rob <= TRUE;
-	if (rob_exec >= ROB_ENTRIES-1)
-		rob_exec <= 6'd0;
-	else
-		rob_exec <= rob_exec + 2'd1; 
+	tIncExec();
 	robo.vcmt <= robi.step >= vl;
 end
 endtask

@@ -1,10 +1,10 @@
 import any1_pkg::*;
 
 `define ADD1_INSN	{12'h001,6'h04,6'h04,ADDI}
-`define ADD2_INSN	{32'h002,6'h07,6'h06,ADDI}
-`define ADD3_INSN	{32'h002,6'h47,6'h46,ADDI}
-`define STO_INSN	{4'h1,12'h000,4'h3,3'h0,1'b0,8'h00,8'h00,8'h00,8'h8F,8'h70}
-`define BNE_INSN {6'h3F,6'h07,6'h04,6'h00,BNE}
+`define ADD2_INSN	{12'h002,6'h07,6'h06,ADDI}
+`define ADD3_INSN	{12'h002,6'h47,6'h46,ADDI}
+`define STO_INSN	{6'h00,6'h06,6'h00,6'h00,STx}
+`define BNE_INSN {6'h3F,6'h04,6'h04,6'h00,BEQ}
 
 module any1_tb();
 reg clk;
@@ -28,11 +28,7 @@ initial begin
 	#200 rst = 1'b0;
 end
 
-always #5 clk <= ~clk;
-
-always @(posedge clk)
-if (we_o && adr_o[31:13]==20'd0)
-	mem[adr_o[12:3]] <= dat_o;
+always #5 clk = ~clk;
 
 any1oo ua1
 (
@@ -56,17 +52,22 @@ any1oo ua1
 always @(posedge clk)
 begin
 	ack_i <= cyc_o;
+
 	if (adr_o[31:24]==8'hFF)
 		case(adr_o[7:4])
-		3'd0:	dat_i <= {`ADD1_INSN,{3{NOP_INSN}}};
-		3'd1:	dat_i <= {4{`ADD2_INSN}};
-		3'd2: dat_i <= {4{`STO_INSN}};
-		3'd3:	dat_i <= {4{`ADD3_INSN}};
-		3'd4:	dat_i <= {{3{NOP_INSN}},`BNE_INSN};
+		4'd0:	dat_i <= {`ADD1_INSN,{3{NOP_INSN}}};
+		4'd1:	dat_i <= {4{`ADD2_INSN}};
+		4'd2: dat_i <= {4{`STO_INSN}};
+		4'd3:	dat_i <= {4{`ADD3_INSN}};
+		4'd4:	dat_i <= {{3{NOP_INSN}},`BNE_INSN};
 		default:	dat_i <= {4{NOP_INSN}};
 		endcase
 	else
-		dat_i <= 128'd0;
+		dat_i <= {4{NOP_INSN}};
+	//dat_i <= {4{`ADD2_INSN}};
+//	dat_i <= 128'd0;
+	if (we_o && adr_o[31:13]==20'd0)
+		mem[adr_o[12:3]] <= dat_o;
 end
 
 endmodule

@@ -43,7 +43,7 @@ module any1_ialign(i, o);
 input sInstAlignIn i;
 output sInstAlignOut o;
 
-always @*
+always @(i)
 begin
 	o.Stream <= i.Stream;
 	o.predict_taken <= i.predict_taken;
