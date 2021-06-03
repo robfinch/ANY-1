@@ -2068,6 +2068,7 @@ else begin
 				
 			// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
 				if (robo.wr_fu) begin
+					funcUnit[FU_EXEC].ele <= robo.step;
 					funcUnit[FU_EXEC].rid <= rob_exec;
 					funcUnit[FU_EXEC].res <= robo.res;
 				end
@@ -2167,6 +2168,7 @@ IFETCH3:
   		mgoto (IFETCH3a);
 `ifdef ANY1_TLB  		
   		if (tlbmiss) begin
+  			memfu.ele <= rob[membufo.rid].step;
   			memfu.cmt <= TRUE;
   			memfu.rid <= membufo.rid;
 		    memfu.cause <= 16'h8004;
@@ -2318,6 +2320,7 @@ TLB2:
 	mgoto (TLB3);
 TLB3:
 	begin
+		memfu.ele <= rob[membufo.rid].step;
     memfu.res <= tlbdato;
     memfu.cmt <= TRUE;
 		memfu.rid <= membufo.rid;
@@ -2382,6 +2385,7 @@ MEMORY1e:
 `endif   		
     end
     else if (membufo.ir.r2.opcode==LDxX && membufo.ir.nld.A==1'b1) begin
+ 			memfu.ele <= rob[membufo.rid].step;
       memfu.res.val <= ea;
       memfu.cmt <= TRUE;
  			memfu.rid <= membufo.rid;
@@ -2442,6 +2446,7 @@ MEMORY_KEYCHK1:
   end
 MEMORY2b:
 	begin
+		memfu.ele <= rob[membufo.rid].step;
     memfu.cause <= 16'h8031;	// KEY fault
     memfu.cmt <= TRUE;
 		memfu.rid <= membufo.rid;
@@ -2455,6 +2460,7 @@ MEMORY3:
     mgoto (MEMORY4);
 `ifdef ANY1_TLB
 		if (tlbmiss) begin
+ 			memfu.ele <= rob[membufo.rid].step;
 	    memfu.cause <= 16'h8004;
   	  memfu.badAddr <= ea;
 	    memfu.cmt <= TRUE;
@@ -2570,6 +2576,7 @@ MEMORY5:
 	    	begin
 	    		if (membufo.ir.st.func==4'd7) begin	// STPTR
 			    	if (ea==32'd0) begin
+			  			memfu.ele <= rob[membufo.rid].step;
 			    	 	memfu.cmt <= TRUE;
   						memfu.rid <= membufo.rid;
 				    	tMemory1();
@@ -2581,6 +2588,7 @@ MEMORY5:
 			    	end
 	    		end
 	    		else begin
+		  			memfu.ele <= rob[membufo.rid].step;
 			    	memfu.cmt <= TRUE;
 		  			memfu.rid <= membufo.rid;
 			    	tMemory1();
@@ -2629,6 +2637,7 @@ MEMORY8:
     mgoto (MEMORY9);
 `ifdef ANY1_TLB    
 		if (tlbmiss) begin
+ 			memfu.ele <= rob[membufo.rid].step;
 			memfu.cmt <= TRUE;
 	    memfu.cause <= 16'h8004;
   	  memfu.badAddr <= ea;
@@ -2731,6 +2740,7 @@ MEMORY10:
 	    	begin
 	    		if (membufo.ir.st.func==4'd7) begin	// STPTR
 			    	if (ea==32'd0) begin
+			  			memfu.ele <= rob[membufo.rid].step;
 			    	 	memfu.cmt <= TRUE;
 			  			memfu.rid <= membufo.rid;
 				    	tMemory1();
@@ -2742,6 +2752,7 @@ MEMORY10:
 			    	end
 	    		end
 	    		else begin
+		  			memfu.ele <= rob[membufo.rid].step;
 			    	memfu.cmt <= TRUE;
 		  			memfu.rid <= membufo.rid;
 				   	tMemory1();
@@ -2790,6 +2801,7 @@ MEMORY13:
     mgoto (MEMORY14);
 `ifdef ANY1_TLB    
 		if (tlbmiss) begin
+ 			memfu.ele <= rob[membufo.rid].step;
 			memfu.cmt <= TRUE;
 	    memfu.cause <= 16'h8004;
   	  memfu.badAddr <= ea;
@@ -2868,6 +2880,7 @@ MEMORY15:
     	begin
     		if (membufo.ir.st.func==4'd7) begin	// STPTR
 		    	if (ea==32'd0) begin
+		  			memfu.ele <= rob[membufo.rid].step;
 		    	 	memfu.cmt <= TRUE;
 		  			memfu.rid <= membufo.rid;
 			    	tMemory1();
@@ -2879,6 +2892,7 @@ MEMORY15:
 		    	end
     		end
     		else begin
+		 			memfu.ele <= rob[membufo.rid].step;
 		    	memfu.cmt <= TRUE;
 	  			memfu.rid <= membufo.rid;
 		    	tMemory1();
@@ -2894,6 +2908,7 @@ DATA_ALIGN:
   		mgoto (DFETCH2);
   	else
     	tMemory1();
+		memfu.ele <= rob[membufo.rid].step;
     memfu.cmt <= TRUE;
 		memfu.rid <= membufo.rid;
 		sr_o <= LOW;
@@ -2954,6 +2969,7 @@ DFETCH3:
   		mgoto (DFETCH3a);
 `ifdef ANY1_TLB  		
   		if (tlbmiss) begin
+  			memfu.ele <= rob[membufo.rid].step;
   			memfu.cmt <= TRUE;
 		    memfu.cause <= 16'h8004;
   			memfu.rid <= membufo.rid;
@@ -3157,6 +3173,7 @@ KYLD3:
   		mgoto (KYLD3a);
 `ifdef ANY1_TLB  		
   		if (tlbmiss) begin
+  			memfu.ele <= rob[membufo.rid].step;
   			memfu.cmt <= TRUE;
 		    memfu.cause <= 16'h8004;
 			  memfu.badAddr <= adr_o;
