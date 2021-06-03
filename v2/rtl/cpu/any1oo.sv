@@ -276,6 +276,7 @@ Address tvec [0:7];
 reg [7:0] cause [0:7];
 Address badaddr [0:7];
 Address eip;
+reg [5:0] estep;
 reg [31:0] pmStack;
 Address dbad [0:3];
 reg [63:0] dbcr;
@@ -616,7 +617,7 @@ reg [1:0] dc_rway,dc_wway;
 reg dcache_wr;
 reg dc_invline,dc_invall;
 
-dcache_blkmem your_instance_name (
+dcache_blkmem udcb1 (
   .clka(clk_g),    // input wire clka
   .ena(1'b1),      // input wire ena
   .wea(dcache_wr),      // input wire [0 : 0] wea
@@ -910,7 +911,6 @@ any1_TLB utlb (
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 reg ifStall1,ifStall2,ifStall3,ifStall4;
-reg [5:0] decven;
 wire f2a_full, f2a_v;
 wire a2d_full, a2d_v;
 wire d2r_full, d2r_v;
@@ -918,12 +918,13 @@ wire d2x_full, d2x_v;
 wire x2m_full, x2m_v;
 wire d2x_underflow;
 reg d2x_full1,d2x_full2;
+reg [5:0] decven;
+reg push_vec;
 //wire ifStall = f2a_full || !ihit;
 assign a2d_full = 1'b0;
 assign a2d_v = 1'b1;
-assign ifStall = a2d_full || !ihit || d2x_full;
+assign ifStall = a2d_full || !ihit || d2x_full || push_vec;
 reg dcStall,dcStall1,vecStall;
-reg push_vec;
 wire f2a_rst,a2d_rst,d2x_rst;
 reg wb_f2a_rst,wb_a2d_rst,wb_d2x_rst;
 
@@ -934,13 +935,13 @@ wire pop_f2a = !a2d_full && !f2a_empty;
 assign d2x_full = rob_que+2'd1==rob_deq || rob_que+2'd2==rob_deq;
 wire push_a2d = !d2x_full && !a2d_full && !ifStall2;// && (!ifStall3 || ifStall4); //pop_f2ad;
 wire pop_a2d = !d2x_full && !vecStall && !ifStall3;
-wire push_d2x = (a2d_v || push_vec) && !ifStall && !d2x_full1;
+wire push_d2x = (a2d_v || push_vec) && (!ifStall || push_vec) && !d2x_full1;
 wire pop_d2x = !x2m_full && !x2mul_full && !x2div_full && !d2x_empty;
 
 always @*
-	push_vec <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl && !d2x_full;
+	push_vec <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl;
 always @*
-	vecStall <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl && !d2x_full;
+	vecStall <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl;
 
 always @(posedge clk_g)
 if (rst_i)
@@ -984,15 +985,26 @@ reg [5:0] ifStream1;
 reg btb_predicted_ip1;
 reg predict_taken1;
 always @(posedge clk_g)
+if (rst_i) begin
+	ifStream1 <= 6'd0;
+	ip1 <= RSTIP;
+	btb_predicted_ip1 <= RSTIP;
+	predict_taken1 <= FALSE;
+end
+else begin
 if (!ifStall) begin
 	ip1 <= ip;
 	ifStream1 <= ifStream;
 	btb_predicted_ip1 <= btb_predicted_ip;
 	predict_taken1 <= predict_taken;
 end
+end
 
 // Instruction fetch
 always @(posedge clk_g)
+if(rst_i)
+	f2a_in <= 1'd0;
+else begin
 if (!ifStall) begin
 	begin
 	f2a_in.Stream <= ifStream1;
@@ -1005,6 +1017,7 @@ if (!ifStall) begin
 // 		f2a_in.cacheline <= {16{NOP_INSN}};
 // 	end
 
+end
 end
 
 always @(posedge clk_g)
@@ -1139,7 +1152,7 @@ begin
 	else
 		exbufi.ic.val <= 64'd0;
 	exbufi.iav <= decbuf.Ravec ? (decbuf.Ra[5:0]==6'd0 || vregfilesrc[decbuf.Ra[5:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Ra[2:0]].rf==1'b0 : regValid(decbuf.Ra);
-	exbufi.ibv <= decbuf.Rbvec ? (decbuf.Rb[5:0]==6'd0 || vregfilesrc[decbuf.Ra[5:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Rb[2:0]].rf==1'b0 : regValid(decbuf.Rb);
+	exbufi.ibv <= decbuf.Rbvec ? (decbuf.Rb[5:0]==6'd0 || vregfilesrc[decbuf.Rb[5:0]].rf==1'b0) : decbuf.Rbmask ? vm_regfilesrc[decbuf.Rb[2:0]].rf==1'b0 : regValid(decbuf.Rb);
 	exbufi.icv <= regValid(decbuf.Rc) || !decbuf.needRc;
 	// To detect WAW hazard for vector instructions
 	exbufi.itv <= decbuf.Rtvec ? (decbuf.Rt[5:0]==6'd0 || vregfilesrc[decbuf.Rt[5:0]].rf==1'b0) : !decbuf.is_vec;
@@ -1148,7 +1161,7 @@ begin
 	exbufi.vmv <= vm_regfilesrc[decbuf.Vm].rf==1'b0 || rob[vm_regfilesrc[decbuf.Vm]].cmt;
 
 //	dcStall <=  !(exbufi.iav & exbufi.ibv & exbufi.icv & exbufi.idv & exbufi.itv);
-	dcStall <= !exbufi.itv & decbuf.is_vec;
+	dcStall <= 1'b0;//!exbufi.itv & decbuf.is_vec;
 //	dcStall <= 1'b0;
 end
 /*
@@ -1362,8 +1375,37 @@ fpNormalize u8 (.clk(clk_g), .ce(1'b1), .i(fnorm_i), .o(fnorm_o), .under_i(fnorm
 fpRound u9 (.clk(clk_g), .ce(1'b1), .rm(rmq), .i(fnorm_o), .o(fres));
 fpDecompReg u10 (.clk(clk_g), .ce(1'b1), .i(fres), .sgn(), .exp(), .fract(), .xz(fdn), .vz(), .inf(finf), .nan() );
 `endif
-wire rst_robx = !ifStall && (wb2if_redirect_rd3 || ex2if_redirect_rd3 || dc2if_redirect_rd3);
-wire [47:0] new_robx = wb2if_redirect_rd3 ? rob[wb_redirecto.xrid].rob_q : ex2if_redirect_rd3 ? rob[ex_redirecto.xrid].rob_q : rob[dc_redirecto.xrid].rob_q;
+wire rst_robx = 1'b0;//!ifStall && (wb2if_redirect_rd3 || ex2if_redirect_rd3 || dc2if_redirect_rd3);
+wire [47:0] new_robx = wb2if_redirect_rd3 ? rob[wb_redirecto.xrid].rob_q+2'd1 : ex2if_redirect_rd3 ? rob[ex_redirecto.xrid].rob_q+2'd1 : rob[dc_redirecto.xrid].rob_q + 2'd1;
+reg [5:0] new_rob_exec;
+always @*
+begin
+	if (wb2if_redirect_rd3) begin
+		if (wb_redirecto.xrid >= ROB_ENTRIES-1)
+			new_rob_exec <= 6'd0;
+		else
+			new_rob_exec <= wb_redirecto.xrid + 2'd1;
+	end
+	else if (ex2if_redirect_rd3) begin
+		if (ex_redirecto.xrid >= ROB_ENTRIES-1)
+			new_rob_exec <= 6'd0;
+		else
+			new_rob_exec <= ex_redirecto.xrid + 2'd1;
+	end
+	else if (dc2if_redirect_rd3) begin
+		if (dc_redirecto.xrid >= ROB_ENTRIES-1)
+			new_rob_exec <= 6'd0;
+		else
+			new_rob_exec <= dc_redirecto.xrid + 2'd1;
+	end
+	else begin
+		new_rob_exec <= rob_exec;
+	end
+end
+
+reg ld_vtmp;
+reg [63:0] new_vtmp;
+wire [63:0] vtmp;
 
 any1_execute uex1(
 	.rst(rst_i),
@@ -1393,7 +1435,11 @@ any1_execute uex1(
 	.rob_x(rob_x),
 	.rob_q(rob_q),
 	.rst_robx(rst_robx),
-	.new_robx(new_robx)
+	.new_robx(new_robx),
+	.new_rob_exec(new_rob_exec),
+	.ld_vtmp(ld_vtmp),
+	.new_vtmp(new_vtmp),
+	.vtmp(vtmp)
 );
 
 reg zero_data;
@@ -1479,6 +1525,7 @@ always @*
 always @(posedge clk_g)
 if (rst_i) begin
 	ip <= RSTIP;
+	decven <= 6'd0;
 	nmif <= 1'b0;
 	wb_f2a_rst <= TRUE;
 	wb_a2d_rst <= TRUE;
@@ -1607,11 +1654,18 @@ if (rst_i) begin
 	regdv <= INV;
 	for (n = 0; n < 64; n = n + 1)
 		regmap[n] <= {1'b0,n[5:0]};
+	for (n = 0; n < 64; n = n + 1)
+		regfilesrc[n] <= 7'd0;
+	for (n = 0; n < 64; n = n + 1)
+		vregfilesrc[n] <= 7'd0;
+	for (n = 0; n < 8; n = n + 1)
+		vm_regfilesrc[n] <= 7'd0;
 	memfu.cmt <= FALSE;
 	vrf_update <= FALSE;
 	ip_cnt <= 8'h00;
 	a2di <= 7'd0;
-	decven <= 6'd0;
+	ld_vtmp <= FALSE;
+	new_vtmp <= 64'd0;
 end
 else begin
 	ic_update <= 1'b0;
@@ -1643,13 +1697,14 @@ else begin
 	x2fp_rd <= FALSE;
 	x2fp_wr <= FALSE;
 	dcache_wr <= FALSE;
+	ld_vtmp <= FALSE;
 	if (ld_time==TRUE && wc_time_dat==wc_time)
 		ld_time <= FALSE;
 	if (pe_nmi)
 		nmif <= 1'b1;
 	tlbwr <= FALSE;
 
-	if (pop_a2d)
+	if (!ifStall)
 		decven <= 6'd0;
 	else if (push_vec)
 		decven <= decven + 6'd1;
@@ -1685,10 +1740,7 @@ else begin
 			dcStream <= ifStream + 2'd1;
 			wbStream <= ifStream + 2'd1;
 			ip <= wb_redirecto.redirect_ip;
-			for (n = 0; n < 64; n = n + 1)
-				if (wbBranchInvalidateMask==1'b0)
-					rob[wb_redirecto.xrid].v <= 1'b0;
-			rob_q <= rob[wb_redirecto.xrid].rob_q;
+			decven <= wb_redirecto.step;
 		end
 		else if (ex2if_redirect_rd3) begin
 			ex2if_redirect_rd3 <= FALSE;
@@ -1697,10 +1749,7 @@ else begin
 			dcStream <= ifStream + 2'd1;
 			wbStream <= ifStream + 2'd1;
 			ip <= ex_redirecto.redirect_ip;
-			for (n = 0; n < 64; n = n + 1)
-				if (exBranchInvalidateMask==1'b0)
-					rob[ex_redirecto.xrid].v <= 1'b0;
-			rob_q <= rob[ex_redirecto.xrid].rob_q;
+			decven <= ex_redirecto.step;
 		end
 		else if (dc2if_redirect_rd3) begin
 			dc2if_redirect_rd3 <= FALSE;
@@ -1708,10 +1757,7 @@ else begin
 			dcStream <= ifStream + 2'd1;
 			wbStream <= ifStream + 2'd1;
 			ip <= dc_redirecto.redirect_ip;
-			for (n = 0; n < 64; n = n + 1)
-				if (dcBranchInvalidateMask==1'b0)
-					rob[dc_redirecto.xrid].v <= 1'b0;
-			rob_q <= rob[dc_redirecto.xrid].rob_q;
+			decven <= dc_redirecto.step;
 		end
 		else if (predict_taken & btben)
 			ip <= btb_predicted_ip;
@@ -1834,7 +1880,7 @@ else begin
 		else if (irq_i && die && decbuf.ir[6:4]!=4'h5)	// not prefix inst.
 			rob[rob_que].cause <= 16'h8000|cause_i;
 		else
-			rob[rob_que].cause <= |decbuf.ip[2:0] ? FLT_IADR : FLT_NONE;
+			rob[rob_que].cause <= |decbuf.ip[1:0] ? FLT_IADR : FLT_NONE;
 
 		rob_q <= rob_q + 2'd1;
 		if (rob_que >= ROB_ENTRIES-1)
@@ -1856,6 +1902,7 @@ else begin
 				dc_redirecti.redirect_ip <= {{41{a2d_out.ir[31]}},a2d_out.ir[31:10],1'h0};
 				dc_redirecti.current_ip <= a2d_out.ip;
 				dc_redirecti.xrid <= rob_que;
+				dc_redirecti.step <= 6'd0;
 				dc2if_wr <= TRUE;
 			end
 		BAL:
@@ -1863,6 +1910,7 @@ else begin
 				dcStream <= dcStream + 2'd1;
 				dc_redirecti.redirect_ip <= a2d_out.ip + {{41{a2d_out.ir[31]}},a2d_out.ir[31:10],1'h0};
 				dc_redirecti.current_ip <= a2d_out.ip;
+				dc_redirecti.step <= 6'd0;
 				dc2if_wr <= TRUE;
 			end
 		EXI0:
@@ -3266,12 +3314,12 @@ default:	;
   $display ("----------------------------------------------------------------- Reorder Buffer -----------------------------------------------------------------");
   $display ("head: %d  tail: %d", rob_deq, rob_que);
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		$display("%c%c%c%d: Strm=%d%c %c%c%c%c ip=%h ir=%h Rt=%d res=%h imm=%h",
+		$display("%c%c%c%d: Strm=%d%c %c%c%c%c ip=%h.%d ir=%h Rt=%d res=%h imm=%h",
 			n[5:0]==rob_deq ? "D" : " ", n==rob_que ? "Q" : " ", n==rob_exec ? "X" : " ",
 			n[5:0],rob[n].Stream,rob[n].Stream_inc?"+":" ",rob[n].cmt ? "C" : " ",rob[n].v ? "V" : " ",
 			rob[n].rfwr ? "W" : " ",
 			rob[n].dec ? "D" : " ",
-			rob[n].ip,rob[n].ir,
+			rob[n].ip,rob[n].step,rob[n].ir,
 			rob[n].Rt,rob[n].res.val,
 			rob[n].imm.val);
 	end
@@ -3293,6 +3341,7 @@ default:	;
 				if (rob[rob_deq].ui==TRUE) begin
 					status[4][4] <= 1'b0;	// disable further interrupts
 					eip <= rob[rob_deq].ip;
+					estep <= rob[rob_deq].step;
 					pmStack <= {pmStack[27:0],3'b100,1'b0};
 					cause[3'd4] <= FLT_UNIMP;
 					wb_f2a_rst <= TRUE;
@@ -3308,6 +3357,7 @@ default:	;
 				else if (rob[rob_deq].cause!=16'h00) begin
 					status[4][4] <= 1'b0;	// disable further interrupts
 					eip <= rob[rob_deq].ip;
+					estep <= rob[rob_deq].step;
 					pmStack <= {pmStack[27:0],3'b100,1'b0};
 					cause[3'd4] <= rob[rob_deq].cause;
 					badaddr[3'd4] <= rob[rob_deq].badAddr;
@@ -3338,6 +3388,7 @@ default:	;
 								sema[0] <= 1'b0;
 								wb_redirecti.redirect_ip <= eip + rob[rob_deq].ia;
 								wb_redirecti.current_ip <= rob[rob_deq].ip;
+								wb_redirecti.step <= estep;
 								wb_redirecti.xrid <= rob_deq;
 								wb2if_wr <= TRUE;
 								wb_f2a_rst <= TRUE;
@@ -3449,6 +3500,7 @@ default:	;
 					rob[rob_deq].cmt <= FALSE;
 					rob[rob_deq].rfwr <= FALSE;
 					rob[rob_deq].vrfwr <= FALSE;
+					rob[rob_deq].vmrfwr <= FALSE;
 					rob[rob_deq].jump <= FALSE;
 					rob[rob_deq].branch <= FALSE;
 					rob_d <= rob_d + 2'd1;
@@ -3459,15 +3511,33 @@ default:	;
 				end
 			end
 		end
+		else if (rob[rob_deq].v==INV) begin
+			rob[rob_deq].ui <= INV;
+			rob[rob_deq].cause <= FLT_NONE;
+			rob[rob_deq].cmt <= FALSE;
+			rob[rob_deq].rfwr <= FALSE;
+			rob[rob_deq].vrfwr <= FALSE;
+			rob[rob_deq].vmrfwr <= FALSE;
+			rob[rob_deq].jump <= FALSE;
+			rob[rob_deq].branch <= FALSE;
+			rob_d <= rob_d + 2'd1;
+			if (rob_deq >= ROB_ENTRIES-1)
+				rob_deq <= 6'd0;
+			else
+				rob_deq <= rob_deq + 2'd1;
+		end
 	end
 	else begin
-		if (rob[rob_deq].cmt) begin
+//		if (rob[rob_deq].cmt || rob[rob_deq].v==INV) begin
+		// IF it is not the right stream, advance past the instruction regardless
+		begin
 			rob[rob_deq].v <= INV;
 			rob[rob_deq].ui <= INV;
 			rob[rob_deq].cause <= FLT_NONE;
 			rob[rob_deq].cmt <= FALSE;
 			rob[rob_deq].rfwr <= FALSE;
 			rob[rob_deq].vrfwr <= FALSE;
+			rob[rob_deq].vmrfwr <= FALSE;
 			rob[rob_deq].jump <= FALSE;
 			rob[rob_deq].branch <= FALSE;
 			rob_d <= rob_d + 2'd1;
@@ -3539,6 +3609,10 @@ default:	;
 		if (decbuf.vrfwr) begin
 			vregfilesrc[decbuf.Rt[5:0]].rf <= 1'b1;
 			vregfilesrc[decbuf.Rt[5:0]].rid <= rob_que;
+		end
+		if (decbuf.vmrfwr) begin
+			vm_regfilesrc[decbuf.Rt[5:0]].rf <= 1'b1;
+			vm_regfilesrc[decbuf.Rt[5:0]].rid <= rob_que;
 		end
 	end
 
@@ -3919,6 +3993,8 @@ begin
 `ifdef SUPPORT_VECTOR
 	for (n = 0; n < 64; n = n + 1)
 		vregfilesrc_hist[ndx][n] <= vregfilesrc[n];
+	for (n = 0; n < 8; n = n + 1)
+		vm_regfilesrc_hist[ndx][n] <= vm_regfilesrc[n];
 `endif
 end
 endtask
@@ -3934,6 +4010,8 @@ begin
 `ifdef SUPPORT_VECTOR
 	for (n = 0; n < 64; n = n + 1)
 		vregfilesrc[n] <= vregfilesrc_hist[ndx][n];
+	for (n = 0; n < 8; n = n + 1)
+		vm_regfilesrc[n] <= vm_regfilesrc_hist[ndx][n];
 `endif
 end
 endtask
@@ -3977,6 +4055,10 @@ begin
 			res.val <= tvec[regno[2:0]];
 		CSR_DPMSTACK:	res.val <= pmStack;
 		CSR_MPMSTACK:	res.val <= pmStack;
+		CSR_MVSTEP:	res.val <= estep;
+		CSR_DVSTEP:	res.val <= estep;
+		CSR_DVTMP:	res.val <= vtmp;
+		CSR_MVTMP:	res.val <= vtmp;
 		CSR_DEIP: res.val <= eip;
 		CSR_MEIP: res.val <= eip;
 		CSR_TIME:	res.val <= wc_time;
@@ -4007,6 +4089,10 @@ begin
 			tvec[regno[2:0]] <= val.val;
 		CSR_DPMSTACK:	pmStack <= val.val;
 		CSR_MPMSTACK:	pmStack <= val.val;
+		CSR_DVSTEP:	estep <= val.val;
+		CSR_MVSTEP:	estep <= val.val;
+		CSR_DVTMP:	begin new_vtmp <= val.val; ld_vtmp <= TRUE; end
+		CSR_MVTMP:	begin new_vtmp <= val.val; ld_vtmp <= TRUE; end
 		CSR_DEIP:	eip <= val.val;
 		CSR_MEIP:	eip <= val.val;
 		CSR_DTIME:	begin wc_time_dat <= val.val; ld_time <= TRUE; end

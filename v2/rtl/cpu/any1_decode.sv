@@ -64,12 +64,15 @@ always @*//(a2d_out, predicted_ip, ven)
 		decbuf.Ravec <= FALSE;
 		decbuf.Rbvec <= FALSE;
 		decbuf.Rtvec <= FALSE;
+		decbuf.Ramask <= FALSE;
+		decbuf.Rbmask <= FALSE;
 		decbuf.RaStep <= ven;
 		decbuf.RbStep <= ven;
 		decbuf.step <= ven;
 		decbuf.is_vec <= a2d_out.ir.r2.opcode[7];
 		decbuf.branch <= a2d_out.ir.r2.opcode[7:3]=={4'h4,1'b1};
 		decbuf.vex <= FALSE;
+		decbuf.veins <= FALSE;
 		decbuf.is_mod <= a2d_out.ir.r2.opcode[7:4]==4'h5;
 		decbuf.needRc <= FALSE;
 		decbuf.imm.val <= 64'd0;

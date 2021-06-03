@@ -1,6 +1,6 @@
 import any1_pkg::*;
 
-`define ADD1_INSN	{12'h001,6'h04,6'h04,ADDI}
+`define ADD1_INSN	{12'h001,6'h04,6'h04,ADDI|8'h80}
 `define ADD2_INSN	{12'h002,6'h07,6'h06,ADDI}
 `define ADD3_INSN	{12'h002,6'h47,6'h46,ADDI}
 `define STO_INSN	{6'h00,6'h06,6'h00,6'h00,STx}
