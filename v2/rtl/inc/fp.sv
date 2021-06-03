@@ -36,6 +36,11 @@ package fp;
 `define QSQRTINF	4'd5
 `define QSQRTNEG	4'd6
 
+parameter QINFDIV		= 4'd2;
+parameter QZEROZERO	= 4'd3;
+parameter QSQRTINF	= 4'd5;
+parameter QSQRTNEG	= 4'd6;
+
 `define	QSUBINFS	31'h7FC00001	// - infinity - infinity
 `define QINFDIVS	31'h7FC00002	// - infinity / infinity
 `define QZEROZEROS	31'h7FC00003	// - zero / zero

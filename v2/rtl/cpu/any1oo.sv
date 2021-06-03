@@ -161,6 +161,10 @@ end
 endfunction
 
 wire [63:0] branchInvalidateMask = fnBranchInvalidateMask(rob_exec);
+wire [63:0] wbBranchInvalidateMask = fnBranchInvalidateMask(wb_redirecto.xrid);
+wire [63:0] exBranchInvalidateMask = fnBranchInvalidateMask(ex_redirecto.xrid);
+wire [63:0] dcBranchInvalidateMask = fnBranchInvalidateMask(dc_redirecto.xrid);
+
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Multiply / Divide support logic
@@ -1120,18 +1124,22 @@ begin
 	exbufi.rfwr <= decbuf.rfwr;
 	if (decbuf.Ravec)
 		exbufi.ia.val <= decbuf.Ra[5:0]==6'd0 ? 64'd0 : vregfilesrc[decbuf.Ra[5:0]].rf==1'b0 ? vrfoA : 64'hDEADEADDEADDEAD;
+	else if (decbuf.Ramask)
+		exbufi.ia.val <= vregfilesrc[decbuf.Ra[2:0]].rf==1'b0 ? vm_regfile[decbuf.Ra[2:0]] : 64'hDEADEADDEADDEAD;
 	else
 		exbufi.ia.val <= decbuf.Ra[5:0]==6'd0 ? 64'd0 : decbuf.Ra[5:0]==6'd63 ? decbuf.ip : regfilesrc[regmap[decbuf.Ra[5:0]]].rf ? rob[regfilesrc[regmap[decbuf.Ra[5:0]]].rid].res.val : regfile[regmap[decbuf.Ra]].val;
 	if (decbuf.Rbvec)
 		exbufi.ib.val <= decbuf.Rb[5:0]==6'd0 ? 64'd0 : vregfilesrc[decbuf.Rb[5:0]].rf==1'b0 ? vrfoB : 64'hDEADEADDEADDEAD;
+	else if (decbuf.Rbmask)
+		exbufi.ib.val <= vregfilesrc[decbuf.Rb[2:0]].rf==1'b0 ? vm_regfile[decbuf.Rb[2:0]] : 64'hDEADEADDEADDEAD;
 	else
 		exbufi.ib.val <= decbuf.Rb[5:0]==6'd0 ? 64'd0 : decbuf.Rb[5:0]==6'd63 ? decbuf.ip : regfilesrc[regmap[decbuf.Rb[5:0]]].rf ? rob[regfilesrc[regmap[decbuf.Rb[5:0]]].rid].res.val : regfile[regmap[decbuf.Rb]].val;
 	if (decbuf.needRc)
 		exbufi.ic.val <= decbuf.Rc[5:0]==6'd0 ? 64'd0 : decbuf.Rc[5:0]==6'd63 ? decbuf.ip : regfilesrc[regmap[decbuf.Rc[5:0]]].rf ? rob[regfilesrc[regmap[decbuf.Rc[5:0]]].rid].res.val : regfile[regmap[decbuf.Rc]].val;
 	else
 		exbufi.ic.val <= 64'd0;
-	exbufi.iav <= decbuf.Ravec ? (decbuf.Ra[5:0]==6'd0 || vregfilesrc[decbuf.Ra[5:0]].rf==1'b0) : regValid(decbuf.Ra);
-	exbufi.ibv <= decbuf.Rbvec ? (decbuf.Rb[5:0]==6'd0 || vregfilesrc[decbuf.Ra[5:0]].rf==1'b0) : regValid(decbuf.Rb);
+	exbufi.iav <= decbuf.Ravec ? (decbuf.Ra[5:0]==6'd0 || vregfilesrc[decbuf.Ra[5:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Ra[2:0]].rf==1'b0 : regValid(decbuf.Ra);
+	exbufi.ibv <= decbuf.Rbvec ? (decbuf.Rb[5:0]==6'd0 || vregfilesrc[decbuf.Ra[5:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Rb[2:0]].rf==1'b0 : regValid(decbuf.Rb);
 	exbufi.icv <= regValid(decbuf.Rc) || !decbuf.needRc;
 	// To detect WAW hazard for vector instructions
 	exbufi.itv <= decbuf.Rtvec ? (decbuf.Rt[5:0]==6'd0 || vregfilesrc[decbuf.Rt[5:0]].rf==1'b0) : !decbuf.is_vec;
@@ -1335,7 +1343,7 @@ endcase
 reg fnorm_uf;
 wire norm_uf;
 always @(posedge clk_g)
-case(opcode)
+case(fpreco.ir.r2.opcode)
 F2,VF2:
 	case(fpreco.ir.r2.func)
 	FMUL:	fnorm_uf <= mul_uf;
@@ -1456,7 +1464,7 @@ reg exilo, eximid, exihi, has_exi;
 Address exi_ip;
 reg imod,brmod,stride;
 Address imod_ip;
-Value regc, regd, regm;
+Value regc, regd, regm, regz;
 Instruction imod_inst;
 reg regcv,regdv,regmv;
 reg [5:0] regcsrc,regdsrc,regmsrc;
@@ -1677,7 +1685,9 @@ else begin
 			dcStream <= ifStream + 2'd1;
 			wbStream <= ifStream + 2'd1;
 			ip <= wb_redirecto.redirect_ip;
-			tBranchInvalidate(wb_redirecto.xrid);
+			for (n = 0; n < 64; n = n + 1)
+				if (wbBranchInvalidateMask==1'b0)
+					rob[wb_redirecto.xrid].v <= 1'b0;
 			rob_q <= rob[wb_redirecto.xrid].rob_q;
 		end
 		else if (ex2if_redirect_rd3) begin
@@ -1687,7 +1697,9 @@ else begin
 			dcStream <= ifStream + 2'd1;
 			wbStream <= ifStream + 2'd1;
 			ip <= ex_redirecto.redirect_ip;
-			tBranchInvalidate(ex_redirecto.xrid);
+			for (n = 0; n < 64; n = n + 1)
+				if (exBranchInvalidateMask==1'b0)
+					rob[ex_redirecto.xrid].v <= 1'b0;
 			rob_q <= rob[ex_redirecto.xrid].rob_q;
 		end
 		else if (dc2if_redirect_rd3) begin
@@ -1696,7 +1708,9 @@ else begin
 			dcStream <= ifStream + 2'd1;
 			wbStream <= ifStream + 2'd1;
 			ip <= dc_redirecto.redirect_ip;
-			tBranchInvalidate(dc_redirecto.xrid);
+			for (n = 0; n < 64; n = n + 1)
+				if (dcBranchInvalidateMask==1'b0)
+					rob[dc_redirecto.xrid].v <= 1'b0;
 			rob_q <= rob[dc_redirecto.xrid].rob_q;
 		end
 		else if (predict_taken & btben)
@@ -2016,7 +2030,7 @@ else begin
 		tRestoreRegfileSrc(rob[rob_exec].btag);
 		rob_que <= rob_exec;
 		rob_q <= rob_q - fnBackupCnt(rob_exec);
-		for (n = 0; n < 64; n = n + 1)
+		for (n = 0; n < ROB_ENTRIES; n = n + 1)
 			if (branchInvalidateMask[n]==-1'b0)
 				rob[n].v <= 1'b0;
 	end
@@ -2248,10 +2262,6 @@ IFETCH5:
       mgoto (IFETCH3);
 `endif
   end
-IFETCH6:
-	begin
-		mgoto(MEMORY1);
-	end
 
 `ifdef ANY1_TLB
 TLB1:
@@ -3403,6 +3413,13 @@ default:	;
 							fpscr[26] <= rob[rob_deq].fp_flags.inf;
 						end
 `endif						
+					VM:
+						begin
+							case(rob[rob_deq].ir.r2.opcode)
+							MTVL:	vl <= rob[rob_deq].res.val;
+							default:	;
+							endcase
+						end
 					default:	;
 					endcase
 					if (rob[rob_deq].rfwr==TRUE) begin
@@ -3418,6 +3435,10 @@ default:	;
 						vrf_wa <= {rob[rob_deq].res_ele,rob[rob_deq].Rt[5:0]};
 						if (rob[rob_deq].vcmt)
 							vregfilesrc[rob[rob_deq].Rt[5:0]].rf <= 1'h0;
+					end
+					if (rob[rob_deq].vmrfwr) begin
+						vm_regfile[rob[rob_deq].Rt[2:0]] <= rob[rob_deq].res.val;
+						vm_regfilesrc[rob[rob_deq].Rt[2:0]].rf <= 1'b0;
 					end
 `endif					
 				end
@@ -3630,7 +3651,7 @@ DIV2:
 			if (rob[divreco.rid].iav && rob[divreco.rid].ibv)
 			begin
 				case(divreco.ir.r2.func)
-				DIV,DIV:
+				DIV:
 					begin
 						div_sign <= rob[divreco.rid].ia[63] ^ rob[divreco.rid].ib[63];
 						div_a <= rob[divreco.rid].ia[63] ? - rob[divreco.rid].ia : rob[divreco.rid].ia;
@@ -4159,28 +4180,6 @@ begin
 			mreg <= {1'b1,n[5:0]};
 			regmap[Rt] <= {1'b1,n[5:0]};
 		end
-	end
-end
-endtask
-
-task tBranchInvalidate;
-input [5:0] pos;
-integer n,m,done;
-begin
-	m = rob_que;
-	done = FALSE;
-	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (!done) begin
-			if (m != pos)
-				rob[m].v = INV;
-			else begin
-				rob[m].v = INV;
-				done = TRUE;
-			end
-		end
-		m = m - 1;
-		if (m <= 0)
-			m = ROB_ENTRIES-1;
 	end
 end
 endtask

@@ -90,6 +90,9 @@ cntlz64 uclz1 (robi.ia.val, cntlzo);
 cntlo64 uclo1 (robi.ia.val, cntloo);
 cntpop64 ucpop1 (robi.ia.val, cntpopo);
 
+wire [6:0] ffoo, floo;
+ffo96 uffo1 ({32'd0,robi.ia.val}, ffoo);
+flo96 uflo1 ({32'h0,robi.ia.val}, floo);
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Bitfield
@@ -199,7 +202,7 @@ else begin
 		robo.update_rob <= FALSE;
 		robo.res_ele <= robi.step;
 		case(robi.ir.r2.opcode)
-		BRK:	robo.cause <= robi.ir[21:14];
+		BRK:	begin robo.cause <= robi.ir[21:14]; tMod(); end
 		NOP:	tMod();
 		R3:
 			if (robi.iav && robi.ibv && robi.icv) begin
@@ -271,7 +274,7 @@ else begin
 				OR:		begin	robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
 				XOR:	begin	robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
 				SLL:	begin robo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
-				SLLI:	begin robo.res.val <= robi.ia.val << robi.ir.r2.Rb; tMod(); end
+				SLLI:	begin robo.res.val <= robi.ia.val << robi.ir.r2.Rb[5:0]; tMod(); end
 				DIF:
 					begin
 						robo.res <= $signed(robi.ia.val) < $signed(robi.ib.val) ?
@@ -304,7 +307,6 @@ else begin
 					end
 				MULF:	begin robo.res.val <= robi.ia.val[23:0] * robi.ib.val[15:0]; tMod(); end
 				CMP:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1; tMod(); end
-				FCMP:	begin robo.res.val <= fcmp_o; tMod(); end
 				SEQ:	begin robo.res.val <= robi.ia.val == robi.ib.val; tMod(); end
 				SNE:	begin robo.res.val <= robi.ia.val != robi.ib.val; tMod(); end
 				SLT:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val); tMod(); end
@@ -383,33 +385,63 @@ else begin
 						robo.wr_fu <= FALSE;
 					end
 				FMIN:	// FMIN	
-					if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
-						robo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
-					else if (fa_qnan & !fb_nan)
-						robo.res.val <= robi.ib.val;
-					else if (!fa_nan & fb_qnan)
-						robo.res.val <= robi.ia.val;
-					else if (fcmp_o[1])
-						robo.res.val <= robi.ia.val;
-					else
-						robo.res.val <= robi.ib.val;
+					begin
+						if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
+							robo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+						else if (fa_qnan & !fb_nan)
+							robo.res.val <= robi.ib.val;
+						else if (!fa_nan & fb_qnan)
+							robo.res.val <= robi.ia.val;
+						else if (fcmp_o[1])
+							robo.res.val <= robi.ia.val;
+						else
+							robo.res.val <= robi.ib.val;
+						tMod();
+					end
 				FMAX:	// FMAX
-					if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
-						robo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
-					else if (fa_qnan & !fb_nan)
-						robo.res.val <= robi.ib.val;
-					else if (!fa_nan & fb_qnan)
-						robo.res.val <= robi.ia.val;
-					else if (fcmp_o[1])
-						robo.res.val <= robi.ib.val;
-					else
-						robo.res.val <= robi.ia.val;
-				FCMP:	robo.res.val <=  cmpnan ? 64'h4000000000000000 : fcmp_o[1] ? 64'hBFF0000000000000 : fcmp_o[0] ? 64'd0 : 64'h3FF0000000000000;	//2,-1,0,1
-				FCMPB:	robo.res.val <=  fcmp_o;
-				FSEQ:	robo.res.val <=  fcmp_o[0] & ~cmpnan;
-				FSNE: robo.res.val <= ~fcmp_o[0] & ~cmpnan;
-				FSLT:	robo.res.val <=  fcmp_o[1] & ~cmpnan;
-				FSLE:	robo.res.val <=  fcmp_o[2] & ~cmpnan;
+					begin
+						if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
+							robo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+						else if (fa_qnan & !fb_nan)
+							robo.res.val <= robi.ib.val;
+						else if (!fa_nan & fb_qnan)
+							robo.res.val <= robi.ia.val;
+						else if (fcmp_o[1])
+							robo.res.val <= robi.ib.val;
+						else
+							robo.res.val <= robi.ia.val;
+						tMod();
+					end
+				FCMP:	begin robo.res.val <=  cmpnan ? 64'h4000000000000000 : fcmp_o[1] ? 64'hBFF0000000000000 : fcmp_o[0] ? 64'd0 : 64'h3FF0000000000000;	tMod(); end	//2,-1,0,1 
+				FCMPB:begin	robo.res.val <=  fcmp_o; tMod(); end
+				FSEQ:	begin robo.res.val <=  fcmp_o[0] & ~cmpnan; tMod(); end
+				FSNE: begin robo.res.val <= ~fcmp_o[0] & ~cmpnan; tMod(); end
+				FSLT:	begin robo.res.val <=  fcmp_o[1] & ~cmpnan; tMod(); end
+				FSLE:	begin robo.res.val <=  fcmp_o[2] & ~cmpnan; tMod(); end
+				FSETM:
+					if (robi.step==6'd0) begin
+						robo.res.val <= 64'd0;
+						prev_res <= 64'd0;
+						case(robi.ir[13:11])
+						3'd0:	begin robo.res.val[robi.step] <=  fcmp_o[0]; prev_res <=  fcmp_o[0]; end
+						3'd1:	begin robo.res.val[robi.step] <= ~fcmp_o[0]; prev_res <= ~fcmp_o[0]; end
+						3'd2:	begin robo.res.val[robi.step] <=  fcmp_o[1]; prev_res <=  fcmp_o[1]; end
+						3'd3:	begin robo.res.val[robi.step] <=  fcmp_o[2]; prev_res <=  fcmp_o[2]; end
+						default:	;
+						endcase
+						tMod();
+					end
+					else begin
+						robo.res.val <= prev_res;
+						case(robi.ir[13:11])
+						3'd0:	begin robo.res.val[robi.step] <=  fcmp_o[0]; prev_res[robi.step] <=  fcmp_o[0]; end
+						3'd1:	begin robo.res.val[robi.step] <= ~fcmp_o[0]; prev_res[robi.step] <= ~fcmp_o[0]; end
+						3'd2:	begin robo.res.val[robi.step] <=  fcmp_o[1]; prev_res[robi.step] <=  fcmp_o[1]; end
+						3'd3:	begin robo.res.val[robi.step] <=  fcmp_o[2]; prev_res[robi.step] <=  fcmp_o[2]; end
+						default:	;
+						endcase
+						tMod();
+					end
 				default:	;
 				endcase
 			end
@@ -956,20 +988,19 @@ else begin
 		VR2:
 			if (robi.iav && robi.ibv) begin
 				case(robi.ir.r2.func)
-				ADD,VADDSC:	tDoOp(robi.ia.val + robi.ib.val);
+				ADD:	tDoOp(robi.ia.val + robi.ib.val);
 				SUB:	tDoOp(robi.ia.val - robi.ib.val);
 				AND:	tDoOp(robi.ia.val & robi.ib.val);
 				OR:		tDoOp(robi.ia.val | robi.ib.val);
 				XOR:	tDoOp(robi.ia.val ^ robi.ib.val);
 				SLL:	tDoOp(robi.ia.val << robi.ib.val[5:0]);
-				SLLI:	tDoOp(robi.ia.val << robi.ir.r2.Rb);
+				SLLI:	tDoOp(robi.ia.val << robi.ir.r2.Rb[5:0]);
 				DIF:
 					begin
 						tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ?
 							robo.ib.val - robi.ia.val : robi.ia.val - robi.ib.val);
 					end
-				MUL,MULU,MULSU,MULH,MULUH,MULSUH,
-				VMULSC:
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
 					begin
 						mulreci.rid <= rob_exec;
 						mulreci.ir <= robi.ir;
@@ -997,13 +1028,162 @@ else begin
 					end
 				MULF:	tDoOp(robi.ia.val[23:0] * robi.ib.val[15:0]);
 				CMP:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1);
-				FCMP:	tDoOp(fcmp_o);
 				SEQ:	tDoOp(robi.ia.val == robi.ib.val);
 				SNE:	tDoOp(robi.ia.val != robi.ib.val);
 				SLT:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val));
 				SGE:	tDoOp($signed(robi.ia.val) >= $signed(robi.ib.val));
 				SLTU:	tDoOp(robi.ia.val < robi.ib.val);
 				SGEU:	tDoOp(robi.ia.val >= robi.ib.val);
+				SETM:
+					if (robi.step==6'd0) begin
+						robo.res.val <= 64'd0;
+						prev_res <= 64'd0;
+						case(robi.ir[13:11])
+						3'd0:	begin robo.res.val[robi.step] <= robi.ia.val==robi.ib.val; prev_res <= robi.ia.val==robi.ib.val; end
+						3'd1:	begin robo.res.val[robi.step] <= robi.ia.val!=robi.ib.val; prev_res <= robi.ia.val!=robi.ib.val; end
+						3'd2:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); prev_res <= $signed(robi.ia.val)< $signed(robi.ib.val); end
+						3'd3:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); prev_res <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
+						3'd4:	begin robo.res.val[robi.step] <= robi.ia.val< robi.ib.val; prev_res <= robi.ia.val< robi.ib.val; end
+						3'd5:	begin robo.res.val[robi.step] <= robi.ia.val<=robi.ib.val; prev_res <= robi.ia.val<=robi.ib.val; end
+						default:	;
+						endcase
+						tMod();
+					end
+					else begin
+						robo.res.val <= prev_res;
+						case(robi.ir[13:11])
+						3'd0:	begin robo.res.val[robi.step] <= robi.ia.val==robi.ib.val; prev_res[robi.step] <= robi.ia.val==robi.ib.val; end
+						3'd1:	begin robo.res.val[robi.step] <= robi.ia.val!=robi.ib.val; prev_res[robi.step] <= robi.ia.val!=robi.ib.val; end
+						3'd2:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); prev_res[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); end
+						3'd3:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); prev_res[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
+						3'd4:	begin robo.res.val[robi.step] <= robi.ia.val< robi.ib.val; prev_res[robi.step] <= robi.ia.val< robi.ib.val; end
+						3'd5:	begin robo.res.val[robi.step] <= robi.ia.val<=robi.ib.val; prev_res[robi.step] <= robi.ia.val<=robi.ib.val; end
+						default:	;
+						endcase
+						tMod();
+					end
+				VEX:
+					if (robi.step_v) begin
+						robo.res.val <= robi.ib;
+						tMod();
+					end
+					else begin
+						robo.step_v <= TRUE;
+						robo.step <= robi.ia[5:0];
+					end
+				VEINS:
+					if (robi.step_v)
+						tDoOp(robi.ib);
+					else begin
+						robo.step_v <= TRUE;
+						robo.step <= robi.ia[5:0];
+					end
+				VSLLV:
+					begin
+						if (robi.step + robi.ia.val[5:0] >= vl) begin
+							robo.res_ele <= robi.step - vl;
+							tDoOp(64'd0);
+						end
+						else begin
+							robo.res_ele <= robi.step + robi.ia.val[5:0];
+							tDoOp(robi.ia.val);
+						end
+					end
+				VSRLV:
+					begin
+						if (robi.step > vl - robi.ib.val[5:0]) begin
+							robo.res_ele <= robi.step;
+							tDoOp(64'd0);
+						end
+						else if (robi.step < robi.ib.val) begin
+							robo.res_ele <= 6'd0;
+							tDoOp(64'd0);
+						end
+						else begin
+							robo.res_ele <= robi.step - robi.ib.val[5:0];
+							tDoOp(robi.ia.val);
+						end
+					end
+				default:	;
+				endcase
+			end
+		VR2S:
+			if (robi.iav && robi.ibv) begin
+				case(robi.ir.r2.func)
+				ADD:	tDoOp(robi.ia.val + robi.ib.val);
+				SUB:	tDoOp(robi.ia.val - robi.ib.val);
+				AND:	tDoOp(robi.ia.val & robi.ib.val);
+				OR:		tDoOp(robi.ia.val | robi.ib.val);
+				XOR:	tDoOp(robi.ia.val ^ robi.ib.val);
+				SLL:	tDoOp(robi.ia.val << robi.ib.val[5:0]);
+				SLLI:	tDoOp(robi.ia.val << robi.ir.r2.Rb);
+				DIF:
+					begin
+						tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ?
+							robo.ib.val - robi.ia.val : robi.ia.val - robi.ib.val);
+					end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
+					begin
+						mulreci.rid <= rob_exec;
+						mulreci.ir <= robi.ir;
+						mulreci.a <= robi.ia;
+						mulreci.b <= robi.ib;
+						mulreci.wr <= TRUE;
+						tMod();
+						robo.cmt <= FALSE;
+						robo.cmt2 <= FALSE;
+						robo.vcmt <= FALSE;
+						robo.wr_fu <= FALSE;
+					end
+				DIV,DIVU,DIVSU:
+					begin
+						divreci.rid <= rob_exec;
+						divreci.ir <= robi.ir;
+						divreci.a <= robi.ia;
+						divreci.b <= robi.ib;
+						divreci.wr <= TRUE;
+						tMod();
+						robo.cmt <= FALSE;
+						robo.cmt2 <= FALSE;
+						robo.vcmt <= FALSE;
+						robo.wr_fu <= FALSE;
+					end
+				MULF:	tDoOp(robi.ia.val[23:0] * robi.ib.val[15:0]);
+				CMP:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1);
+				SEQ:	tDoOp(robi.ia.val == robi.ib.val);
+				SNE:	tDoOp(robi.ia.val != robi.ib.val);
+				SLT:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val));
+				SGE:	tDoOp($signed(robi.ia.val) >= $signed(robi.ib.val));
+				SLTU:	tDoOp(robi.ia.val < robi.ib.val);
+				SGEU:	tDoOp(robi.ia.val >= robi.ib.val);
+				SETM:
+					if (robi.step==6'd0) begin
+						robo.res.val <= 64'd0;
+						prev_res <= 64'd0;
+						case(robi.ir[13:11])
+						3'd0:	begin robo.res.val[robi.step] <= robi.ia.val==robi.ib.val; prev_res <= robi.ia.val==robi.ib.val; end
+						3'd1:	begin robo.res.val[robi.step] <= robi.ia.val!=robi.ib.val; prev_res <= robi.ia.val!=robi.ib.val; end
+						3'd2:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); prev_res <= $signed(robi.ia.val)< $signed(robi.ib.val); end
+						3'd3:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); prev_res <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
+						3'd4:	begin robo.res.val[robi.step] <= robi.ia.val< robi.ib.val; prev_res <= robi.ia.val< robi.ib.val; end
+						3'd5:	begin robo.res.val[robi.step] <= robi.ia.val<=robi.ib.val; prev_res <= robi.ia.val<=robi.ib.val; end
+						default:	;
+						endcase
+						tMod();
+					end
+					else begin
+						robo.res.val <= prev_res;
+						case(robi.ir[13:11])
+						3'd0:	begin robo.res.val[robi.step] <= robi.ia.val==robi.ib.val; prev_res[robi.step] <= robi.ia.val==robi.ib.val; end
+						3'd1:	begin robo.res.val[robi.step] <= robi.ia.val!=robi.ib.val; prev_res[robi.step] <= robi.ia.val!=robi.ib.val; end
+						3'd2:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); prev_res[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); end
+						3'd3:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); prev_res[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
+						3'd4:	begin robo.res.val[robi.step] <= robi.ia.val< robi.ib.val; prev_res[robi.step] <= robi.ia.val< robi.ib.val; end
+						3'd5:	begin robo.res.val[robi.step] <= robi.ia.val<=robi.ib.val; prev_res[robi.step] <= robi.ia.val<=robi.ib.val; end
+						default:	;
+						endcase
+						tMod();
+					end
 				VEX:
 					if (robi.step_v) begin
 						robo.res.val <= robi.ib;
@@ -1225,6 +1405,26 @@ else begin
         else
           tDoOp(vbytndx);  // -1
 	    end
+	  VM:
+			case(robi.ir.r2.func)
+			MTM:	if (robi.iav) begin robo.res.val <= robi.ia.val; tMod(); end
+			MFM:	if (robi.vmv) begin robo.res.val <= robi.vmask; tMod(); end
+			VMADD:if (robi.iav && robi.ibv) begin robo.res.val <= robi.ia.val + robi.ib.val; tMod(); end
+			MAND:	if (robi.iav && robi.ibv) begin robo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
+			MOR:	if (robi.iav && robi.ibv) begin robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
+			MXOR:	if (robi.iav && robi.ibv) begin robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+			MFILL:	if (robi.iav) begin 
+								for (n = 0; n < 64; n = n + 1)
+									robo.res.val[n] <= n[5:0] <= robi.ia.val[5:0];
+								tMod();
+							end
+			MSLL:	if (robi.iav && robi.ibv) begin robo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
+			MSRL:	if (robi.iav && robi.ibv) begin robo.res.val <= robi.ia.val >> robi.ib.val[5:0]; tMod(); end
+			MPOP: if (robi.iav) begin robo.res.val <= cntpopo; tMod(); end
+			MFIRST:	if (robi.iav) begin robo.res.val <= floo; tMod(); end
+			MLAST:	if (robi.iav) begin robo.res.val <= ffoo; tMod(); end
+			default:	;
+	  	endcase
 `ifdef U10NDX
     VU10NDX:
     if (robi.iav) begin

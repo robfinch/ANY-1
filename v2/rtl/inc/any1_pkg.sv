@@ -23,6 +23,7 @@ package any1_pkg;
 `endif
 
 `define SEG_SHIFT	14'd0
+`define SUPPORT_FLOAT		1'b1
 `define SUPPORT_VECTOR	1'b1
 `define SUPPORT_VICTIM_CACHE	1'b1
 `define ANY1_TLB	1'b1
@@ -85,9 +86,6 @@ parameter MULF	= 6'h1C;
 parameter MULSUH= 6'h1D;
 parameter MULUH = 6'h1E;
 parameter CMP		= 6'h20;
-parameter FCMP	= 6'h21;
-parameter DFCMP	= 6'h22;
-parameter PCMP	= 6'd23;
 parameter SEQ		= 6'h26;
 parameter SNE		= 6'h27;
 parameter MIN		= 6'h28;
@@ -96,6 +94,7 @@ parameter SLT		= 6'h2C;
 parameter SGE		= 6'h2D;
 parameter SLTU	= 6'h2E;
 parameter SGEU	= 6'h2F;
+parameter SETM	= 6'h36;
 parameter VSLLV	= 6'h38;
 parameter VSRLV	= 6'h39;
 parameter VEX		= 6'h3A;
@@ -110,6 +109,7 @@ parameter ABS		= 6'h06;
 parameter NABS	= 6'h07;
 parameter V2BITS=	6'h18;
 parameter BITS2V=	6'h19;
+parameter SQRT	= 6'h1B;
 parameter VCMPRSS = 6'h1C;
 parameter VCIDX	= 6'h1D;
 parameter VSCAN	= 6'h1E;
@@ -145,7 +145,10 @@ parameter MADD	= 8'h30;
 parameter MSUB	= 8'h31;
 parameter NMADD	= 8'h32;
 parameter NMSUB	= 8'h33;
+parameter F1		= 8'h34;
 parameter F2		= 8'h35;
+parameter F3		= 8'h36;
+parameter F4		= 8'h37;
 
 parameter NOP  	= 8'h3F;
 parameter JAL		= 8'h40;
@@ -190,9 +193,41 @@ parameter LDxX	= 8'h61;
 parameter STx		= 8'h70;
 parameter STxX	= 8'h71;
 
+// FLT1
+parameter FMOV	= 6'h00;
+parameter I2F		= 6'h02;
+parameter F2I		= 6'h03;
+parameter FSQRT	= 6'h0D;
+parameter FRM		= 6'h14;
+parameter CPYSGN= 6'd18;
+parameter SGNINV= 6'd19;
+parameter FABS	= 6'h20;
+parameter FNABS	= 6'h21;
+parameter FNEG	= 6'h22;
+
+// FLT2
+parameter FMIN	= 6'h02;
+parameter FMAX	= 6'h03;
+parameter FADD	= 6'h04;
+parameter FSUB	= 6'h05;
+parameter FMUL	= 6'h08;
+parameter FDIV	= 6'h09;
+parameter FCMP	= 6'h10;
+parameter FSEQ	= 6'h11;
+parameter FSLT	= 6'h12;
+parameter FSLE	= 6'h13;
+parameter FSNE	= 6'h14;
+parameter FCMPB	= 6'h15;
+parameter FSETM	= 6'h36;
+
 parameter VR1		= 8'h81;
 parameter VR2		= 8'h82;
 parameter VR3		= 8'h83;
+parameter VR2S	= 8'h8B;
+parameter VF1		= 8'hB4;
+parameter VF2		= 8'hB5;
+parameter VF3		= 8'hB6;
+parameter VF4		= 8'hB7;
 
 parameter VADDI	= 8'h84;
 parameter VSUBFI= 8'h85;
@@ -228,10 +263,27 @@ parameter LDxVX	= 8'hE3;
 parameter STSx	= 8'hF2;
 parameter STxVX = 8'hF3;
 
+parameter VM		= 8'h80;
+parameter MAND	= 6'h00;
+parameter MOR		= 6'h01;
+parameter MXOR	= 6'h02;
+parameter VMADD	= 6'h04;
+parameter MSLL	= 6'h06;
+parameter MSRL	= 6'h07;
+parameter MFILL	= 6'h0C;
+parameter MPOP	= 6'h0D;
+parameter MFIRST= 6'h0E;
+parameter MLAST	= 6'h0F;
+parameter MTM		= 6'h10;
+parameter MFM		= 6'h11;
+parameter MTVL	= 6'h12;
+
+
 parameter NOP_INSN = {4{NOP}};
 
 parameter CSR_CAUSE	= 16'h?006;
 parameter CSR_SEMA	= 16'h?00C;
+parameter CSR_FSTAT	= 16'h?014;
 parameter CSR_ASID	= 16'h101F;
 parameter CSR_MCR0	= 16'h3000;
 parameter CSR_TICK	= 16'h3002;
@@ -515,6 +567,7 @@ typedef struct packed
 	logic ui;							// unimplemented instruction
 	logic rfwr;						// register file write is required
 	logic vrfwr;					// vector register file write
+	logic vmrfwr;
 	logic is_vec;					// is a vector instruction
 	logic is_mod;					// is an instruction modifier
 	logic jump;
@@ -532,6 +585,10 @@ typedef struct packed
 	logic Ravec;
 	logic Rbvec;
 	logic Rtvec;
+	logic Ramask;
+	logic Rbmask;
+	logic [2:0] Vm;
+	logic z;
 	Value imm;
 } sDecode;
 
@@ -550,11 +607,14 @@ typedef struct packed
 	Value ib;
 	Value ic;
 	Value id;
+	Value vmask;
+	logic z;
 	logic iav;
 	logic ibv;
 	logic icv;
 	logic idv;
 	logic itv;
+	logic vmv;
 	logic [7:0] Rt;
 	Value imm;
 } sExecute;
@@ -589,6 +649,19 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic fuf;	// underflow
+	logic fof;	// overflow
+	logic fdz;	// divide by zero
+	logic fnv;	// invalid operation
+	logic fnx;	// inexact
+	logic lt;
+	logic	eq;
+	logic gt;
+	logic inf;
+} sFPFlags;
+
+typedef struct packed
+{
 	logic [5:0] Stream;
 	logic Stream_inc;
 	logic v;
@@ -609,6 +682,7 @@ typedef struct packed
 	logic predict_taken;
 	logic rfwr;
 	logic vrfwr;					// write vector register file
+	logic vmrfwr;
 	logic [7:0] Rt;
 	logic [7:0] Rb;				// for VEX
 	logic [7:0] pRt;			// physical Rt
@@ -622,6 +696,7 @@ typedef struct packed
 	Value [5:0] ib_ele;
 	Value [5:0] ic_ele;
 	Value [5:0] id_ele;
+	Value [5:0] it_ele;
 	Value imm;
 	Value vmask;						// vector mask register value
 	logic iav;
@@ -629,17 +704,21 @@ typedef struct packed
 	logic icv;
 	logic idv;
 	logic itv;
+	logic vmv;
 	Rid ias;
 	Rid ibs;
 	Rid ics;
 	Rid ids;
 	Rid its;
+	Rid vms;
 	Value res;
+	sFPFlags fp_flags;
 	logic [5:0] res_ele;
 	logic [15:0] cause;
 	Address badAddr;
 	logic wr_fu;				// write to functional unit
 	logic update_rob;
+	logic [47:0] rob_q;
 } sReorderEntry;
 
 typedef struct packed
@@ -657,6 +736,7 @@ typedef struct packed
 typedef struct packed
 {
 	logic wr;
+	logic [5:0] xrid;
 	Address redirect_ip;
 	Address current_ip;
 } sRedirect;
