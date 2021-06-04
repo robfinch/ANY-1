@@ -293,6 +293,7 @@ reg [63:0] sema;
 Address keytbl;
 reg [19:0] keys [0:7];
 reg [7:0] vl;
+reg [47:0] ifStalls;
 
 reg fdz,fnv,fof,fuf,fnx;
 reg [63:0] fpscr;
@@ -621,11 +622,11 @@ dcache_blkmem udcb1 (
   .clka(clk_g),    // input wire clka
   .ena(1'b1),      // input wire ena
   .wea(dcache_wr),      // input wire [0 : 0] wea
-  .addra({dc_wway,dadr[11:6]}),  // input wire [8 : 0] addra
+  .addra({dc_wway,dadr[12:6]}),  // input wire [8 : 0] addra
   .dina(dci),    // input wire [511 : 0] dina
   .clkb(clk_g),    // input wire clkb
   .enb(1'b1),      // input wire enb
-  .addrb({dc_rway,adr_o[11:6]}),  // input wire [8 : 0] addrb
+  .addrb({dc_rway,adr_o[12:6]}),  // input wire [8 : 0] addrb
   .doutb(dc_line)  // output wire [511 : 0] doutb
 );
 /*
@@ -638,33 +639,33 @@ dcache_mem udcm1 (
   .dpo(dc_line)    // output wire [511 : 0] dpo
 );
 */
-reg [AWID-7:0] dctag0 [0:63];
-reg [AWID-7:0] dctag1 [0:63];
-reg [AWID-7:0] dctag2 [0:63];
-reg [AWID-7:0] dctag3 [0:63];
-reg [pL1CacheLines-1:0] dcvalid0;
-reg [pL1CacheLines-1:0] dcvalid1;
-reg [pL1CacheLines-1:0] dcvalid2;
-reg [pL1CacheLines-1:0] dcvalid3;
+reg [AWID-7:0] dctag0 [0:127];
+reg [AWID-7:0] dctag1 [0:127];
+reg [AWID-7:0] dctag2 [0:127];
+reg [AWID-7:0] dctag3 [0:127];
+reg [127:0] dcvalid0;
+reg [127:0] dcvalid1;
+reg [127:0] dcvalid2;
+reg [127:0] dcvalid3;
 reg dhit1a;
 reg dhit1b;
 reg dhit1c;
 reg dhit1d;
 always @*	//(posedge clk_g)
-  dhit1a <= dctag0[ip[pL1msb:6]]==adr_o[AWID-1:6] && dcvalid0[adr_o[pL1msb:6]];
+  dhit1a <= dctag0[adr_o[12:6]]==adr_o[AWID-1:6] && dcvalid0[adr_o[12:6]];
 always @*	//(posedge clk_g)
-  dhit1b <= dctag1[ip[pL1msb:6]]==adr_o[AWID-1:6] && dcvalid1[adr_o[pL1msb:6]];
+  dhit1b <= dctag1[adr_o[12:6]]==adr_o[AWID-1:6] && dcvalid1[adr_o[12:6]];
 always @*	//(posedge clk_g)
-  dhit1c <= dctag2[ip[pL1msb:6]]==adr_o[AWID-1:6] && dcvalid2[adr_o[pL1msb:6]];
+  dhit1c <= dctag2[adr_o[12:6]]==adr_o[AWID-1:6] && dcvalid2[adr_o[12:6]];
 always @*	//(posedge clk_g)
-  dhit1d <= dctag3[ip[pL1msb:6]]==adr_o[AWID-1:6] && dcvalid3[adr_o[pL1msb:6]];
+  dhit1d <= dctag3[adr_o[12:6]]==adr_o[AWID-1:6] && dcvalid3[adr_o[12:6]];
 wire dhit = dhit1a|dhit1b|dhit1c|dhit1d;
 initial begin
-  dcvalid0 = {pL1CacheLines{1'd0}};
-  dcvalid1 = {pL1CacheLines{1'd0}};
-  dcvalid2 = {pL1CacheLines{1'd0}};
-  dcvalid3 = {pL1CacheLines{1'd0}};
-  for (n = 0; n < pL1CacheLines; n = n + 1) begin
+  dcvalid0 = 128'd0;
+  dcvalid1 = 128'd0;
+  dcvalid2 = 128'd0;
+  dcvalid3 = 128'd0;
+  for (n = 0; n < 128; n = n + 1) begin
     dctag0[n] = 32'd1;
     dctag1[n] = 32'd1;
     dctag2[n] = 32'd1;
@@ -932,10 +933,11 @@ reg pop_f2ad,pop_a2dd,pop_d2xd;
 wire push_f2a = !ifStall && !f2a_full;// && rob_que+2'd1 != rob_deq;
 wire pop_f2a = !a2d_full && !f2a_empty;
 
-assign d2x_full = rob_que+2'd1==rob_deq || rob_que+2'd2==rob_deq;
+wire [5:0] que_nxt1 = rob_que + 2'd1 > ROB_ENTRIES-1 ? 6'd0 : rob_que + 2'd1;
+assign d2x_full = que_nxt1==rob_deq;
 wire push_a2d = !d2x_full && !a2d_full && !ifStall2;// && (!ifStall3 || ifStall4); //pop_f2ad;
 wire pop_a2d = !d2x_full && !vecStall && !ifStall3;
-wire push_d2x = (a2d_v || push_vec) && (!ifStall || push_vec) && !d2x_full1;
+wire push_d2x = (a2d_v || push_vec) && (!ifStall || push_vec) && !d2x_full;
 wire pop_d2x = !x2m_full && !x2mul_full && !x2div_full && !d2x_empty;
 
 always @*
@@ -953,6 +955,13 @@ if (rst_i)
 	d2x_full2 <= 1'b0;
 else
 	d2x_full2 <= d2x_full1;
+
+always @(posedge clk_g)
+if (rst_i)
+	ifStalls <= 48'd0;
+else
+	ifStalls <= ifStalls + ifStall;
+
 always @(posedge clk_g)
 if (rst_i)
 	ifStall1 <= 1'b0;
@@ -2045,6 +2054,7 @@ else begin
 
 	$display("Execute");
 	$display("ip: %h  ir: %h  a:%h  b:%h  c:%h  d:%h  i:%h", exbufi.ip, exbufi.ir,exbufi.ia.val,exbufi.ib.val,exbufi.ic.val,exbufi.id.val,exbufi.imm.val);
+	rob_pexec <= rob_exec;
 	if (rob[rob_exec].Stream == exStream + decbuf.Stream_inc) begin
 		if (rob[rob_exec].dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, rob[rob_exec].ip, rob[rob_exec].ir,
@@ -2055,7 +2065,6 @@ else begin
 			// incrementing it to the next entry. We actually want to update
 			// the entry that was processed by exec, so i'ts one less.
 			if (robo.update_rob) begin
-				rob_pexec <= rob_exec;
 				//rob[rob_pexec] <= robo;		// takes a lot more hardware
 				
 				rob[rob_pexec].wr_fu <= robo.wr_fu;
@@ -2077,8 +2086,8 @@ else begin
 	end
 	if (restore_rfsrc) begin
 		tRestoreRegfileSrc(rob[rob_exec].btag);
-		rob_que <= rob_exec;
-		rob_q <= rob_q - fnBackupCnt(rob_exec);
+		//rob_que <= rob_exec;
+		//rob_q <= rob_q - fnBackupCnt(rob_exec);
 		for (n = 0; n < ROB_ENTRIES; n = n + 1)
 			if (branchInvalidateMask[n]==-1'b0)
 				rob[n].v <= 1'b0;
@@ -3080,16 +3089,16 @@ DFETCH5:
     	dcache_wr <= TRUE;
     	dc_wway <= lfsr_o[1:0];
     	case(lfsr_o[1:0])
-    	2'd0:	dctag0[dadr[pL1msb:6]] <= dadr[AWID-1:6];
-    	2'd1:	dctag1[dadr[pL1msb:6]] <= dadr[AWID-1:6];
-    	2'd2:	dctag2[dadr[pL1msb:6]] <= dadr[AWID-1:6];
-    	2'd3:	dctag3[dadr[pL1msb:6]] <= dadr[AWID-1:6];
+    	2'd0:	dctag0[dadr[12:6]] <= dadr[AWID-1:6];
+    	2'd1:	dctag1[dadr[12:6]] <= dadr[AWID-1:6];
+    	2'd2:	dctag2[dadr[12:6]] <= dadr[AWID-1:6];
+    	2'd3:	dctag3[dadr[12:6]] <= dadr[AWID-1:6];
     	endcase
     	case(lfsr_o[1:0])
-    	2'd0:	dcvalid0[dadr[pL1msb:6]] <= 1'b1;
-    	2'd1:	dcvalid1[dadr[pL1msb:6]] <= 1'b1;
-    	2'd2:	dcvalid2[dadr[pL1msb:6]] <= 1'b1;
-    	2'd3:	dcvalid3[dadr[pL1msb:6]] <= 1'b1;
+    	2'd0:	dcvalid0[dadr[12:6]] <= 1'b1;
+    	2'd1:	dcvalid1[dadr[12:6]] <= 1'b1;
+    	2'd2:	dcvalid2[dadr[12:6]] <= 1'b1;
+    	2'd3:	dcvalid3[dadr[12:6]] <= 1'b1;
     	endcase
 		end
 `endif
@@ -3098,16 +3107,16 @@ DFETCH5:
     	dcache_wr <= TRUE;
     	dc_wway <= lfsr_o[1:0];
     	case(lfsr_o[1:0])
-    	2'd0:	dctag0[dadr[pL1msb:6]] <= dadr[AWID-1:6];
-    	2'd1:	dctag1[dadr[pL1msb:6]] <= dadr[AWID-1:6];
-    	2'd2:	dctag2[dadr[pL1msb:6]] <= dadr[AWID-1:6];
-    	2'd3:	dctag3[dadr[pL1msb:6]] <= dadr[AWID-1:6];
+    	2'd0:	dctag0[dadr[12:6]] <= dadr[AWID-1:6];
+    	2'd1:	dctag1[dadr[12:6]] <= dadr[AWID-1:6];
+    	2'd2:	dctag2[dadr[12:6]] <= dadr[AWID-1:6];
+    	2'd3:	dctag3[dadr[12:6]] <= dadr[AWID-1:6];
     	endcase
     	case(lfsr_o[1:0])
-    	2'd0:	dcvalid0[dadr[pL1msb:6]] <= 1'b1;
-    	2'd1:	dcvalid1[dadr[pL1msb:6]] <= 1'b1;
-    	2'd2:	dcvalid2[dadr[pL1msb:6]] <= 1'b1;
-    	2'd3:	dcvalid3[dadr[pL1msb:6]] <= 1'b1;
+    	2'd0:	dcvalid0[dadr[12:6]] <= 1'b1;
+    	2'd1:	dcvalid1[dadr[12:6]] <= 1'b1;
+    	2'd2:	dcvalid2[dadr[12:6]] <= 1'b1;
+    	2'd3:	dcvalid3[dadr[12:6]] <= 1'b1;
     	endcase
 		end
 `endif
@@ -3116,16 +3125,16 @@ DFETCH5:
     	dcache_wr <= TRUE;
     	dc_wway <= lfsr_o[1:0];
     	case(lfsr_o[1:0])
-    	2'd0:	dctag0[dadr[pL1msb:6]] <= dadr[AWID-1:6];
-    	2'd1:	dctag1[dadr[pL1msb:6]] <= dadr[AWID-1:6];
-    	2'd2:	dctag2[dadr[pL1msb:6]] <= dadr[AWID-1:6];
-    	2'd3:	dctag3[dadr[pL1msb:6]] <= dadr[AWID-1:6];
+    	2'd0:	dctag0[dadr[12:6]] <= dadr[AWID-1:6];
+    	2'd1:	dctag1[dadr[12:6]] <= dadr[AWID-1:6];
+    	2'd2:	dctag2[dadr[12:6]] <= dadr[AWID-1:6];
+    	2'd3:	dctag3[dadr[12:6]] <= dadr[AWID-1:6];
     	endcase
     	case(lfsr_o[1:0])
-    	2'd0:	dcvalid0[dadr[pL1msb:6]] <= 1'b1;
-    	2'd1:	dcvalid1[dadr[pL1msb:6]] <= 1'b1;
-    	2'd2:	dcvalid2[dadr[pL1msb:6]] <= 1'b1;
-    	2'd3:	dcvalid3[dadr[pL1msb:6]] <= 1'b1;
+    	2'd0:	dcvalid0[dadr[12:6]] <= 1'b1;
+    	2'd1:	dcvalid1[dadr[12:6]] <= 1'b1;
+    	2'd2:	dcvalid2[dadr[12:6]] <= 1'b1;
+    	2'd3:	dcvalid3[dadr[12:6]] <= 1'b1;
     	endcase
 		end
 `endif
@@ -3349,6 +3358,7 @@ default:	;
 	// and the writeback stage.
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	$display("Writeback:%d",wbStream);
+	$display("ticks: %d  executed:%d  ifStalls:%d", tick[15:0], rob_x[15:0], ifStalls[15:0]);
 	if (rob[rob_deq].Stream == wbStream + rob[rob_deq].Stream_inc) begin
 		if (rob[rob_deq].cmt==TRUE) begin
 //			wbStream <= wbStream + rob[rob_deq].Stream_inc;
