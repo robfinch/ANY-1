@@ -3730,6 +3730,29 @@ default:	;
 			end
 		end
 	end
+	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+		for (m = 0; m < ROB_ENTRIES; m = m + 1) begin
+			if (!rob[n].iav && rob[n].ias.rid==m && rob[n].ia_ele==rob[m].step && rob[m].cmt) begin
+				rob[n].iav <= TRUE;
+				rob[n].ia <= rob[m].res;
+			end
+			if (!rob[n].ibv && rob[n].ibs.rid==m && rob[n].ib_ele==rob[m].step && rob[m].cmt) begin
+				rob[n].ibv <= TRUE;
+				rob[n].ib <= rob[m].res;
+			end
+			if (!rob[n].icv && rob[n].ics.rid==m && rob[n].ic_ele==rob[m].step && rob[m].cmt) begin
+				rob[n].icv <= TRUE;
+				rob[n].ic <= rob[m].res;
+			end
+			if (!rob[n].idv && rob[n].ids.rid==m && rob[n].id_ele==rob[m].step && rob[m].cmt) begin
+				rob[n].idv <= TRUE;
+				rob[n].id <= rob[m].res;
+			end
+			if (!rob[n].itv && rob[n].its.rid==m && rob[n].it_ele==rob[m].step && rob[m].cmt) begin
+				rob[n].itv <= TRUE;
+			end
+		end
+	end
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	// Decode
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
