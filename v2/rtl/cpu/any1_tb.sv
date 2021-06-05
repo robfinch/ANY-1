@@ -1,10 +1,13 @@
 import any1_pkg::*;
 
+`define EXI_INSN	{24'h0,EXI0}
+`define IMOD_INSN	{24'h0,IMOD}
 `define ADD1_INSN	{12'h001,6'h04,6'h04,ADDI|8'h80}
 `define ADD2_INSN	{12'h002,6'h07,6'h06,ADDI}
 `define ADD3_INSN	{12'h002,6'h47,6'h46,ADDI}
+`define LDO_INSN	{12'h000,6'h00,6'h08,LDx}
 `define STO_INSN	{6'h00,6'h06,6'h00,6'h00,STx}
-`define BNE_INSN {6'h3F,6'h04,6'h04,6'h00,BEQ}
+`define BNE_INSN {6'h3F,6'h04,6'h04,6'hFC,BEQ}
 
 module any1_tb();
 reg clk;
@@ -55,11 +58,11 @@ begin
 
 	if (adr_o[31:24]==8'hFF)
 		case(adr_o[7:4])
-		4'd0:	dat_i <= {`ADD1_INSN,{3{NOP_INSN}}};
+		4'd0:	dat_i <= {`ADD1_INSN,`IMOD_INSN,`EXI_INSN,{1{NOP_INSN}}};
 		4'd1:	dat_i <= {4{`ADD2_INSN}};
 		4'd2: dat_i <= {4{`STO_INSN}};
 		4'd3:	dat_i <= {4{`ADD3_INSN}};
-		4'd4:	dat_i <= {{3{NOP_INSN}},`BNE_INSN};
+		4'd4:	dat_i <= {{2{NOP_INSN}},`BNE_INSN,`LDO_INSN};
 		default:	dat_i <= {4{NOP_INSN}};
 		endcase
 	else

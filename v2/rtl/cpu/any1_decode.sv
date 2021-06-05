@@ -73,6 +73,7 @@ always @*//(a2d_out, predicted_ip, ven)
 		decbuf.branch <= a2d_out.ir.r2.opcode[7:3]=={4'h4,1'b1};
 		decbuf.vex <= FALSE;
 		decbuf.veins <= FALSE;
+		decbuf.vsrlv <= FALSE;
 		decbuf.is_mod <= a2d_out.ir.r2.opcode[7:4]==4'h5;
 		decbuf.needRc <= FALSE;
 		decbuf.imm.val <= 64'd0;
@@ -190,7 +191,8 @@ always @*//(a2d_out, predicted_ip, ven)
 				endcase
 			end
 		CSR:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.imm.val <= {52'd0,a2d_out.ir[31:20]}; end
-		EXI0,EXI1,EXI2,IMOD,BRMOD,STRIDE:	decbuf.ui <= FALSE;
+		EXI0,EXI1,EXI2,BRMOD,IMOD,STRIDE:	decbuf.ui <= FALSE;
+		VIMOD,VSTRIDE:	begin decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.ui <= FALSE; end
 `ifdef SUPPORT_VECTOR
 		VR1:
 			case(a2d_out.ir.r2.func)
@@ -212,8 +214,8 @@ always @*//(a2d_out, predicted_ip, ven)
 			SEQ,SNE,SLT,SGE,SLTU,SGEU,CMP:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
 			VEX:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.rfwr <= TRUE; decbuf.vex <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= FALSE; end
 			VEINS:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.veins <= TRUE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= TRUE; end
-			VSLLV:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
-			VSRLV:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+			VSLLV:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; end
+			VSRLV:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.Rtvec <= TRUE; decbuf.vsrlv <= TRUE; end
 			default:	;
 			endcase
 		VR2S:
@@ -221,6 +223,8 @@ always @*//(a2d_out, predicted_ip, ven)
 			ADD:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= TRUE; end
 			MUL:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= TRUE; end
 			AND,OR,XOR:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= TRUE; end
+			VSLLV:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; end
+			VSRLV:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.vrfwr <= TRUE; decbuf.Ravec <= TRUE; decbuf.Rtvec <= TRUE; decbuf.vsrlv <= TRUE; end
 			default:	;
 			endcase
 		VR3:

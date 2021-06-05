@@ -6,7 +6,7 @@
 //       ||
 //
 //	any1oo.sv
-// ANY1 processor implementation with elastic pipeline.
+// ANY1 processor implementation.
 //
 // BSD 3-Clause License
 // Redistribution and use in source and binary forms, with or without
@@ -81,6 +81,9 @@ sMemoryIO membufi;
 sReorderEntry [ROB_ENTRIES-1:0] rob;
 sALUrec mulreci,mulreco, divreci, divreco, fpreci,fpreco;
 sFuncUnit memfu;
+reg [2:0] mod_cnt;
+sInstAlignOut [7:0] mod_list;
+
 reg x2mul_wr,x2mul_rd;
 wire x2mul_full,x2mul_empty;
 reg x2fp_wr,x2fp_rd;
@@ -924,7 +927,7 @@ reg push_vec;
 //wire ifStall = f2a_full || !ihit;
 assign a2d_full = 1'b0;
 assign a2d_v = 1'b1;
-assign ifStall = a2d_full || !ihit || d2x_full || push_vec;
+assign ifStall = a2d_full || !ihit || d2x_full;	// || push_vec;
 reg dcStall,dcStall1,vecStall;
 wire f2a_rst,a2d_rst,d2x_rst;
 reg wb_f2a_rst,wb_a2d_rst,wb_d2x_rst;
@@ -937,14 +940,21 @@ wire [5:0] que_nxt1 = rob_que + 2'd1 > ROB_ENTRIES-1 ? 6'd0 : rob_que + 2'd1;
 assign d2x_full = que_nxt1==rob_deq;
 wire push_a2d = !d2x_full && !a2d_full && !ifStall2;// && (!ifStall3 || ifStall4); //pop_f2ad;
 wire pop_a2d = !d2x_full && !vecStall && !ifStall3;
-wire push_d2x = (a2d_v || push_vec) && (!ifStall || push_vec) && !d2x_full;
+//wire push_d2x = (a2d_v || push_vec) && (!ifStall || push_vec) && !d2x_full;
+wire push_d2x = (a2d_v) && (!ifStall) && !d2x_full;
 wire pop_d2x = !x2m_full && !x2mul_full && !x2div_full && !d2x_empty;
 
 always @*
-	push_vec <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl;
+	push_vec <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl && mod_cnt==3'd0;
 always @*
-	vecStall <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl;
+	vecStall <= decbuf.is_vec && !decbuf.vex && !decbuf.veins && decven < vl && mod_cnt==3'd0;
 
+reg push_vec2;
+always @(posedge clk_g)
+if (rst_i)
+	push_vec2 <= 1'b0;
+else
+	push_vec2 <= push_vec;
 always @(posedge clk_g)
 if (rst_i)
 	d2x_full1 <= 1'b0;
@@ -1029,6 +1039,28 @@ if (!ifStall) begin
 end
 end
 
+reg [15:0] is_vector;
+generate begin : gIsVec
+begin
+	for (g = 0; g < 16; g = g + 1) begin
+	always @*
+		is_vector[g] <= ic_line[g*32+7];
+	end
+end
+end
+endgenerate
+
+reg [15:0] is_modifier;
+generate begin : gIsMod
+begin
+	for (g = 0; g < 16; g = g + 1) begin
+	always @*
+		is_modifier[g] <= ic_line[g*32+6:g*32+4]==3'd5;
+	end
+end
+end
+endgenerate
+
 always @(posedge clk_g)
 if (rst_i)
 	a2d_out <= 1'd0;
@@ -1044,10 +1076,6 @@ if (!ifStall) begin
 	a2d_out.pip <= a2d_in.pip;
 end
 end
-
-always @(posedge clk_g)
-if (!ifStall3)
-	a3d <= a2d_out;
 
 /*
 f2a_fifo uf2a
@@ -1527,6 +1555,9 @@ reg [5:0] br_Rt;
 reg [7:0] ip_cnt;
 reg [63:0] a2d_buf [0:127];
 reg [6:0] a2di;
+reg [5:0] decven2;
+
+wire is_modif = is_modifier[ip[5:2]];
 
 always @*
 	tReadCSR(csrro,rob[rob_exec].imm[15:0]);
@@ -1535,6 +1566,7 @@ always @(posedge clk_g)
 if (rst_i) begin
 	ip <= RSTIP;
 	decven <= 6'd0;
+	mod_cnt <= 3'd0;
 	nmif <= 1'b0;
 	wb_f2a_rst <= TRUE;
 	wb_a2d_rst <= TRUE;
@@ -1675,6 +1707,7 @@ if (rst_i) begin
 	a2di <= 7'd0;
 	ld_vtmp <= FALSE;
 	new_vtmp <= 64'd0;
+	decven2 <= 6'd0;
 end
 else begin
 	ic_update <= 1'b0;
@@ -1712,11 +1745,12 @@ else begin
 	if (pe_nmi)
 		nmif <= 1'b1;
 	tlbwr <= FALSE;
-
+/*
 	if (!ifStall)
 		decven <= 6'd0;
 	else if (push_vec)
 		decven <= decven + 6'd1;
+*/
 	vrf_update <= FALSE;
 
 //	waycnt <= waycnt + 2'd1;
@@ -1771,7 +1805,27 @@ else begin
 		else if (predict_taken & btben)
 			ip <= btb_predicted_ip;
 		else begin
-			ip <= ip + 4'd4;
+			if (is_modif) begin
+				mod_cnt <= mod_cnt + 2'd1;
+				ip <= ip + 4'd4;
+			end
+			else begin
+				mod_cnt <= 3'd0;
+				if (decven2 < vl) begin
+					if (is_vector[ip[5:2]]) begin
+						ip <= ip - {mod_cnt,2'b00};
+						decven2 <= decven2 + 2'd1;
+					end
+					else begin
+						decven2 <= 6'd0;
+						ip <= ip + 4'd4;
+					end
+				end
+				else begin
+					decven2 <= 6'd0;
+					ip <= ip + 4'd4;
+				end
+			end
 		end
 	end
 	$display("Push d2x");
@@ -1825,13 +1879,21 @@ else begin
 		rob[rob_que].ip <= decbuf.ip;
 		rob[rob_que].ir <= decbuf.ir;
 		rob[rob_que].irmod <= 32'd0;
+		rob[rob_que].mod_cnt <= mod_cnt;
 		rob[rob_que].is_vec <= decbuf.is_vec;
 		rob[rob_que].Rt <= decbuf.Rt;
 		rob[rob_que].ia <= exbufi.ia;
 		rob[rob_que].ib <= exbufi.ib;
-		rob[rob_que].ia_ele <= decven;
-		rob[rob_que].ib_ele <= decven;
-		rob[rob_que].it_ele <= decven;
+		if (decbuf.vsrlv) begin
+			rob[rob_que].ia_ele <= vl - decven;
+			rob[rob_que].ib_ele <= vl - decven;
+			rob[rob_que].it_ele <= vl - decven;
+		end
+		else begin
+			rob[rob_que].ia_ele <= decven;
+			rob[rob_que].ib_ele <= decven;
+			rob[rob_que].it_ele <= decven;
+		end
 		if (exbufi.branch)
 			rob[rob_que].ic <= exbufi.ip;
 		else if (decbuf.needRc)
@@ -1922,6 +1984,8 @@ else begin
 				dc_redirecti.step <= 6'd0;
 				dc2if_wr <= TRUE;
 			end
+		endcase
+		case(a2d_out.ir.r2.opcode)
 		EXI0:
 			begin
 				exilo <= TRUE;
@@ -1951,6 +2015,20 @@ else begin
 				regz <= exbufi.z;
 				imod_inst <= exbufi.ir;
 			end
+		VIMOD:
+			if (exbufi.iav && exbufi.ibv) begin
+				imod <= TRUE;
+				regc <= exbufi.ia;
+				regd <= exbufi.ib;
+				regcv <= exbufi.iav;
+				regdv <= exbufi.idv;
+				regcsrc <= vregfilesrc[decbuf.Ra];
+				regdsrc <= vregfilesrc[decbuf.Rb];
+				regmsrc <= vm_regfilesrc[decbuf.Vm];
+				regm <= exbufi.vmask;
+				regz <= exbufi.z;
+				imod_inst <= exbufi.ir;
+			end
 		BRMOD:
 			if (exbufi.iav) begin
 				brmod <= TRUE;
@@ -1961,21 +2039,53 @@ else begin
 				imod_inst <= exbufi.ir;
 			end
 		STRIDE:
-			if (exbufi.ir[20]) begin
-				stride <= TRUE;
-				regc <= {58'd0,exbufi.ir[19:14]};
-				regcv <= TRUE;
-				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
-				imod_inst <= exbufi.ir;
+			begin
+				if (exbufi.ir[20]) begin
+					stride <= TRUE;
+					regc <= {58'd0,exbufi.ir[19:14]};
+					regcv <= TRUE;
+					regcsrc <= regfilesrc[regmap[decbuf.Ra]];
+					imod_inst <= exbufi.ir;
+				end
+				else if (exbufi.iav) begin
+					stride <= TRUE;
+					regc <= exbufi.ia;
+					regcv <= exbufi.iav;
+					regcsrc <= regfilesrc[regmap[decbuf.Ra]];
+					imod_inst <= exbufi.ir;
+				end
+				if (!(exihi||eximid||exilo))
+					exi <= {{45{exbufi.ir[31]}},exbufi.ir[31:21],8'd0};
 			end
-			else if (exbufi.iav) begin
-				stride <= TRUE;
-				regc <= exbufi.ia;
-				regcv <= exbufi.iav;
-				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
-				imod_inst <= exbufi.ir;
+		VSTRIDE:
+			begin
+				if (exbufi.ir[20]) begin
+					stride <= TRUE;
+					regc <= {58'd0,exbufi.ir[19:14]};
+					regcv <= TRUE;
+					regcsrc <= vregfilesrc[decbuf.Ra];
+					imod_inst <= exbufi.ir;
+				end
+				else if (exbufi.iav) begin
+					stride <= TRUE;
+					regc <= exbufi.ia;
+					regcv <= exbufi.iav;
+					regcsrc <= vregfilesrc[decbuf.Ra];
+					imod_inst <= exbufi.ir;
+				end
+				if (!(exihi||eximid||exilo))
+					exi <= {{45{exbufi.ir[31]}},exbufi.ir[31:21],8'd0};
 			end
-		default:	;
+		default:	
+			begin
+				if (decbuf.is_vec) begin
+					if (decven < vl)
+						decven <= decven + 2'd1;
+					else begin
+						decven <= 6'd0;
+					end
+				end
+			end
 		endcase
 		if (exihi) begin
 			has_exi <= TRUE;
@@ -2032,16 +2142,12 @@ else begin
 			rob[rob_que].ic <= regc;
 			rob[rob_que].icv <= regcv;
 			rob[rob_que].ics <= regcsrc;
-			if (has_exi) begin
-				has_exi <= FALSE;
-				rob[rob_que].imm.val[63:8] <= exi[63:8];
-			end
+			rob[rob_que].imm.val[63:8] <= exi[63:8];
 		end
 		if (!(exihi||eximid||exilo||imod||stride))
 			has_exi <= FALSE;
 	end
-
-
+	
 /*
 //	if (a2d_out.Stream == dcStream) begin
 	if (pop_a2dd && exbufi.ir != 64'd0) begin

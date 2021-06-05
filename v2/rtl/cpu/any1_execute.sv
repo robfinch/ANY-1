@@ -79,7 +79,13 @@ input [63:0] new_vtmp;
 
 integer n;
 
+wire d_vsllv = (robi.ir.r2.opcode==VR2||robi.ir.r2.opcode==VR2S) && robi.ir.r2.func==VSLLV;
+wire d_vsrlv = (robi.ir.r2.opcode==VR2||robi.ir.r2.opcode==VR2S) && robi.ir.r2.func==VSRLV;
+
 wire [127:0] sll_out = {robi.ib.val,robi.ia.val} << robi.ic.val[5:0];
+wire [127:0] sll_out2 = {64'd0,robi.ia.val} << robi.ib.val[5:0];
+wire [127:0] srl_out2 = {robi.ia.val,64'd0} >> robi.ib.val[5:0];
+
 wire brMispredict = ex_takb != robi.predict_taken;//exbufi.predict_taken;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -731,7 +737,22 @@ else begin
 				ex_redirect.wr <= TRUE;
 				tMod();
 			end
-		LEA,LDx,LDxX,
+		LEA,LDx,LDxX:
+			// This does not wait for registers to be valid.
+			if (robi.iav && robi.ibv && robi.icv) begin
+				membufi.rid <= rob_exec;
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				robo.cmt <= FALSE;
+				robo.cmt2 <= FALSE;
+				robo.wr_fu <= FALSE;
+			end
 		STx,STxX:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			// This does not wait for registers to be valid.
@@ -1085,28 +1106,26 @@ else begin
 					end
 				VSLLV:
 					begin
-						if (robi.step + robi.ia.val[5:0] >= vl) begin
-							robo.res_ele <= robi.step - vl;
-							tDoOp(64'd0);
+						if ({2'b0,robi.ia_ele} + robi.ib.val[11:6] <= vl) begin
+							robo.res_ele <= robi.ia_ele + robi.ib.val[11:6];
+							tDoOp(sll_out2[63:0]|vtmp);
+							vtmp <= sll_out2[127:64];
 						end
 						else begin
-							robo.res_ele <= robi.step + robi.ia.val[5:0];
-							tDoOp(robi.ia.val);
+							robo.res_ele <= robi.ia_ele - vl - 2'd1;
+							tDoOp(64'd0);
 						end
 					end
 				VSRLV:
 					begin
-						if (robi.step > vl - robi.ib.val[5:0]) begin
-							robo.res_ele <= robi.step;
-							tDoOp(64'd0);
-						end
-						else if (robi.step < robi.ib.val) begin
-							robo.res_ele <= 6'd0;
-							tDoOp(64'd0);
+						if (robi.ia_ele >= robi.ib.val[11:6]) begin
+							robo.res_ele <= robi.ia_ele - robi.ib.val[11:6];
+							tDoOp(vtmp|srl_out2[127:64]);
+							vtmp <= srl_out2[63:0];
 						end
 						else begin
-							robo.res_ele <= robi.step - robi.ib.val[5:0];
-							tDoOp(robi.ia.val);
+							robo.res_ele <= robi.ia_ele;
+							tDoOp(64'd0);
 						end
 					end
 				default:	;
@@ -1207,28 +1226,26 @@ else begin
 					end
 				VSLLV:
 					begin
-						if (robi.step + robi.ia.val[5:0] >= vl) begin
-							robo.res_ele <= robi.step - vl;
-							tDoOp(64'd0);
+						if (robi.ia_ele + robi.ib.val[11:6] <= vl) begin
+							robo.res_ele <= robi.ia_ele + robi.ib.val[11:6];
+							tDoOp(sll_out2[63:0]|vtmp);
+							vtmp <= sll_out2[127:64];
 						end
 						else begin
-							robo.res_ele <= robi.step + robi.ia.val[5:0];
-							tDoOp(robi.ia.val);
+							robo.res_ele <= robi.ia_ele - vl - 2'd1;
+							tDoOp(64'd0);
 						end
 					end
 				VSRLV:
 					begin
-						if (robi.step > vl - robi.ib.val[5:0]) begin
-							robo.res_ele <= robi.step;
-							tDoOp(64'd0);
-						end
-						else if (robi.step < robi.ib.val) begin
-							robo.res_ele <= 6'd0;
-							tDoOp(64'd0);
+						if (robi.ia_ele >= robi.ib.val[11:6]) begin
+							robo.res_ele <= robi.ia_ele - robi.ib.val[11:6];
+							tDoOp(vtmp|srl_out2[127:64]);
+							vtmp <= srl_out2[63:0];
 						end
 						else begin
-							robo.res_ele <= robi.step - robi.ib.val[5:0];
-							tDoOp(robi.ia.val);
+							robo.res_ele <= robi.ia_ele;
+							tDoOp(64'd0);
 						end
 					end
 				default:	;
