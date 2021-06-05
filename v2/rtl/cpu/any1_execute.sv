@@ -37,8 +37,8 @@
 
 import any1_pkg::*;
 
-module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,fpreci,rob_exec,Stream_inc,ex_redirect,
-	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,ifStream,rst_exStream,exStream,
+module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,fpreci,rob_exec,ex_redirect,
+	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,
 	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q, rst_robx, new_robx, new_rob_exec,
 	ld_vtmp, vtmp, new_vtmp);
 input rst;
@@ -49,10 +49,9 @@ output sALUrec mulreci;
 output sALUrec divreci;
 output sALUrec fpreci;
 output sMemoryIO membufi;
-output reg [5:0] rob_exec;
+input [5:0] rob_exec;
 output reg [47:0] rob_x;
 input [47:0] rob_q;
-input Stream_inc;
 output sRedirect ex_redirect;
 output reg f2a_rst;
 output reg a2d_rst;
@@ -64,9 +63,6 @@ input [7:0] cause_i;
 input brAddrMispredict;
 input Rid vregfilesrc [0:63];
 
-input [5:0] ifStream;
-input rst_exStream;
-output reg [5:0] exStream;
 output reg restore_rfsrc;
 output reg set_wfi= 1'b0;
 input [7:0] vl;
@@ -147,9 +143,8 @@ fpCompare u1 (
 always @(posedge clk)
 if (rst) begin
 	rob_x <= 48'd0;
-	rob_exec <= 6'd0;
+	//rob_exec <= 6'd0;
 	robo <= 1'd0;
-	exStream <= 6'd0;
 	f2a_rst <= TRUE;
 	a2d_rst <= TRUE;
 	d2x_rst <= TRUE;
@@ -176,31 +171,29 @@ else begin
 	set_wfi <= FALSE;
 
 	$display("Execute");
+/*
 	if (rst_robx) begin
 		rob_x <= new_robx;
 		rob_exec <= new_rob_exec;
 	end
+*/
 	if (rob_x + 2'd1 < rob_q) begin
-	if (robi.Stream == exStream + Stream_inc && robi.v==VAL) begin
+	if (robi.v==VAL) begin
 		if (robi.dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, robi.ip, robi.ir,
 			robi.ia.val,robi.iav?"v":" ",robi.ib.val,robi.ibv?"v":" ",
 			robi.ic.val,robi.icv?"v":" ",robi.id.val,robi.idv?"v":" ",
 			robi.imm.val);
 
-		if (rst_exStream)
-			exStream <= ifStream + 2'd1;
-		else
-			exStream <= exStream + robi.Stream_inc;
-
 		// If the instruction is exceptioned, then ignore executing it.
 
 		if (robi.ui || robi.cause != 16'h0000) begin
 			robo.cmt <= TRUE;
 			robo.cmt2 <= TRUE;
-			tIncExec();
+			robo.out <= TRUE;
+//			tIncExec();
 		end
-		else begin
+		else if (!robi.out) begin
 		//robi.res.tag <= robi.ir.tag;
 		robo.btag <= 4'd0;
 		robo.takb <= FALSE;
@@ -693,11 +686,9 @@ else begin
 				robo.res.val <= robi.ip + 4'd4;
 				tMod();
 				if (brMispredict) begin
-					robo.Stream_inc <= 1'b1;
 					f2a_rst <= TRUE;
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
-					exStream <= exStream + 2'd1;
 					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : robi.ip + 4'd4;
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.step <= 6'd0;
@@ -706,11 +697,9 @@ else begin
 					restore_rfsrc <= TRUE;
 				end
 				else if (brAddrMispredict) begin
-					robo.Stream_inc <= 1'b1;
 					f2a_rst <= TRUE;
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
-					exStream <= exStream + 2'd1;
 					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : robi.ip + 4'd4;
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.step <= 6'd0;
@@ -725,11 +714,9 @@ else begin
 				robo.jump_tgt <= robi.ia.val + robi.imm.val;
 				robo.jump_tgt[1:0] <= 3'd0;
 				robo.res <= robi.ip + {robi.ir[13:10],2'b0};
-				robo.Stream_inc <= 1'b1;
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
-				exStream <= exStream + 2'd1;
 				ex_redirect.redirect_ip <= robi.ia.val + robi.imm.val;
 				ex_redirect.current_ip <= robi.ip;
 				ex_redirect.step <= 6'd0;
@@ -878,7 +865,7 @@ else begin
 			if (robi.iav)
 				tMod();
 		8'hFF:
-			rob_exec <= rob_exec;
+			;//rob_exec <= rob_exec;
 `ifdef SUPPORT_VECTOR
 		VR1:
 			if (robi.iav) begin
@@ -1600,7 +1587,6 @@ else begin
 		end
 		end
 	end
-	// Stream mismatch
 	else begin
 		if (robi.v==INV)
 			tMod();//tIncExec();
@@ -1611,21 +1597,26 @@ else begin
 	end
 end
 
+
 task tIncExec;
 begin
+	/*
 	rob_x <= rob_x + 2'd1;
 	if (rob_exec >= ROB_ENTRIES-1)
 		rob_exec <= 6'd0;
 	else
 		rob_exec <= rob_exec + 2'd1;
+	*/
 end
 endtask
+
 
 task tDoOp;
 input [63:0] res;
 begin
 	robo.update_rob <= TRUE;
-	tIncExec();
+	robo.out <= TRUE;
+//	tIncExec();
 	if (robi.vmask.val[robi.step])
 		robo.res.val <= res;
 	else if (robi.irmod.im.z)
@@ -1643,8 +1634,9 @@ task tMod;
 begin
 	robo.cmt <= TRUE;
 	robo.cmt2 <= TRUE;
+	robo.out <= TRUE;
 	robo.update_rob <= TRUE;
-	tIncExec();
+//	tIncExec();
 	robo.vcmt <= robi.step >= vl;
 	if (robi.step >= vl) begin
 		vtmp <= 64'h0;

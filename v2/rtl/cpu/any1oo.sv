@@ -94,7 +94,7 @@ reg [63:0] mul_b;
 reg [127:0] mul_p;
 reg [5:0] rob_que;
 reg [5:0] rob_deq;
-wire [5:0] rob_exec;
+reg [5:0] rob_exec;
 reg [5:0] rob_pexec;
 reg [5:0] mstate, mstk_state;			// memory state
 reg [2:0] mul_state;	// multipler state
@@ -144,21 +144,11 @@ function [63:0] fnBranchInvalidateMask;
 input [5:0] xp;
 integer n,m,done;
 begin
-	m = rob_que;
-	done = FALSE;
+	m = rob[xp].rob_q;
 	fnBranchInvalidateMask = 64'hFFFFFFFFFFFFFFFF;
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (!done) begin
-			if (m != xp)
-				fnBranchInvalidateMask[m] = 1'b0;
-			else begin
-				fnBranchInvalidateMask[m] = 1'b0;
-				done = TRUE;
-			end
-		end
-		m = m - 1;
-		if (m <= 0)
-			m = ROB_ENTRIES-1;
+		if (rob[n].rob_q >= m)
+			fnBranchInvalidateMask[n] = 1'b0;
 	end
 end
 endfunction
@@ -246,8 +236,6 @@ vec_regfile_blkmem uvrfB (
 
 reg [63:0] vm_regfile [0:7];
 
-reg [5:0] ifStream,dcStream,rfStream,wbStream;	// Stream associated with instructions
-wire [5:0] exStream;
 reg [3:0] active_branch;
 reg dc2if_redirect_rd;
 Address dc_redirect_ip;
@@ -297,6 +285,7 @@ Address keytbl;
 reg [19:0] keys [0:7];
 reg [7:0] vl;
 reg [47:0] ifStalls;
+reg [47:0] insnCommitted;
 
 reg fdz,fnv,fof,fuf,fnx;
 reg [63:0] fpscr;
@@ -1000,12 +989,10 @@ always @(posedge clk_g)
 	pop_d2xd <= pop_d2x;
 
 Address ip1;
-reg [5:0] ifStream1;
 reg btb_predicted_ip1;
 reg predict_taken1;
 always @(posedge clk_g)
 if (rst_i) begin
-	ifStream1 <= 6'd0;
 	ip1 <= RSTIP;
 	btb_predicted_ip1 <= RSTIP;
 	predict_taken1 <= FALSE;
@@ -1013,7 +1000,6 @@ end
 else begin
 if (!ifStall) begin
 	ip1 <= ip;
-	ifStream1 <= ifStream;
 	btb_predicted_ip1 <= btb_predicted_ip;
 	predict_taken1 <= predict_taken;
 end
@@ -1026,7 +1012,6 @@ if(rst_i)
 else begin
 if (!ifStall) begin
 	begin
-	f2a_in.Stream <= ifStream1;
 	f2a_in.ip <= ip1;
 	f2a_in.pip <= btb_predicted_ip1;
 	f2a_in.predict_taken <= predict_taken1;
@@ -1066,7 +1051,6 @@ if (rst_i)
 	a2d_out <= 1'd0;
 else begin
 if (!ifStall) begin
-	a2d_out.Stream <= a2d_in.Stream;
 	a2d_out.predict_taken <= a2d_in.predict_taken;
 	if (|a2d_in.ip[1:0])
   	a2d_out.ir <= {8'h0,FLT_IADR,16'h0};		// instruction alignment fault
@@ -1131,15 +1115,38 @@ begin
 	done = 0;
 	m = ridi;
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (m==rob_deq)
+		if (m==rob_que)
 			done = 1;
-		if (!(rob[n].cmt && rob[n].cause==16'h0) && !done)
+		if (!(rob[n].cmt && rob[n].cause==16'h0 || !rob[n].v) && !done && m != ridi)
 			pos = n;
-		m = m + 1;
-		if (m >= ROB_ENTRIES)
-			m = 0;
+		m = m - 1;
+		if (m < 0)
+			m = ROB_ENTRIES-1;
 	end
 	fnCmtsAhead = pos==-1;
+end
+endfunction
+
+// Detect if there are any load/store instruction in the queue before this
+// one.
+function fnPriorLdSt;
+input [5:0] ridi;
+integer n, m, done;
+begin
+	m = ridi - 1;
+	done = 0;
+	fnPriorLdSt = FALSE;
+	if (m < 0)
+		m = ROB_ENTRIES - 1;
+	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+		if (m==rob_deq)
+			done = 1;
+		if (rob[m].ir.r2.opcode[6:5]==2'd3 && !rob[m].cmt && rob[m].v && !done)
+			fnPriorLdSt = TRUE;
+		m = m - 1;
+		if (m < 0)
+			m = ROB_ENTRIES - 1;
+	end
 end
 endfunction
 
@@ -1164,8 +1171,6 @@ endfunction
 
 always @*
 begin
-	exbufi.Stream <= decbuf.Stream;
-	exbufi.Stream_inc <= decbuf.Stream_inc;
 	exbufi.ip <= decbuf.ip;
 	exbufi.pip <= decbuf.pip;
 	exbufi.predict_taken <= decbuf.predict_taken;
@@ -1306,7 +1311,6 @@ if_redirect_fifo uwb2if
 
 sReorderEntry robo,robo1;
 wire brAddrMispredict = exbufi.pip != ex_redirecti.redirect_ip;//exRedirectIp;
-wire rst_exStream = push_f2a ? (wb2if_redirect_rd3|ex2if_redirect_rd3|dc2if_redirect_rd3) : 1'b0;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Floating point logic
@@ -1453,7 +1457,6 @@ any1_execute uex1(
 	.divreci(divreci),
 	.membufi(membufi),
 	.rob_exec(rob_exec),
-	.Stream_inc(rob[rob_exec].Stream_inc),
 	.ex_redirect(ex_redirecti),
 	.f2a_rst(f2a_rst),
 	.a2d_rst(a2d_rst),
@@ -1463,9 +1466,6 @@ any1_execute uex1(
 	.irq_i(irq_i),		// For PFI instruction
 	.cause_i(cause_i),
 	.brAddrMispredict(brAddrMispredict),
-	.ifStream(ifStream),
-	.exStream(exStream),
-	.rst_exStream(rst_exStream),
 	.restore_rfsrc(restore_rfsrc),
 	.vregfilesrc(vregfilesrc),
 	.vl(vl),
@@ -1558,9 +1558,31 @@ reg [6:0] a2di;
 reg [5:0] decven2;
 
 wire is_modif = is_modifier[ip[5:2]];
+wire cmts_ahead = fnCmtsAhead(membufo.rid);
 
 always @*
 	tReadCSR(csrro,rob[rob_exec].imm[15:0]);
+
+// Choose the next instruction to execute.
+function [5:0] next_exec;
+begin
+	next_exec = rob_exec;
+	m = rob_que + 2'd1;
+	if (m >= ROB_ENTRIES)
+		m = 0;
+	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+		if (rob[m].dec && rob[m].v && !rob[m].cmt2 && next_exec==rob_exec && !rob[m].out && m != rob_pexec) begin
+			if (rob[m].iav && rob[m].ibv && rob[m].icv && rob[m].idv) begin
+				if (!(rob[m].ir.r2.opcode[6:5]==2'd3 && fnPriorLdSt(m)))
+					next_exec = m;
+			end
+		end
+		m = m + 1;
+		if (m >= ROB_ENTRIES)
+			m = 0;
+	end
+end
+endfunction
 
 always @(posedge clk_g)
 if (rst_i) begin
@@ -1572,10 +1594,6 @@ if (rst_i) begin
 	wb_a2d_rst <= TRUE;
 	wb_d2x_rst <= TRUE;
 	pmStack <= 12'b001001001000;
-	ifStream <= 6'd0;
-	dcStream <= 6'd0;
-	rfStream <= 6'd0;
-	wbStream <= 6'd0;
 	zero_data <= FALSE;
 	dcachable <= TRUE;
 	ivvalid <= 5'h00;
@@ -1591,11 +1609,10 @@ if (rst_i) begin
 	rob_d <= 48'd0;
 	rob_q <= 48'd0;
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		rob[n].Stream <= 6'd0;
-		rob[n].Stream_inc <= FALSE;
 		rob[n].v <= VAL;
 		rob[n].cmt <= FALSE;
 		rob[n].cmt2 <= FALSE;
+		rob[n].out <= FALSE;
 		rob[n].dec <= TRUE;
 		rob[n].rfwr <= FALSE;
 		rob[n].ui <= FALSE;	// ***
@@ -1708,6 +1725,8 @@ if (rst_i) begin
 	ld_vtmp <= FALSE;
 	new_vtmp <= 64'd0;
 	decven2 <= 6'd0;
+	rob_exec <= 6'd0;
+	insnCommitted <= 48'd0;
 end
 else begin
 	ic_update <= 1'b0;
@@ -1768,37 +1787,23 @@ else begin
 	else if (!dc2if_redirect_empty)
 		dc2if_redirect_rd <= 1'b1;
 
-	if (rob[rob_deq].Stream == wbStream + rob[rob_deq].Stream_inc) begin
-		if (rob[rob_deq].cmt==TRUE)
-			wbStream <= wbStream + rob[rob_deq].Stream_inc;
-	end
-
 //	if (push_f2a) begin
 	if (!ifStall) begin
 		if (wb2if_redirect_rd3) begin
 			wb2if_redirect_rd3 <= FALSE;
 			ex2if_redirect_rd3 <= FALSE;
 			dc2if_redirect_rd3 <= FALSE;
-			ifStream <= ifStream + 2'd1;
-			dcStream <= ifStream + 2'd1;
-			wbStream <= ifStream + 2'd1;
 			ip <= wb_redirecto.redirect_ip;
 			decven <= wb_redirecto.step;
 		end
 		else if (ex2if_redirect_rd3) begin
 			ex2if_redirect_rd3 <= FALSE;
 			dc2if_redirect_rd3 <= FALSE;
-			ifStream <= ifStream + 2'd1;
-			dcStream <= ifStream + 2'd1;
-			wbStream <= ifStream + 2'd1;
 			ip <= ex_redirecto.redirect_ip;
 			decven <= ex_redirecto.step;
 		end
 		else if (dc2if_redirect_rd3) begin
 			dc2if_redirect_rd3 <= FALSE;
-			ifStream <= ifStream + 2'd1;
-			dcStream <= ifStream + 2'd1;
-			wbStream <= ifStream + 2'd1;
 			ip <= dc_redirecto.redirect_ip;
 			decven <= dc_redirecto.step;
 		end
@@ -1828,6 +1833,7 @@ else begin
 			end
 		end
 	end
+	/*
 	$display("Push d2x");
 	if (push_d2x) begin
 		a2d_buf[a2di] <= {a2d_out.ip,a2d_out.ir};
@@ -1835,7 +1841,7 @@ else begin
 		for (n = 0; n < 128; n = n + 1)
 			$display("pa2d: %h", a2d_buf[n]);
 	end
-	
+	*/
 
 	$display("Instruction Fetch");
 	$display("Line: %h", ic_line);
@@ -1871,8 +1877,6 @@ else begin
 		if (decbuf.rfwr)
 			tAllocReg(decbuf.Rt,rob[rob_que].pRt);
 		rob[rob_que].rob_q <= rob_q;
-		rob[rob_que].Stream <= decbuf.Stream;
-		rob[rob_que].Stream_inc <= 1'b0;
 		rob[rob_que].v <= VAL;
 		rob[rob_que].predict_taken <= exbufi.predict_taken;
 		rob[rob_que].ui <= decbuf.ui;
@@ -1937,7 +1941,9 @@ else begin
 		rob[rob_que].branch <= decbuf.branch;
 		rob[rob_que].jump <= decbuf.jump;
 		rob[rob_que].dec <= TRUE;
+		rob[rob_que].cmt <= FALSE;
 		rob[rob_que].cmt2 <= FALSE;
+		rob[rob_que].out <= FALSE;
 		if (decbuf.veins) begin
 			rob[rob_que].step_v <= FALSE;
 			rob[rob_que].step <= exbufi.ia.val[5:0];
@@ -1969,7 +1975,6 @@ else begin
 			end
 		JAL:
 			begin
-				dcStream <= dcStream + 2'd1;
 				dc_redirecti.redirect_ip <= {{41{a2d_out.ir[31]}},a2d_out.ir[31:10],1'h0};
 				dc_redirecti.current_ip <= a2d_out.ip;
 				dc_redirecti.xrid <= rob_que;
@@ -1978,36 +1983,44 @@ else begin
 			end
 		BAL:
 			begin
-				dcStream <= dcStream + 2'd1;
 				dc_redirecti.redirect_ip <= a2d_out.ip + {{41{a2d_out.ir[31]}},a2d_out.ir[31:10],1'h0};
 				dc_redirecti.current_ip <= a2d_out.ip;
 				dc_redirecti.step <= 6'd0;
 				dc2if_wr <= TRUE;
 			end
+		default:	;
 		endcase
 		case(a2d_out.ir.r2.opcode)
 		EXI0:
 			begin
+				rob[rob_que].cmt <= TRUE;
+				rob[rob_que].cmt2 <= TRUE;
 				exilo <= TRUE;
 				exi <= {{32{exbufi.ir[31]}},exbufi.ir[31:8],8'd0};
 			end
 		EXI1:
 			begin
+				rob[rob_que].cmt <= TRUE;
+				rob[rob_que].cmt2 <= TRUE;
 				eximid <= TRUE;
 				exi[63:32] <= {{40{exbufi.ir[31]}},exbufi.ir[31:8]};
 			end
 		EXI2:
 			begin
+				rob[rob_que].cmt <= TRUE;
+				rob[rob_que].cmt2 <= TRUE;
 				exihi <= TRUE;
 				exi[63:56] <= exbufi.ir[15:8];
 			end
 		IMOD:
 			if (exbufi.iav && exbufi.ibv) begin
+				rob[rob_que].cmt <= TRUE;
+				rob[rob_que].cmt2 <= TRUE;
 				imod <= TRUE;
 				regc <= exbufi.ia;
 				regd <= exbufi.ib;
 				regcv <= exbufi.iav;
-				regdv <= exbufi.idv;
+				regdv <= exbufi.ibv;
 				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
 				regdsrc <= regfilesrc[regmap[decbuf.Rb]];
 				regmsrc <= vm_regfilesrc[decbuf.Vm];
@@ -2017,11 +2030,13 @@ else begin
 			end
 		VIMOD:
 			if (exbufi.iav && exbufi.ibv) begin
+				rob[rob_que].cmt <= TRUE;
+				rob[rob_que].cmt2 <= TRUE;
 				imod <= TRUE;
 				regc <= exbufi.ia;
 				regd <= exbufi.ib;
 				regcv <= exbufi.iav;
-				regdv <= exbufi.idv;
+				regdv <= exbufi.ibv;
 				regcsrc <= vregfilesrc[decbuf.Ra];
 				regdsrc <= vregfilesrc[decbuf.Rb];
 				regmsrc <= vm_regfilesrc[decbuf.Vm];
@@ -2031,6 +2046,8 @@ else begin
 			end
 		BRMOD:
 			if (exbufi.iav) begin
+				rob[rob_que].cmt <= TRUE;
+				rob[rob_que].cmt2 <= TRUE;
 				brmod <= TRUE;
 				regc <= exbufi.ia;
 				regcv <= exbufi.iav;
@@ -2041,6 +2058,8 @@ else begin
 		STRIDE:
 			begin
 				if (exbufi.ir[20]) begin
+					rob[rob_que].cmt <= TRUE;
+					rob[rob_que].cmt2 <= TRUE;
 					stride <= TRUE;
 					regc <= {58'd0,exbufi.ir[19:14]};
 					regcv <= TRUE;
@@ -2048,6 +2067,8 @@ else begin
 					imod_inst <= exbufi.ir;
 				end
 				else if (exbufi.iav) begin
+					rob[rob_que].cmt <= TRUE;
+					rob[rob_que].cmt2 <= TRUE;
 					stride <= TRUE;
 					regc <= exbufi.ia;
 					regcv <= exbufi.iav;
@@ -2060,6 +2081,8 @@ else begin
 		VSTRIDE:
 			begin
 				if (exbufi.ir[20]) begin
+					rob[rob_que].cmt <= TRUE;
+					rob[rob_que].cmt2 <= TRUE;
 					stride <= TRUE;
 					regc <= {58'd0,exbufi.ir[19:14]};
 					regcv <= TRUE;
@@ -2067,6 +2090,8 @@ else begin
 					imod_inst <= exbufi.ir;
 				end
 				else if (exbufi.iav) begin
+					rob[rob_que].cmt <= TRUE;
+					rob[rob_que].cmt2 <= TRUE;
 					stride <= TRUE;
 					regc <= exbufi.ia;
 					regcv <= exbufi.iav;
@@ -2148,20 +2173,18 @@ else begin
 			has_exi <= FALSE;
 	end
 	
-/*
-//	if (a2d_out.Stream == dcStream) begin
-	if (pop_a2dd && exbufi.ir != 64'd0) begin
-*/
-
 	// Execute
 	// Lots to do here.
 	// Simple single cycle instructions are executed directly and the reorder buffer updated.
 	// Multi-cycle instructions are placed in instruction queues.
 
+	// Search for ready-to execute instructions and move execute pointer there.
+	rob_exec <= next_exec();
+
 	$display("Execute");
 	$display("ip: %h  ir: %h  a:%h  b:%h  c:%h  d:%h  i:%h", exbufi.ip, exbufi.ir,exbufi.ia.val,exbufi.ib.val,exbufi.ic.val,exbufi.id.val,exbufi.imm.val);
 	rob_pexec <= rob_exec;
-	if (rob[rob_exec].Stream == exStream + decbuf.Stream_inc) begin
+	if (TRUE) begin
 		if (rob[rob_exec].dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, rob[rob_exec].ip, rob[rob_exec].ir,
 			rob[rob_exec].ia.val,rob[rob_exec].iav?"v":" ",rob[rob_exec].ib.val,rob[rob_exec].ibv?"v":" ",
@@ -2180,6 +2203,7 @@ else begin
 				rob[rob_pexec].cmt <= robo.cmt;
 				rob[rob_pexec].cmt2 <= robo.cmt2;
 				rob[rob_pexec].vcmt <= robo.vcmt;
+				rob[rob_pexec].out <= robo.out;
 				
 			// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
 				if (robo.wr_fu) begin
@@ -2191,11 +2215,11 @@ else begin
 		end
 	end
 	if (restore_rfsrc) begin
-		tRestoreRegfileSrc(rob[rob_exec].btag);
+		tRestoreRegfileSrc(rob[rob_pexec].btag);
 		//rob_que <= rob_exec;
 		//rob_q <= rob_q - fnBackupCnt(rob_exec);
 		for (n = 0; n < ROB_ENTRIES; n = n + 1)
-			if (branchInvalidateMask[n]==-1'b0)
+			if (rob[n].rob_q > rob[rob_pexec].rob_q)
 				rob[n].v <= 1'b0;
 	end
 
@@ -3446,11 +3470,12 @@ default:	;
   $display ("----------------------------------------------------------------- Reorder Buffer -----------------------------------------------------------------");
   $display ("head: %d  tail: %d", rob_deq, rob_que);
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		$display("%c%c%c%d: Strm=%d%c %c%c%c%c ip=%h.%d ir=%h Rt=%d res=%h imm=%h",
+		$display("%c%c%c%d: %c%c%c%c%c ip=%h.%d ir=%h Rt=%d res=%h imm=%h",
 			n[5:0]==rob_deq ? "D" : " ", n==rob_que ? "Q" : " ", n==rob_exec ? "X" : " ",
-			n[5:0],rob[n].Stream,rob[n].Stream_inc?"+":" ",rob[n].cmt ? "C" : " ",rob[n].v ? "V" : " ",
+			n[5:0],rob[n].cmt ? "C" : " ",rob[n].v ? "V" : " ",
 			rob[n].rfwr ? "W" : " ",
 			rob[n].dec ? "D" : " ",
+			rob[n].out ? "O" : " ",
 			rob[n].ip,rob[n].step,rob[n].ir,
 			rob[n].Rt,rob[n].res.val,
 			rob[n].imm.val);
@@ -3463,11 +3488,11 @@ default:	;
 	// to update. The reorder buffer acts like a fifo between the other stages
 	// and the writeback stage.
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-	$display("Writeback:%d",wbStream);
-	$display("ticks: %d  executed:%d  ifStalls:%d", tick[15:0], rob_x[15:0], ifStalls[15:0]);
-	if (rob[rob_deq].Stream == wbStream + rob[rob_deq].Stream_inc) begin
+	$display("Writeback");
+	$display("ticks: %d  committed:%d  ifStalls:%d", tick[15:0], insnCommitted, ifStalls[15:0]);
+	if (TRUE) begin
 		if (rob[rob_deq].cmt==TRUE) begin
-//			wbStream <= wbStream + rob[rob_deq].Stream_inc;
+			insnCommitted <= insnCommitted + 2'd1;
 			begin
 				$display("ip:%h  ir:%h", rob[rob_deq].ip, rob[rob_deq].ir);
 				$display("Rt:%d  res:%h", rob[rob_deq].Rt, rob[rob_deq].res);
@@ -3480,12 +3505,10 @@ default:	;
 					wb_f2a_rst <= TRUE;
 					wb_a2d_rst <= TRUE;
 					wb_d2x_rst <= TRUE;
-					wbStream <= wbStream + 2'd1;
 					wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
 					wb_redirecti.current_ip <= rob[rob_deq].ip;
 					wb_redirecti.xrid <= rob_deq;
 					wb2if_wr <= TRUE;
-					//tBackupRegfileSrc(wbStream + rob[rob_deq].Stream_inc);
 				end
 				else if (rob[rob_deq].cause!=16'h00) begin
 					status[4][4] <= 1'b0;	// disable further interrupts
@@ -3497,12 +3520,10 @@ default:	;
 					wb_f2a_rst <= TRUE;
 					wb_a2d_rst <= TRUE;
 					wb_d2x_rst <= TRUE;
-					wbStream <= wbStream + 2'd1;
 					wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
 					wb_redirecti.current_ip <= rob[rob_deq].ip;
 					wb_redirecti.xrid <= rob_deq;
 					wb2if_wr <= TRUE;
-					//tBackupRegfileSrc(wbStream + rob[rob_deq].Stream_inc);
 				end
 				else begin
 					case(rob[rob_deq].ir.r2.opcode)
@@ -3527,14 +3548,12 @@ default:	;
 								wb_f2a_rst <= TRUE;
 								wb_a2d_rst <= TRUE;
 								wb_d2x_rst <= TRUE;
-								wbStream <= wbStream + 2'd1;
 								pmStack <= {8'h9,pmStack[31:4]};
 								status[4][pmStack[3:1]] <= pmStack[0];
 								status[3][pmStack[3:1]] <= pmStack[0];
 								status[2][pmStack[3:1]] <= pmStack[0];
 								status[1][pmStack[3:1]] <= pmStack[0];
 								status[0][pmStack[3:1]] <= pmStack[0];
-								//tBackupRegfileSrc(wbStream + rob[rob_deq].Stream_inc);
 							end
 						TLBRW:	;
 						default:	;
@@ -3656,13 +3675,13 @@ default:	;
 			rob_d <= rob_d + 2'd1;
 			if (rob_deq >= ROB_ENTRIES-1)
 				rob_deq <= 6'd0;
-			else
+			else begin
 				rob_deq <= rob_deq + 2'd1;
+				insnCommitted <= insnCommitted + 2'd1;
+			end
 		end
 	end
 	else begin
-//		if (rob[rob_deq].cmt || rob[rob_deq].v==INV) begin
-		// IF it is not the right stream, advance past the instruction regardless
 		begin
 			rob[rob_deq].v <= INV;
 			rob[rob_deq].ui <= INV;
@@ -3677,36 +3696,14 @@ default:	;
 			if (rob_deq != rob_que) begin
 				if (rob_deq >= ROB_ENTRIES-1)
 					rob_deq <= 6'd0;
-				else
+				else begin
 					rob_deq <= rob_deq + 2'd1;
+					insnCommitted <= insnCommitted + 2'd1;
+				end
 			end
 		end
 	end
-/*
-	for (n = 0; n < 64; n = n + 1) begin
-		for (m = 0; m < 64; m = m + 1) begin
-			if (!rob[n].iav && rob[n].ias.rid==m && rob[m].cmt2) begin
-				rob[n].iav <= TRUE;
-				rob[n].ia <= rob[m].res;
-			end
-			if (!rob[n].ibv && rob[n].ibs.rid==m && rob[m].cmt2) begin
-				rob[n].ibv <= TRUE;
-				rob[n].ib <= rob[m].res;
-			end
-			if (!rob[n].icv && rob[n].ics.rid==m && rob[m].cmt2) begin
-				rob[n].icv <= TRUE;
-				rob[n].ic <= rob[m].res;
-			end
-			if (!rob[n].idv && rob[n].ids.rid==m && rob[m].cmt2) begin
-				rob[n].idv <= TRUE;
-				rob[n].id <= rob[m].res;
-			end
-			if (!rob[n].itv && rob[n].its.rid==m && rob[m].cmt2) begin
-				rob[n].itv <= TRUE;
-			end
-		end
-	end
-*/
+
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		for (m = 0; m < 5; m = m + 1) begin
 			if (!rob[n].iav && rob[n].ias.rid==funcUnit[m].rid && rob[n].ia_ele==funcUnit[m].ele) begin
@@ -3732,23 +3729,23 @@ default:	;
 	end
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		for (m = 0; m < ROB_ENTRIES; m = m + 1) begin
-			if (!rob[n].iav && rob[n].ias.rid==m && rob[n].ia_ele==rob[m].step && rob[m].cmt) begin
+			if (!rob[n].iav && rob[n].ias.rid==m && rob[n].ia_ele==rob[m].step && rob[m].cmt2) begin
 				rob[n].iav <= TRUE;
 				rob[n].ia <= rob[m].res;
 			end
-			if (!rob[n].ibv && rob[n].ibs.rid==m && rob[n].ib_ele==rob[m].step && rob[m].cmt) begin
+			if (!rob[n].ibv && rob[n].ibs.rid==m && rob[n].ib_ele==rob[m].step && rob[m].cmt2) begin
 				rob[n].ibv <= TRUE;
 				rob[n].ib <= rob[m].res;
 			end
-			if (!rob[n].icv && rob[n].ics.rid==m && rob[n].ic_ele==rob[m].step && rob[m].cmt) begin
+			if (!rob[n].icv && rob[n].ics.rid==m && rob[n].ic_ele==rob[m].step && rob[m].cmt2) begin
 				rob[n].icv <= TRUE;
 				rob[n].ic <= rob[m].res;
 			end
-			if (!rob[n].idv && rob[n].ids.rid==m && rob[n].id_ele==rob[m].step && rob[m].cmt) begin
+			if (!rob[n].idv && rob[n].ids.rid==m && rob[n].id_ele==rob[m].step && rob[m].cmt2) begin
 				rob[n].idv <= TRUE;
 				rob[n].id <= rob[m].res;
 			end
-			if (!rob[n].itv && rob[n].its.rid==m && rob[n].it_ele==rob[m].step && rob[m].cmt) begin
+			if (!rob[n].itv && rob[n].its.rid==m && rob[n].it_ele==rob[m].step && rob[m].cmt2) begin
 				rob[n].itv <= TRUE;
 			end
 		end
@@ -3756,7 +3753,6 @@ default:	;
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	// Decode
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-//	if (a2d_out.Stream == dcStream && pop_a2dd)// && !dcStall)
 	if (push_d2x) begin
 		if (decbuf.rfwr) begin
 			regfilesrc[fnNextAllocReg(decbuf.Rt[5:0])].rf <= 1'b1;
