@@ -51,8 +51,6 @@ always @*//(a2d_out, predicted_ip, ven)
 		decbuf.ip <= a2d_out.ip;
 		decbuf.pip <= predicted_ip;
 		decbuf.predict_taken <= a2d_out.predict_taken;
-		decbuf.Stream <= a2d_out.Stream;
-		decbuf.Stream_inc <= 1'b0;
 		decbuf.rfwr <= FALSE;
 		decbuf.vrfwr <= FALSE;
 		decbuf.Ra <= a2d_out.ir.r2.Ra;
@@ -163,7 +161,6 @@ always @*//(a2d_out, predicted_ip, ven)
 				decbuf.Rt <= {6'h0,a2d_out.ir[9:8]};
 				decbuf.imm.val <= {{40{a2d_out.ir[31]}},a2d_out.ir[31:10],2'h0};
 				decbuf.rfwr <= TRUE;
-				decbuf.Stream_inc <= 1'b1;
 			end
 		JALR:
 			begin

@@ -38,7 +38,7 @@
 import any1_pkg::*;
 
 module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,fpreci,rob_exec,ex_redirect,
-	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,
+	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,out,tid,
 	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q, rst_robx, new_robx, new_rob_exec,
 	ld_vtmp, vtmp, new_vtmp);
 input rst;
@@ -72,6 +72,8 @@ input [5:0] new_rob_exec;
 input ld_vtmp;
 output reg [63:0] vtmp;			// temporary register for vector operations
 input [63:0] new_vtmp;
+input out;
+input [5:0] tid;
 
 integer n;
 
@@ -140,6 +142,9 @@ fpCompare u1 (
 	// Lots to do here.
 	// Simple single cycle instructions are executed directly and the reorder buffer updated.
 	// Multi-cycle instructions are placed in instruction queues.
+	
+reg [5:0] last_tid;
+
 always @(posedge clk)
 if (rst) begin
 	rob_x <= 48'd0;
@@ -156,6 +161,7 @@ if (rst) begin
 	ex_redirect.current_ip <= RSTIP;
 	restore_rfsrc <= FALSE;
 	set_wfi <= FALSE;
+	last_tid <= 6'd0;
 	vtmp <= 64'h0;
 end
 else begin
@@ -177,8 +183,8 @@ else begin
 		rob_exec <= new_rob_exec;
 	end
 */
-	if (rob_x + 2'd1 < rob_q) begin
 	if (robi.v==VAL) begin
+		last_tid <= tid;
 		if (robi.dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, robi.ip, robi.ir,
 			robi.ia.val,robi.iav?"v":" ",robi.ib.val,robi.ibv?"v":" ",
@@ -195,6 +201,7 @@ else begin
 		end
 		else if (!robi.out) begin
 		//robi.res.tag <= robi.ir.tag;
+		robo.rid <= robi.rid;
 		robo.btag <= 4'd0;
 		robo.takb <= FALSE;
 		robo.vmask <= -64'd1;
@@ -744,6 +751,7 @@ else begin
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			// This does not wait for registers to be valid.
 			if (robi.iav && robi.ibv && robi.icv) begin
+				membufi.tid <= tid;
 				membufi.rid <= rob_exec;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
@@ -1594,7 +1602,6 @@ else begin
 			tMod();
 		end
 	end
-	end
 end
 
 
@@ -1634,7 +1641,6 @@ task tMod;
 begin
 	robo.cmt <= TRUE;
 	robo.cmt2 <= TRUE;
-	robo.out <= TRUE;
 	robo.update_rob <= TRUE;
 //	tIncExec();
 	robo.vcmt <= robi.step >= vl;

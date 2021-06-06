@@ -925,8 +925,19 @@ reg pop_f2ad,pop_a2dd,pop_d2xd;
 wire push_f2a = !ifStall && !f2a_full;// && rob_que+2'd1 != rob_deq;
 wire pop_f2a = !a2d_full && !f2a_empty;
 
-wire [5:0] que_nxt1 = rob_que + 2'd1 > ROB_ENTRIES-1 ? 6'd0 : rob_que + 2'd1;
-assign d2x_full = que_nxt1==rob_deq;
+function [5:0] fnNext;
+input [5:0] q;
+begin
+	if (q + 2'd1 > ROB_ENTRIES - 1)
+		fnNext = 6'd0;
+	else
+		fnNext = q + 2'd1;
+end
+endfunction
+
+wire [5:0] que_nxt1 = fnNext(rob_que);
+wire [5:0] que_nxt2 = fnNext(que_nxt1);
+assign d2x_full = que_nxt1==rob_deq || que_nxt2==rob_deq;
 wire push_a2d = !d2x_full && !a2d_full && !ifStall2;// && (!ifStall3 || ifStall4); //pop_f2ad;
 wire pop_a2d = !d2x_full && !vecStall && !ifStall3;
 //wire push_d2x = (a2d_v || push_vec) && (!ifStall || push_vec) && !d2x_full;
@@ -1117,8 +1128,8 @@ begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		if (m==rob_que)
 			done = 1;
-		if (!(rob[n].cmt && rob[n].cause==16'h0 || !rob[n].v) && !done && m != ridi)
-			pos = n;
+		if (!(rob[m].cmt && rob[m].cause==16'h0 || !rob[m].v) && !done && m != ridi)
+			pos = m;
 		m = m - 1;
 		if (m < 0)
 			m = ROB_ENTRIES-1;
@@ -1447,6 +1458,7 @@ end
 reg ld_vtmp;
 reg [63:0] new_vtmp;
 wire [63:0] vtmp;
+reg [5:0] tid;
 
 any1_execute uex1(
 	.rst(rst_i),
@@ -1476,7 +1488,9 @@ any1_execute uex1(
 	.new_rob_exec(new_rob_exec),
 	.ld_vtmp(ld_vtmp),
 	.new_vtmp(new_vtmp),
-	.vtmp(vtmp)
+	.vtmp(vtmp),
+	.out(robo.out),
+	.tid(tid)
 );
 
 reg zero_data;
@@ -1556,6 +1570,7 @@ reg [7:0] ip_cnt;
 reg [63:0] a2d_buf [0:127];
 reg [6:0] a2di;
 reg [5:0] decven2;
+reg [5:0] rob_pexec2;
 
 wire is_modif = is_modifier[ip[5:2]];
 wire cmts_ahead = fnCmtsAhead(membufo.rid);
@@ -1564,17 +1579,19 @@ always @*
 	tReadCSR(csrro,rob[rob_exec].imm[15:0]);
 
 // Choose the next instruction to execute.
-function [5:0] next_exec;
+function [6:0] fnNextExec;
+input [5:0] exec;
+input [5:0] que;
 begin
-	next_exec = rob_exec;
-	m = rob_que + 2'd1;
+	fnNextExec = {1'b1,6'd63};
+	m = que + 2'd1;
 	if (m >= ROB_ENTRIES)
 		m = 0;
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (rob[m].dec && rob[m].v && !rob[m].cmt2 && next_exec==rob_exec && !rob[m].out && m != rob_pexec) begin
+		if (rob[m].dec && rob[m].v && !rob[m].cmt && fnNextExec=={1'b1,6'd63} && !rob[m].out && m != rob_pexec && m != rob_pexec2 && !(robo.out && m==robo.rid)) begin
 			if (rob[m].iav && rob[m].ibv && rob[m].icv && rob[m].idv) begin
 				if (!(rob[m].ir.r2.opcode[6:5]==2'd3 && fnPriorLdSt(m)))
-					next_exec = m;
+					fnNextExec = {1'b0,m[5:0]};
 			end
 		end
 		m = m + 1;
@@ -1584,11 +1601,17 @@ begin
 end
 endfunction
 
+reg [6:0] next_exec;
+always @(posedge clk_g)
+	next_exec <= fnNextExec(rob_exec,rob_que);
+
 always @(posedge clk_g)
 if (rst_i) begin
 	ip <= RSTIP;
+	restart_ip <= RSTIP;
 	decven <= 6'd0;
 	mod_cnt <= 3'd0;
+	tid <= 6'd0;
 	nmif <= 1'b0;
 	wb_f2a_rst <= TRUE;
 	wb_a2d_rst <= TRUE;
@@ -1609,6 +1632,7 @@ if (rst_i) begin
 	rob_d <= 48'd0;
 	rob_q <= 48'd0;
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+		rob[n].rid = n[5:0];
 		rob[n].v <= VAL;
 		rob[n].cmt <= FALSE;
 		rob[n].cmt2 <= FALSE;
@@ -1629,12 +1653,12 @@ if (rst_i) begin
 		rob[n].id.val <= 64'd0;
 		rob[n].vmask <= 64'hFFFFFFFFFFFFFFFF;
 		rob[n].imm <= 64'd0;
-		rob[n].iav <= FALSE;
-		rob[n].ibv <= FALSE;
-		rob[n].icv <= FALSE;
-		rob[n].idv <= FALSE;
-		rob[n].itv <= FALSE;
-		rob[n].vmv <= FALSE;
+		rob[n].iav <= TRUE;
+		rob[n].ibv <= TRUE;
+		rob[n].icv <= TRUE;
+		rob[n].idv <= TRUE;
+		rob[n].itv <= TRUE;
+		rob[n].vmv <= TRUE;
 		rob[n].ias <= 1'b0;
 		rob[n].ibs <= 1'b0;
 		rob[n].ics <= 1'b0;
@@ -1649,6 +1673,8 @@ if (rst_i) begin
 		rob[n].res.val <= 64'd0;
 		rob[n].Rt <= 8'h00;
 	end
+	rob[0].cmt <= TRUE;
+	rob[0].cmt2 <= TRUE;
 	mstate <= MEMORY1;
 	mstk_state <= MEMORY1;
 	mul_state <= MUL1;
@@ -1726,6 +1752,8 @@ if (rst_i) begin
 	new_vtmp <= 64'd0;
 	decven2 <= 6'd0;
 	rob_exec <= 6'd0;
+	rob_pexec <= 6'd0;
+	rob_pexec2 <= 6'd0;
 	insnCommitted <= 48'd0;
 end
 else begin
@@ -2179,13 +2207,22 @@ else begin
 	// Multi-cycle instructions are placed in instruction queues.
 
 	// Search for ready-to execute instructions and move execute pointer there.
-	rob_exec <= next_exec();
+	if (next_exec[5:0]!=rob_exec) begin
+		rob_exec <= next_exec[5:0];
+	end
+	else
+		rob_exec <= 6'd63;
+	if (rob_exec != 6'd63) begin
+		rob_pexec <= rob_exec;
+		rob_pexec2 <= rob_pexec;
+	end
+	if (!next_exec[6])
+		tid <= tid + 2'd1;
 
 	$display("Execute");
 	$display("ip: %h  ir: %h  a:%h  b:%h  c:%h  d:%h  i:%h", exbufi.ip, exbufi.ir,exbufi.ia.val,exbufi.ib.val,exbufi.ic.val,exbufi.id.val,exbufi.imm.val);
-	rob_pexec <= rob_exec;
 	if (TRUE) begin
-		if (rob[rob_exec].dec) begin
+		if (rob[rob_exec].dec || TRUE) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, rob[rob_exec].ip, rob[rob_exec].ir,
 			rob[rob_exec].ia.val,rob[rob_exec].iav?"v":" ",rob[rob_exec].ib.val,rob[rob_exec].ibv?"v":" ",
 			rob[rob_exec].ic.val,rob[rob_exec].icv?"v":" ",rob[rob_exec].id.val,rob[rob_exec].idv?"v":" ",
@@ -2196,15 +2233,15 @@ else begin
 			if (robo.update_rob) begin
 				//rob[rob_pexec] <= robo;		// takes a lot more hardware
 				
-				rob[rob_pexec].wr_fu <= robo.wr_fu;
-				rob[rob_pexec].takb <= robo.takb;
-				rob[rob_pexec].cause <= robo.cause;
-				rob[rob_pexec].res <= robo.res;
-				rob[rob_pexec].cmt <= robo.cmt;
-				rob[rob_pexec].cmt2 <= robo.cmt2;
-				rob[rob_pexec].vcmt <= robo.vcmt;
-				rob[rob_pexec].out <= robo.out;
-				
+				rob[robo.rid].wr_fu <= robo.wr_fu;
+				rob[robo.rid].takb <= robo.takb;
+				rob[robo.rid].cause <= robo.cause;
+				rob[robo.rid].res <= robo.res;
+				rob[robo.rid].cmt <= robo.cmt;
+				rob[robo.rid].cmt2 <= robo.cmt2;
+				rob[robo.rid].vcmt <= robo.vcmt;
+				rob[robo.rid].out <= robo.out;
+
 			// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
 				if (robo.wr_fu) begin
 					funcUnit[FU_EXEC].ele <= robo.step;

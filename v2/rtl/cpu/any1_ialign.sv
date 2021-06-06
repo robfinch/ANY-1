@@ -45,7 +45,6 @@ output sInstAlignOut o;
 
 always @(i)
 begin
-	o.Stream <= i.Stream;
 	o.predict_taken <= i.predict_taken;
 	if (|i.ip[1:0])
   	o.ir <= {40'h0,FLT_IADR,16'h0};		// instruction alignment fault
