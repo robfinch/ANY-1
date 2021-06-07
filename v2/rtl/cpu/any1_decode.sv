@@ -83,6 +83,7 @@ always @*//(a2d_out, predicted_ip, ven)
 			case(a2d_out.ir.r2.func)
 			ABS:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			NOT:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+			TRANSFORM:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 			default:	;
 			endcase
 		R2:
@@ -169,7 +170,7 @@ always @*//(a2d_out, predicted_ip, ven)
 				decbuf.imm.val <= {{50{a2d_out.ir[31]}},a2d_out.ir[31:20],2'h0};
 				decbuf.rfwr <= TRUE;
 			end
-		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{50{a2d_out.ir[31]}},a2d_out.ir[31:26],a2d_out.ir[13:8],2'd0}; decbuf.branch <= TRUE; end
+		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{52{a2d_out.ir[31]}},a2d_out.ir[31:26],a2d_out.ir[13:10],2'd0}; decbuf.branch <= TRUE; end
 		LEA:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{a2d_out.ir.ld.disp[7]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; end
 		LDx:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{a2d_out.ir.ld.disp[7]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; end
 		LDxX: begin decbuf.Rt <= a2d_out.ir.ld.Rt; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end

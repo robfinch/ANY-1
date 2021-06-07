@@ -99,6 +99,8 @@ parameter VSLLV	= 6'h38;
 parameter VSRLV	= 6'h39;
 parameter VEX		= 6'h3A;
 parameter VEINS	= 6'h3B;
+parameter RW_COEFF = 6'h3E;
+
 // R1 ops
 parameter CTLZ	= 6'h00;
 parameter CTLO	= 6'h01;
@@ -107,6 +109,7 @@ parameter NOT		= 6'h04;
 parameter NEG		= 6'h05;
 parameter ABS		= 6'h06;
 parameter NABS	= 6'h07;
+parameter TRANSFORM = 6'h11;
 parameter V2BITS=	6'h18;
 parameter BITS2V=	6'h19;
 parameter SQRT	= 6'h1B;
@@ -186,6 +189,10 @@ parameter BTFLDX	= 8'h59;
 parameter BRMOD	= 8'h5A;
 parameter STRIDE= 8'h5C;
 
+parameter VIMOD	= 8'hD8;
+parameter VBTFLDX=8'hD9;
+parameter VSTRIDE=8'hDC;
+
 parameter LDx		= 8'h60;
 parameter LEA		= 4'd14;
 parameter CACHE	= 4'd15;
@@ -197,10 +204,10 @@ parameter STxX	= 8'h71;
 parameter FMOV	= 6'h00;
 parameter I2F		= 6'h02;
 parameter F2I		= 6'h03;
-parameter FSQRT	= 6'h0D;
+parameter FSQRT	= 6'h08;
 parameter FRM		= 6'h14;
-parameter CPYSGN= 6'd18;
-parameter SGNINV= 6'd19;
+parameter CPYSGN= 6'h18;
+parameter SGNINV= 6'h19;
 parameter FABS	= 6'h20;
 parameter FNABS	= 6'h21;
 parameter FNEG	= 6'h22;
@@ -291,11 +298,15 @@ parameter CSR_MBADADDR	= 16'h3007;
 parameter CSR_MTVEC = 16'h303?;
 parameter CSR_MPMSTACK	= 16'h3040;
 parameter CSR_MSTATUS	= 16'h3044;
+parameter CSR_MVSTEP= 16'h3046;
+parameter CSR_MVTMP	= 16'h3047;
 parameter CSR_MEIP	=	16'h3048;
 parameter CSR_DCR0	= 16'h4000;
 parameter CSR_DTVEC = 16'h403?;
 parameter CSR_DPMSTACK	= 16'h4040;
 parameter CSR_DSTATUS	= 16'h4044;
+parameter CSR_DVSTEP= 16'h4046;
+parameter CSR_DVTMP	= 16'h4047;
 parameter CSR_DEIP	=	16'h4048;
 parameter CSR_TIME	= 16'h?FE0;
 parameter CSR_MTIME	= 16'h3FE0;
@@ -403,11 +414,16 @@ parameter ST_FP1 = 3'd1;
 parameter ST_FP2 = 3'd2;
 parameter ST_FP3 = 3'd3;
 
+parameter ST_GR1 = 3'd1;
+parameter ST_GR2 = 3'd2;
+parameter ST_GR3 = 3'd3;
+
 parameter FU_EXEC	= 3'd0;
 parameter FU_MUL = 3'd1;
 parameter FU_DIV = 3'd2;
 parameter FU_MEM = 3'd3;
 parameter FU_FP	= 3'd4;
+parameter FU_GR = 3'd5;
 
 parameter pL1CacheLines = 64;
 parameter pL1LineSize = 512;
@@ -521,6 +537,13 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic [31:0] z;
+	logic [31:0] y;
+	logic [31:0] x;
+} Point;
+
+typedef struct packed
+{
 	logic rf;
 	logic [5:0] rid;
 } Rid;
@@ -540,28 +563,24 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] Stream;
-	logic [AWID-1:0] ip;
-	logic [AWID-1:0] pip;
+	Address ip;
+	Address pip;
 	logic predict_taken;
 	logic [511:0] cacheline;
 } sInstAlignIn;
 
 typedef struct packed
 {
-	logic [5:0] Stream;
-	logic [AWID-1:0] ip;
-	logic [AWID-1:0] pip;
+	Address ip;
+	Address pip;
 	logic predict_taken;
 	Instruction ir;
 } sInstAlignOut;
 
 typedef struct packed
 {
-	logic [5:0] Stream;
-	logic Stream_inc;
-	logic [AWID-1:0] ip;
-	logic [AWID-1:0] pip;	// predicted pc
+	Address ip;
+	Address pip;
 	logic predict_taken;
 	Instruction ir;
 	logic ui;							// unimplemented instruction
@@ -575,6 +594,7 @@ typedef struct packed
 	logic needRc;					// STx/CHK
 	logic veins;
 	logic vex;
+	logic vsrlv;
 	logic [5:0] step;
 	logic [5:0] RaStep;
 	logic [5:0] RbStep;
@@ -594,8 +614,6 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] Stream;
-	logic Stream_inc;
 	Instruction ir;
 	logic [AWID-1:0] ip;
 	logic [AWID-1:0] pip;	// predicted pc
@@ -621,8 +639,6 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] Stream;
-	logic Stream_inc;
 	logic [5:0] rid;
 	Instruction ir;
 	Value ia;
@@ -634,8 +650,7 @@ typedef struct packed
 typedef struct packed
 {
 	logic wr;
-	logic [5:0] Stream;
-	logic Stream_inc;
+	logic [5:0] tid;
 	logic [5:0] rid;
 	Instruction ir;
 	Value ia;
@@ -646,6 +661,18 @@ typedef struct packed
 	logic rfwr;
 	logic [7:0] Rt;
 } sMemoryIO;
+
+typedef struct packed
+{
+	logic wr;
+	logic [5:0] rid;
+	Instruction ir;
+	Value ia;
+	Value ib;
+	Value ic;
+	logic rfwr;
+	logic [7:0] Rt;	
+} sGraphicsOp;
 
 typedef struct packed
 {
@@ -662,13 +689,13 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic [5:0] Stream;
-	logic Stream_inc;
+	logic [5:0] rid;
 	logic v;
 	logic cmt;						// commit, clears as soon as committed
 	logic cmt2;						// sticky commit, clears when entry reassigned
 	logic vcmt;						// entire vector is committed.
 	logic dec;						// instruction decoded
+	logic out;						// instruction is out being executed
 	Address ip;
 	Instruction ir;
 	Instruction irmod;
@@ -676,6 +703,7 @@ typedef struct packed
 	logic ui;							// unimplemented instruction
 	logic jump;
 	Address jump_tgt;
+	logic [2:0] mod_cnt;
 	logic [3:0] btag;			// Branch tag
 	logic branch;
 	logic takb;
@@ -692,11 +720,11 @@ typedef struct packed
 	Value ib;
 	Value ic;
 	Value id;
-	Value [5:0] ia_ele;
-	Value [5:0] ib_ele;
-	Value [5:0] ic_ele;
-	Value [5:0] id_ele;
-	Value [5:0] it_ele;
+	logic [5:0] ia_ele;
+	logic [5:0] ib_ele;
+	logic [5:0] ic_ele;
+	logic [5:0] id_ele;
+	logic [5:0] it_ele;
 	Value imm;
 	Value vmask;						// vector mask register value
 	logic iav;
@@ -737,6 +765,7 @@ typedef struct packed
 {
 	logic wr;
 	logic [5:0] xrid;
+	logic [5:0] step;
 	Address redirect_ip;
 	Address current_ip;
 } sRedirect;

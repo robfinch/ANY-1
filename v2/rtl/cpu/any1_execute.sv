@@ -40,7 +40,7 @@ import any1_pkg::*;
 module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,fpreci,rob_exec,ex_redirect,
 	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,out,tid,
 	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q, rst_robx, new_robx, new_rob_exec,
-	ld_vtmp, vtmp, new_vtmp);
+	ld_vtmp, vtmp, new_vtmp, graphi);
 input rst;
 input clk;
 input sReorderEntry robi;
@@ -49,6 +49,7 @@ output sALUrec mulreci;
 output sALUrec divreci;
 output sALUrec fpreci;
 output sMemoryIO membufi;
+output sGraphicsOp graphi;
 input [5:0] rob_exec;
 output reg [47:0] rob_x;
 input [47:0] rob_q;
@@ -352,6 +353,19 @@ else begin
 									end
 									tMod(); 
 								end
+				TRANSFORM:
+					begin
+						graphi.rid <= rob_exec;
+						graphi.ir <= robi.ir;
+						graphi.ia <= robi.ia;
+						graphi.ib <= robi.ib;
+						graphi.ic <= robi.ic;
+						graphi.wr <= TRUE;
+						tMod();
+						robo.cmt <= FALSE;
+						robo.cmt2 <= FALSE;
+						robo.wr_fu <= FALSE;
+					end
 				default:	;
 				endcase
 			end

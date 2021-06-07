@@ -37,7 +37,7 @@
 
 import any1_pkg::*;
 
-module any1_TLB(rst_i, clk_i, asid_i, umode_i,xlaten_i,we_i,ladr_i,iacc_i,iadr_i,padr_o,acr_o,tlben_i,wrtlb_i,tlbadr_i,tlbdat_i,tlbdat_o,tlbmiss_o);
+module any1_TLB(rst_i, clk_i, asid_i, umode_i,xlaten_i,we_i,ladr_i,next_i,iacc_i,dacc_i,iadr_i,padr_o,acr_o,tlben_i,wrtlb_i,tlbadr_i,tlbdat_i,tlbdat_o,tlbmiss_o);
 parameter AWID=32;
 parameter RSTIP = 64'hFFFFFFFFFFFD0000;
 input rst_i;
@@ -47,7 +47,9 @@ input umode_i;
 input xlaten_i;
 input we_i;
 input [AWID-1:0] ladr_i;
+input next_i;
 input iacc_i;
+input dacc_i;
 input [AWID-1:0] iadr_i;
 output reg [AWID-1:0] padr_o;
 output reg [3:0] acr_o;
@@ -180,13 +182,8 @@ TLBRam u4 (
 );
 
 always @(posedge clk_g)
-if (rst_i)
-  padr_o[13:0] <= rstip[13:0];
-else
-  padr_o[13:0] <= iacc_i ? iadr_i[13:0] : ladr_i[13:0];
-
-always @(posedge clk_g)
 if (rst_i) begin
+  padr_o[13:0] <= rstip[13:0];
   padr_o[AWID-1:14] <= rstip[AWID-1:14];
 end
 else begin
@@ -196,40 +193,46 @@ else begin
     hit2 <= 1'b0;
     hit3 <= 1'b0;
   end
-  if (iacc_i) begin
-    padr_o[AWID-1:14] <= iadr_i[AWID-1:14];
-  end
-  else if (!umode_i || ladr_i[AWID-1:24]=={AWID-24{1'b1}}) begin
-    tlbmiss_o <= FALSE;
-    padr_o[AWID-1:14] <= ladr_i[AWID-1:14];
-    acr_o <= 4'b1111;
-  end
-  else if (tadr0[AWID+7:32]==ladr_i[AWID-1:24] && (tadr0[63:56]==asid_i || tadr0[55])) begin
-    tlbmiss_o <= FALSE;
-    padr_o[AWID-1:14] <= tadr0[AWID-15:0];
-    acr_o <= tadr0[51:48];
-    hit0 <= 1'b1;
-  end
-  else if (tadr1[AWID+7:32]==ladr_i[AWID-1:24] && (tadr1[63:56]==asid_i || tadr1[55])) begin
-    tlbmiss_o <= FALSE;
-    padr_o[AWID-1:14] <= tadr1[AWID-15:0];
-    acr_o <= tadr1[51:48];
-    hit1 <= 1'b1;
-  end
-  else if (tadr2[AWID+7:32]==ladr_i[AWID-1:24] && (tadr2[63:56]==asid_i || tadr2[55])) begin
-    tlbmiss_o <= FALSE;
-    padr_o[AWID-1:14] <= tadr2[AWID-15:0];
-    acr_o <= tadr2[51:48];
-    hit2 <= 1'b1;
-  end
-  else if (tadr3[AWID+7:32]==ladr_i[AWID-1:24] && (tadr3[63:56]==asid_i || tadr3[55])) begin
-    tlbmiss_o <= FALSE;
-    padr_o[AWID-1:14] <= tadr3[AWID-15:0];
-    acr_o <= tadr3[51:48];
-    hit3 <= 1'b1;
+	if (next_i)
+		padr_o <= padr_o + 5'd16;
+  else if (iacc_i)
+    padr_o <= iadr_i;
+  else if (dacc_i) begin
+    padr_o[13:0] <= ladr_i[13:0];
+	  if (!umode_i || ladr_i[AWID-1:24]=={AWID-24{1'b1}}) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[AWID-1:14] <= ladr_i[AWID-1:14];
+	    acr_o <= 4'b1111;
+	  end
+	  else if (tadr0[AWID+7:32]==ladr_i[AWID-1:24] && (tadr0[63:56]==asid_i || tadr0[55])) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[AWID-1:14] <= tadr0[AWID-15:0];
+	    acr_o <= tadr0[51:48];
+	    hit0 <= 1'b1;
+	  end
+	  else if (tadr1[AWID+7:32]==ladr_i[AWID-1:24] && (tadr1[63:56]==asid_i || tadr1[55])) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[AWID-1:14] <= tadr1[AWID-15:0];
+	    acr_o <= tadr1[51:48];
+	    hit1 <= 1'b1;
+	  end
+	  else if (tadr2[AWID+7:32]==ladr_i[AWID-1:24] && (tadr2[63:56]==asid_i || tadr2[55])) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[AWID-1:14] <= tadr2[AWID-15:0];
+	    acr_o <= tadr2[51:48];
+	    hit2 <= 1'b1;
+	  end
+	  else if (tadr3[AWID+7:32]==ladr_i[AWID-1:24] && (tadr3[63:56]==asid_i || tadr3[55])) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[AWID-1:14] <= tadr3[AWID-15:0];
+	    acr_o <= tadr3[51:48];
+	    hit3 <= 1'b1;
+	  end
+	  else
+	    tlbmiss_o <= TRUE;
   end
   else
-    tlbmiss_o <= TRUE;
+  	padr_o <= padr_o;
 end
 
 endmodule
