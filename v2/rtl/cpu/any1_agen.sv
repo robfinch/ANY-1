@@ -59,6 +59,7 @@ else
 	4'd2:	Sc <= 6'd2;
 	4'd3:	Sc <= 6'd3;
 	4'd7:	Sc <= 6'd3;
+	4'd15:	Sc <= 6'd3;
 	default:	Sc <= 6'd0;
 	endcase
 
@@ -75,6 +76,8 @@ else begin
 	STSx:	ea <= imm + ia.val + ic.val * step;
 	LDxVX:	ea <= imm + ia.val + ic.val;
 	STxVX:	ea <= imm + ia.val + ic.val;
+	CVLDSx:	ea <= imm + ia.val + ic.val * step;
+	CVSTSx:	ea <= imm + ia.val + ic.val * step;
 	default:	ea <= 32'd0;
 	endcase
 end

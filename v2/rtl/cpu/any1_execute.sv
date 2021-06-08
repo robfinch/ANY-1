@@ -198,7 +198,6 @@ else begin
 			robo.cmt <= TRUE;
 			robo.cmt2 <= TRUE;
 			robo.out <= TRUE;
-//			tIncExec();
 		end
 		else if (!robi.out) begin
 		//robi.res.tag <= robi.ir.tag;
@@ -749,6 +748,7 @@ else begin
 			// This does not wait for registers to be valid.
 			if (robi.iav && robi.ibv && robi.icv) begin
 				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
 				membufi.ib <= robi.ib;
@@ -765,8 +765,8 @@ else begin
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			// This does not wait for registers to be valid.
 			if (robi.iav && robi.ibv && robi.icv) begin
-				membufi.tid <= tid;
 				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
 				membufi.ib <= robi.ib;
@@ -785,6 +785,7 @@ else begin
 			if (robi.iav && robi.ibv && robi.icv) begin
 			if (robi.vmask[robi.step]) begin
 				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
 				membufi.ib <= robi.ib;
@@ -810,6 +811,7 @@ else begin
 			if (robi.iav && robi.ibv && robi.icv) begin
 			if (robi.vmask[robi.step]) begin
 				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
 				membufi.ib <= robi.ib;
@@ -824,11 +826,64 @@ else begin
 			end
 			else if (robi.irmod.im.z) begin
 				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
 				membufi.ir <= robi.ir;
 				membufi.ia <= robi.ia;
 				membufi.ib <= robi.ib;
 				membufi.ic <= robi.ic;
 				membufi.dato <= 64'd0;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				robo.cmt <= FALSE;
+				robo.cmt2 <= FALSE;
+				robo.wr_fu <= FALSE;
+			end
+			else begin
+				tDoOp(64'd0);
+				robo.vrfwr <= FALSE;
+			end
+			end
+		CVLDSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			if (robi.iav && robi.ibv && robi.icv) begin
+			if (robi.vmask[robi.step]) begin
+				vtmp[5:0] <= vtmp[5:0] + 2'd1;
+				membufi.rid <= rob_exec;
+				membufi.step <= vtmp[5:0];
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				robo.cmt <= FALSE;
+				robo.cmt2 <= FALSE;
+				robo.wr_fu <= FALSE;
+			end
+			else if (robi.irmod.im.z)
+				tDoOp(64'd0);
+			else begin
+				tDoOp(64'd0);
+				robo.vrfwr <= FALSE;
+			end
+			end
+		CVSTSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			if (robi.iav && robi.ibv && robi.icv) begin
+			if (robi.vmask[robi.step]) begin
+				vtmp[5:0] <= vtmp[5:0] + 2'd1;
+				membufi.rid <= rob_exec;
+				membufi.step <= vtmp[5:0];
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
 				membufi.imm <= robi.imm;
 				membufi.wr <= TRUE;
 				tMod();
@@ -864,6 +919,7 @@ else begin
 			TLBRW:
 				if (robi.iav && robi.ibv) begin
 					membufi.rid <= rob_exec;
+					membufi.step <= robi.step;
 					membufi.ir <= robi.ir;
 					membufi.ia <= robi.ia;
 					membufi.ib <= robi.ib;
@@ -894,7 +950,6 @@ else begin
 				case(robi.ir.r2.func)
 				ABS:	begin
 								robo.update_rob <= TRUE;
-								tIncExec();
 								if (robi.vmask.val[robi.step]) begin
 									robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia;
 									robo.cmt <= TRUE;
@@ -905,7 +960,6 @@ else begin
 						  end
 				NABS:	begin
 								robo.update_rob <= TRUE;
-								tIncExec();
 								if (robi.vmask.val[robi.step]) begin
 									robo.res.val <= robi.ia[63] ? robi.ia : -robi.ia;
 									robo.cmt <= TRUE;
@@ -916,7 +970,6 @@ else begin
 						  end
 				NEG:	begin
 								robo.update_rob <= TRUE;
-								tIncExec();
 								if (robi.vmask.val[robi.step]) begin
 									robo.res.val <= -robi.ia;
 									robo.cmt <= TRUE;
@@ -927,7 +980,6 @@ else begin
 						  end
 				NOT:	begin
 								robo.update_rob <= TRUE;
-								tIncExec();
 								if (robi.vmask.val[robi.step]) begin
 									robo.res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0;
 									robo.cmt <= TRUE;
@@ -938,7 +990,6 @@ else begin
 							end
 				CTLZ:	begin
 								robo.update_rob <= TRUE;
-								tIncExec();
 								if (robi.vmask.val[robi.step]) begin
 									robo.res.val <= cntlzo;
 									robo.cmt <= TRUE;
@@ -949,7 +1000,6 @@ else begin
 							end
 				CTPOP:begin
 								robo.update_rob <= TRUE;
-								tIncExec();
 								if (robi.vmask.val[robi.step]) begin
 									robo.res.val <= cntpopo;
 									robo.cmt <= TRUE;
@@ -1611,7 +1661,7 @@ else begin
 	end
 	else begin
 		if (robi.v==INV)
-			tMod();//tIncExec();
+			tMod();
 		else if (robi.dec) begin
 			tMod();
 		end
@@ -1619,29 +1669,15 @@ else begin
 end
 
 
-task tIncExec;
-begin
-	/*
-	rob_x <= rob_x + 2'd1;
-	if (rob_exec >= ROB_ENTRIES-1)
-		rob_exec <= 6'd0;
-	else
-		rob_exec <= rob_exec + 2'd1;
-	*/
-end
-endtask
-
-
 task tDoOp;
-input [63:0] res;
+input Value res;
 begin
 	robo.update_rob <= TRUE;
 	robo.out <= TRUE;
-//	tIncExec();
 	if (robi.vmask.val[robi.step])
-		robo.res.val <= res;
+		robo.res.val <= res.val;
 	else if (robi.irmod.im.z)
-		robo.res.val <= 64'd0;
+		robo.res.val <= `VALUE_SIZE'd0;
 	robo.cmt <= TRUE;
 	robo.cmt2 <= TRUE;
 	if (robi.step >= vl) begin
@@ -1656,7 +1692,6 @@ begin
 	robo.cmt <= TRUE;
 	robo.cmt2 <= TRUE;
 	robo.update_rob <= TRUE;
-//	tIncExec();
 	robo.vcmt <= robi.step >= vl;
 	if (robi.step >= vl) begin
 		vtmp <= 64'h0;

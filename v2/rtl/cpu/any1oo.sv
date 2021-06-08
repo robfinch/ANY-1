@@ -382,12 +382,12 @@ any1_agen uagen
 (
 	.rst(rst_i),
 	.clk(clk_g),
-	.ir(rob[membufo.rid].ir),
-	.ia(rob[membufo.rid].ia),
-	.ib(rob[membufo.rid].ib),
-	.ic(rob[membufo.rid].ic),
-	.imm(rob[membufo.rid].imm),
-	.step(rob[membufo.rid].step),
+	.ir(membufo.ir),
+	.ia(membufo.ia),
+	.ib(membufo.ib),
+	.ic(membufo.ic),
+	.imm(membufo.imm),
+	.step(membufo.step),
 	.ea(ea)
 );
 
@@ -1161,22 +1161,17 @@ endfunction
 // one.
 function fnPriorLdSt;
 input [5:0] ridi;
-integer n, m, done;
+integer n;
+reg [ROB_ENTRIES-1:0] ldst_mask;
 begin
-	m = ridi - 1;
-	done = 0;
-	fnPriorLdSt = FALSE;
-	if (m < 0)
-		m = ROB_ENTRIES - 1;
+	ldst_mask <= {ROB_ENTRIES{1'b0}};
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (m==rob_deq)
-			done = 1;
-		if (rob[m].ir.r2.opcode[6:5]==2'd3 && !rob[m].cmt && rob[m].v && !done)
-			fnPriorLdSt = TRUE;
-		m = m - 1;
-		if (m < 0)
-			m = ROB_ENTRIES - 1;
+		if (rob[n].rob_q < rob[ridi].rob_q) begin
+			if (rob[n].ir.r2.opcode[6:5]==2'd3 && !rob[n].cmt && rob[n].v)
+				ldst_mask[n] <= 1'b1;
+		end
 	end
+	fnPriorLdSt = |ldst_mask;
 end
 endfunction
 
@@ -1635,25 +1630,60 @@ always @*
 
 reg [47:0] exec_misses;
 
+reg [ROB_ENTRIES-1:0] next_exec_list;
+
+// Instruction Scheduler
 // Choose the next instruction to execute.
 function [6:0] fnNextExec;
 input [5:0] exec;
 input [5:0] que;
+integer j,k;
 begin
 	fnNextExec = {1'b1,6'd63};
-	m = que + 2'd1;
-	if (m >= ROB_ENTRIES)
-		m = 0;
+	next_exec_list <= 64'd0;
+	k = 0;
+	// Search for and find all instructions that might be executed in this clock
+	// cycle.
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (rob[m].dec && rob[m].v && !rob[m].cmt && fnNextExec=={1'b1,6'd63} && !rob[m].out && m != rob_pexec && m != rob_pexec2 && !(robo.out && m==robo.rid)) begin
-			if (rob[m].iav && rob[m].ibv && rob[m].icv && rob[m].idv) begin
-				if (!(rob[m].ir.r2.opcode[6:5]==2'd3 && fnPriorLdSt(m)))
-					fnNextExec = {1'b0,m[5:0]};
+		if (rob[n].dec && rob[n].v && !rob[n].cmt && fnNextExec=={1'b1,6'd63} && !rob[n].out && n != rob_pexec && n != rob_pexec2 && !(robo.out && m==robo.rid)) begin
+			if (rob[n].iav && rob[n].ibv && rob[n].icv && rob[n].idv) begin		// Args are valid
+				if (!(rob[n].ir.r2.opcode[6:5]==2'd3 && fnPriorLdSt(n))) begin	// and loads / stores are in order
+					next_exec_list[n] = 1'b1;
+					k = 1;
+					//fnNextExec = {1'b0,m[5:0]};
+				end
 			end
 		end
-		m = m + 1;
-		if (m >= ROB_ENTRIES)
-			m = 0;
+	end
+	if (k) begin
+		// Default to choose the first instruction of the list, as that is most
+		// likely the oldest one to be executed and has the greatest chance of
+		// dependencies.
+		m = que - 2'd1;
+		if (m < 0)
+			m = ROB_ENTRIES - 1;
+		for (j = 0; j < ROB_ENTRIES; j = j + 1) begin
+			if (next_exec_list[m])
+				fnNextExec = m;
+			m = m - 2'd1;
+			if (m < 0)
+				m = ROB_ENTRIES - 1;
+		end
+		// Now search for branch instructions to be executed. We want to 
+		// execute branches as early as possible so that there are not a lot of
+		// unexecutable instructions loaded into the buffer.
+		m = que - 2'd1;
+		if (m < 0)
+			m = ROB_ENTRIES - 1;
+		for (j = 0; j < ROB_ENTRIES; j = j + 1) begin
+			if (next_exec_list[m]) begin
+				if (rob[m].branch)
+					fnNextExec = m;
+			end
+			m = m - 2'd1;
+			if (m < 0)
+				m = ROB_ENTRIES - 1;
+		end
 	end
 end
 endfunction
@@ -1841,6 +1871,7 @@ else begin
 	wb_a2d_rst <= FALSE;
 	wb_d2x_rst <= FALSE;
 	x2m_rd <= FALSE;
+	x2g_rd <= FALSE;
 	x2mul_rd <= FALSE;
 	x2mul_wr <= FALSE;
 	x2div_rd <= FALSE;
@@ -4267,7 +4298,7 @@ ST_GR3:
 		rob[grapho.rid].cmt <= TRUE;
 		rob[grapho.rid].cmt2 <= TRUE;
 		funcUnit[FU_GR].rid <= grapho.rid;
-		funcUnit[FU_FP].ele <= rob[grapho.rid].step;
+		funcUnit[FU_GR].ele <= rob[grapho.rid].step;
 		case(grapho.ir.r2.opcode)
 		R1:
 			case(fpreco.ir.r2.func)
