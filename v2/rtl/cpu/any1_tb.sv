@@ -4,7 +4,7 @@ import any1_pkg::*;
 `define IMOD_INSN	{24'h0,IMOD}
 `define ADD1_INSN	{12'h001,6'h04,6'h04,ADDI|8'h80}
 `define ADD2_INSN	{12'h002,6'h07,6'h06,ADDI}
-`define ADD3_INSN	{12'h002,6'h47,6'h46,ADDI}
+`define ADD3_INSN	{12'h002,6'd47,6'd46,ADDI}
 `define LDO_INSN	{12'h000,6'h00,6'h08,LDx}
 `define STO0_INSN	{6'h00,6'h06,6'h00,6'h00,STx}
 `define STO1_INSN	{6'h00,6'h06,6'h00,6'h01,STx}

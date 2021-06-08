@@ -75,6 +75,7 @@ always @*//(a2d_out, predicted_ip, ven)
 		decbuf.is_mod <= a2d_out.ir.r2.opcode[7:4]==4'h5;
 		decbuf.needRc <= FALSE;
 		decbuf.imm.val <= 64'd0;
+		decbuf.mem_op <= a2d_out.ir.r2.opcode[6:5]==2'd3;
 //		dcRedirectIp <= a2d_out.ip + {{25{a2d_out.ir[63]}},a2d_out.ir[63:28],3'h0};
 		case(a2d_out.ir.r2.opcode)
 		BRK:	decbuf.ui <= FALSE;

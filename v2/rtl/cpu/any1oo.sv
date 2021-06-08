@@ -788,7 +788,7 @@ initial begin
   end
 end
 
-always @(ihit1a or ihit1b or ihit1c or ihit1d)
+always_comb
 begin
   case(1'b1)
   ihit1a: ic_rway <= 2'b00;
@@ -800,7 +800,7 @@ begin
 end
 
 // For victim cache update
-always @(ictag or ip or ihit1a or ihit1b or ihit1c or ihit1d)
+always_comb
 begin
   case(1'b1)
   ihit1a: ic_tag <= ictag[0][ip[12:6]];
@@ -1157,24 +1157,6 @@ begin
 end
 endfunction
 
-// Detect if there are any load/store instruction in the queue before this
-// one.
-function fnPriorLdSt;
-input [5:0] ridi;
-integer n;
-reg [ROB_ENTRIES-1:0] ldst_mask;
-begin
-	ldst_mask <= {ROB_ENTRIES{1'b0}};
-	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (rob[n].rob_q < rob[ridi].rob_q) begin
-			if (rob[n].ir.r2.opcode[6:5]==2'd3 && !rob[n].cmt && rob[n].v)
-				ldst_mask[n] <= 1'b1;
-		end
-	end
-	fnPriorLdSt = |ldst_mask;
-end
-endfunction
-
 // Store operations use Rc.
 function regValid;
 input [7:0] rg;
@@ -1304,8 +1286,8 @@ ALU_fifo ux2fp
   .wr_en(!x2fp_full && fpreci.wr),	// input wire wr_en
   .rd_en(x2fp_rd),  // input wire rd_en
   .dout(fpreco),    // output wire [134 : 0] dout
-  .full(x2dfp_full),    // output wire full
-  .empty(x2dfp_empty)  		// output wire empty
+  .full(x2fp_full),    // output wire full
+  .empty(x2fp_empty)  		// output wire empty
 );
 
 if_redirect_fifo udc2if
@@ -1388,7 +1370,7 @@ assign fcmp_res = fcmp_o[1] ? {FPWID{1'd1}} : fcmp_o[0] ? 1'd0 : 1'd1;
 i2f u2 (.clk(clk_g), .ce(1'b1), .op(~fpreco.ir.r2.Rb[0]), .rm(rmq), .i(fpreco.a.val), .o(itof_res));
 f2i u3 (.clk(clk_g), .ce(1'b1), .op(~fpreco.ir.r2.Rb[0]), .i(fpreco.a.val), .o(ftoi_res), .overflow());
 fpAddsub u4 (.clk(clk_g), .ce(1'b1), .rm(rmq), .op(fltfunct5==FSUB), .a(fpreco.a.val), .b(fpreco.b.val), .o(fas_o));
-fpMultiply u5 (.clk(clk_g), .ce(1'b1), .a(fpreco.a.val), .b(fpreco.b.val), .o(fmul_o), .sign_exe(), .inf(), .overflow(nmul_of), .underflow(mul_uf));
+fpMultiply u5 (.clk(clk_g), .ce(1'b1), .a(fpreco.a.val), .b(fpreco.b.val), .o(fmul_o), .sign_exe(), .inf(), .overflow(mul_of), .underflow(mul_uf));
 fpDivide u6 (.rst(rst_i), .clk(clk_g), .clk4x(1'b0), .ce(1'b1), .ld(ld), .op(1'b0),
 	.a(fpreco.a.val), .b(fpreco.b.val), .o(fdiv_o), .done(), .sign_exe(), .overflow(div_of), .underflow(div_uf));
 fpSqrt u7 (.rst(rst_i), .clk(clk_g), .ce(1'b1), .ld(ld),
@@ -1397,7 +1379,7 @@ fpFMA u14
 (
 	.clk(clk_g),
 	.ce(1'b1),
-	.op(opcode==MSUB||opcode==NMSUB),
+	.op(fpreco.ir.r2.opcode==MSUB||fpreco.ir.r2.opcode==NMSUB),
 	.rm(rmq),
 	.a(fpreco.ir.r2.opcode==NMADD||fpreco.ir.r2.opcode==NMSUB ? {~fpreco.a.val[FPWID-1],fpreco.a.val[FPWID-2:0]} : fpreco.a.val),
 	.b(fpreco.b.val),
@@ -1630,68 +1612,20 @@ always @*
 
 reg [47:0] exec_misses;
 
-reg [ROB_ENTRIES-1:0] next_exec_list;
+// Wakeup list, one bit for each instruction.
+wire [ROB_ENTRIES-1:0] wakeup_list;
+wire [6:0] next_exec;
 
-// Instruction Scheduler
-// Choose the next instruction to execute.
-function [6:0] fnNextExec;
-input [5:0] exec;
-input [5:0] que;
-integer j,k;
-begin
-	fnNextExec = {1'b1,6'd63};
-	next_exec_list <= 64'd0;
-	k = 0;
-	// Search for and find all instructions that might be executed in this clock
-	// cycle.
-	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (rob[n].dec && rob[n].v && !rob[n].cmt && fnNextExec=={1'b1,6'd63} && !rob[n].out && n != rob_pexec && n != rob_pexec2 && !(robo.out && m==robo.rid)) begin
-			if (rob[n].iav && rob[n].ibv && rob[n].icv && rob[n].idv) begin		// Args are valid
-				if (!(rob[n].ir.r2.opcode[6:5]==2'd3 && fnPriorLdSt(n))) begin	// and loads / stores are in order
-					next_exec_list[n] = 1'b1;
-					k = 1;
-					//fnNextExec = {1'b0,m[5:0]};
-				end
-			end
-		end
-	end
-	if (k) begin
-		// Default to choose the first instruction of the list, as that is most
-		// likely the oldest one to be executed and has the greatest chance of
-		// dependencies.
-		m = que - 2'd1;
-		if (m < 0)
-			m = ROB_ENTRIES - 1;
-		for (j = 0; j < ROB_ENTRIES; j = j + 1) begin
-			if (next_exec_list[m])
-				fnNextExec = m;
-			m = m - 2'd1;
-			if (m < 0)
-				m = ROB_ENTRIES - 1;
-		end
-		// Now search for branch instructions to be executed. We want to 
-		// execute branches as early as possible so that there are not a lot of
-		// unexecutable instructions loaded into the buffer.
-		m = que - 2'd1;
-		if (m < 0)
-			m = ROB_ENTRIES - 1;
-		for (j = 0; j < ROB_ENTRIES; j = j + 1) begin
-			if (next_exec_list[m]) begin
-				if (rob[m].branch)
-					fnNextExec = m;
-			end
-			m = m - 2'd1;
-			if (m < 0)
-				m = ROB_ENTRIES - 1;
-		end
-	end
-end
-endfunction
-
-
-reg [6:0] next_exec;
-always @(posedge clk_g)
-	next_exec <= fnNextExec(rob_exec,rob_que);
+any1_scheduler usched1
+(
+	.rob(rob),
+	.rob_que(rob_que),
+	.rob_pexec(rob_pexec),
+	.rob_pexec2(rob_pexec2),
+	.robo(robo),
+	.wakeup_list(wakeup_list),
+	.selection(next_exec)
+);
 
 always @(posedge clk_g)
 if (rst_i) begin
@@ -2061,6 +1995,7 @@ else begin
 		rob[rob_que].vrfwr <= decbuf.vrfwr;
 		rob[rob_que].branch <= decbuf.branch;
 		rob[rob_que].jump <= decbuf.jump;
+		rob[rob_que].mem_op <= decbuf.mem_op;
 		rob[rob_que].dec <= TRUE;
 		rob[rob_que].cmt <= FALSE;
 		rob[rob_que].cmt2 <= FALSE;
