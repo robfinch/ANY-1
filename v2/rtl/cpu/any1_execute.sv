@@ -184,7 +184,7 @@ else begin
 		rob_exec <= new_rob_exec;
 	end
 */
-	if (robi.v==VAL) begin
+	if (robi.v==VAL && rob_exec != 6'd63) begin
 		last_tid <= tid;
 		if (robi.dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, robi.ip, robi.ir,
@@ -732,7 +732,7 @@ else begin
 			if (robi.iav) begin
 				robo.jump <= TRUE;
 				robo.jump_tgt <= robi.ia.val + robi.imm.val;
-				robo.jump_tgt[1:0] <= 3'd0;
+				robo.jump_tgt[1:0] <= 2'd0;
 				robo.res <= robi.ip + {robi.ir[13:10],2'b0};
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
@@ -741,6 +741,38 @@ else begin
 				ex_redirect.current_ip <= robi.ip;
 				ex_redirect.step <= 6'd0;
 				ex_redirect.xrid <= rob_exec;
+				ex_redirect.wr <= TRUE;
+				tMod();
+			end
+		JAL:
+			begin
+				robo.jump <= TRUE;
+				robo.jump_tgt <= {{40{robi.ir[31]}},robi.ir[31:10],2'h0};
+				robo.jump_tgt[1:0] <= 2'd0;
+				robo.res.val <= robi.ip + 4'd4;
+				f2a_rst <= TRUE;
+				a2d_rst <= TRUE;
+				d2x_rst <= TRUE;
+				ex_redirect.redirect_ip <= {{40{robi.ir[31]}},robi.ir[31:10],2'h0};
+				ex_redirect.current_ip <= robi.ip;
+				ex_redirect.xrid <= rob_exec;
+				ex_redirect.step <= 6'd0;
+				ex_redirect.wr <= TRUE;
+				tMod();
+			end
+		BAL:
+			begin
+				robo.jump <= TRUE;
+				robo.jump_tgt <= robi.ip + {{40{robi.ir[31]}},robi.ir[31:10],2'h0};
+				robo.jump_tgt[1:0] <= 2'd0;
+				robo.res.val <= robi.ip + 4'd4;
+				f2a_rst <= TRUE;
+				a2d_rst <= TRUE;
+				d2x_rst <= TRUE;
+				ex_redirect.redirect_ip <= robi.ip + {{40{robi.ir[31]}},robi.ir[31:10],2'h0};
+				ex_redirect.current_ip <= robi.ip;
+				ex_redirect.xrid <= rob_exec;
+				ex_redirect.step <= 6'd0;
 				ex_redirect.wr <= TRUE;
 				tMod();
 			end
@@ -1662,7 +1694,7 @@ else begin
 	else begin
 		if (robi.v==INV)
 			tMod();
-		else if (robi.dec) begin
+		else if (robi.dec && rob_exec != 6'd63) begin
 			tMod();
 		end
 	end

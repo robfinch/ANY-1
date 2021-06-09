@@ -180,7 +180,7 @@ always @*//(a2d_out, predicted_ip, ven)
 		LDxX: begin decbuf.Rt <= a2d_out.ir.ld.Rt; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 		LDSx: begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{56{a2d_out.ir.ld.disp[7]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; end
 		LDxVX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{56{a2d_out.ir.ld.disp[7]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; end
-		STx:	begin decbuf.Rt <= 6'd0; decbuf.Rc <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{56{a2d_out.ir.st.disphi[1]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRc <= TRUE; end
+		STx:	begin decbuf.Rt <= 6'd0; decbuf.rfwr <= FALSE; decbuf.imm.val <= {{56{a2d_out.ir.st.disphi[1]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; end
 		STxX: begin decbuf.Rt <= 6'd0; decbuf.ui <= FALSE; end
 		STSx: begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{56{a2d_out.ir.st.disphi[1]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; end
 		STxVX:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{56{a2d_out.ir.st.disphi[1]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; end

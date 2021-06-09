@@ -39,8 +39,9 @@
 import any1_pkg::*;
 import fp::*;
 
-module any1oo(rst_i, clk_i, wc_clk_i, nmi_i, irq_i, cause_i,
+module any1oo(hartid_i, rst_i, clk_i, wc_clk_i, nmi_i, irq_i, cause_i,
 	vpa_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o, dat_i, dat_o, sr_o, cr_o, rb_i);
+input [63:0] hartid_i;
 input rst_i;
 input clk_i;
 input wc_clk_i;
@@ -680,7 +681,7 @@ initial begin
   end
 end
 
-always @*
+always_comb
 begin
   case(1'b1)
   dhit1a: dc_rway <= 2'b00;
@@ -1163,8 +1164,8 @@ input [7:0] rg;
 begin
 	regValid = 	rg[5:0]==6'd0 ||
 							rg[5:0]==6'd63 ||
-							regfilesrc[regmap[rg[5:0]]].rf == 1'd0 ||
-							rob[regfilesrc[regmap[rg[5:0]]].rid].cmt
+							regfilesrc[rg[5:0]].rf == 1'd0 ||
+							rob[regfilesrc[rg[5:0]].rid].cmt
 							;
 end
 endfunction
@@ -1176,7 +1177,33 @@ begin
 end
 endfunction
 
-always @*
+always_comb
+	if (decbuf.Ravec)
+		exbufi.ia.val <= decbuf.Ra[5:0]==6'd0 ? 64'd0 : vregfilesrc[decbuf.Ra[5:0]].rf==1'b0 ? vrfoA : 64'hDEADEADDEADDEAD;
+	else if (decbuf.Ramask)
+		exbufi.ia.val <= vregfilesrc[decbuf.Ra[2:0]].rf==1'b0 ? vm_regfile[decbuf.Ra[2:0]] : 64'hDEADEADDEADDEAD;
+	else if (decbuf.Ra[5:0]==6'd0)
+		exbufi.ia.val <= 64'd0;
+	else if (decbuf.Ra[5:0]==6'd63)
+		exbufi.ia.val <= decbuf.ip;
+	else if (regfilesrc[decbuf.Ra[5:0]].rf)
+		exbufi.ia.val <= rob[regfilesrc[decbuf.Ra[5:0]].rid].res.val;
+	else
+		exbufi.ia.val <= regfile[decbuf.Ra[5:0]].val;
+
+always_comb
+	if (!decbuf.needRc)
+		exbufi.ic.val <= 64'd0;
+	else if (decbuf.Rc[5:0]==6'd0)
+		exbufi.ic.val <= 64'd0;
+	else if (decbuf.Rc[5:0]==6'd63)
+		exbufi.ic.val <= decbuf.ip;
+	else if (regfilesrc[decbuf.Rc[5:0]].rf)
+		exbufi.ic.val <= rob[regfilesrc[decbuf.Rc[5:0]].rid].res.val; 
+	else
+		exbufi.ic.val <= regfile[decbuf.Rc[5:0]].val;
+
+always_comb
 begin
 	exbufi.ip <= decbuf.ip;
 	exbufi.pip <= decbuf.pip;
@@ -1184,22 +1211,12 @@ begin
 	exbufi.branch <= decbuf.branch;
 	exbufi.ir <= decbuf.ir;
 	exbufi.rfwr <= decbuf.rfwr;
-	if (decbuf.Ravec)
-		exbufi.ia.val <= decbuf.Ra[5:0]==6'd0 ? 64'd0 : vregfilesrc[decbuf.Ra[5:0]].rf==1'b0 ? vrfoA : 64'hDEADEADDEADDEAD;
-	else if (decbuf.Ramask)
-		exbufi.ia.val <= vregfilesrc[decbuf.Ra[2:0]].rf==1'b0 ? vm_regfile[decbuf.Ra[2:0]] : 64'hDEADEADDEADDEAD;
-	else
-		exbufi.ia.val <= decbuf.Ra[5:0]==6'd0 ? 64'd0 : decbuf.Ra[5:0]==6'd63 ? decbuf.ip : regfilesrc[regmap[decbuf.Ra[5:0]]].rf ? rob[regfilesrc[regmap[decbuf.Ra[5:0]]].rid].res.val : regfile[regmap[decbuf.Ra]].val;
 	if (decbuf.Rbvec)
 		exbufi.ib.val <= decbuf.Rb[5:0]==6'd0 ? 64'd0 : vregfilesrc[decbuf.Rb[5:0]].rf==1'b0 ? vrfoB : 64'hDEADEADDEADDEAD;
 	else if (decbuf.Rbmask)
 		exbufi.ib.val <= vregfilesrc[decbuf.Rb[2:0]].rf==1'b0 ? vm_regfile[decbuf.Rb[2:0]] : 64'hDEADEADDEADDEAD;
 	else
-		exbufi.ib.val <= decbuf.Rb[5:0]==6'd0 ? 64'd0 : decbuf.Rb[5:0]==6'd63 ? decbuf.ip : regfilesrc[regmap[decbuf.Rb[5:0]]].rf ? rob[regfilesrc[regmap[decbuf.Rb[5:0]]].rid].res.val : regfile[regmap[decbuf.Rb]].val;
-	if (decbuf.needRc)
-		exbufi.ic.val <= decbuf.Rc[5:0]==6'd0 ? 64'd0 : decbuf.Rc[5:0]==6'd63 ? decbuf.ip : regfilesrc[regmap[decbuf.Rc[5:0]]].rf ? rob[regfilesrc[regmap[decbuf.Rc[5:0]]].rid].res.val : regfile[regmap[decbuf.Rc]].val;
-	else
-		exbufi.ic.val <= 64'd0;
+		exbufi.ib.val <= decbuf.Rb[5:0]==6'd0 ? 64'd0 : decbuf.Rb[5:0]==6'd63 ? decbuf.ip : regfilesrc[decbuf.Rb[5:0]].rf ? rob[regfilesrc[decbuf.Rb[5:0]].rid].res.val : regfile[decbuf.Rb[5:0]].val;
 	exbufi.iav <= decbuf.Ravec ? (decbuf.Ra[5:0]==6'd0 || vregfilesrc[decbuf.Ra[5:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Ra[2:0]].rf==1'b0 : regValid(decbuf.Ra);
 	exbufi.ibv <= decbuf.Rbvec ? (decbuf.Rb[5:0]==6'd0 || vregfilesrc[decbuf.Rb[5:0]].rf==1'b0) : decbuf.Rbmask ? vm_regfilesrc[decbuf.Rb[2:0]].rf==1'b0 : regValid(decbuf.Rb);
 	exbufi.icv <= regValid(decbuf.Rc) || !decbuf.needRc;
@@ -1861,6 +1878,7 @@ else begin
 			dc2if_redirect_rd3 <= FALSE;
 			ip <= dc_redirecto.redirect_ip;
 			decven <= dc_redirecto.step;
+			$stop;
 		end
 		else if (predict_taken & btben)
 			ip <= btb_predicted_ip;
@@ -1930,7 +1948,7 @@ else begin
 
 	if (push_d2x) begin
 		if (decbuf.rfwr)
-			tAllocReg(decbuf.Rt,rob[rob_que].pRt);
+//			tAllocReg(decbuf.Rt,rob[rob_que].pRt);
 		rob[rob_que].rob_q <= rob_q;
 		rob[rob_que].v <= VAL;
 		rob[rob_que].predict_taken <= exbufi.predict_taken;
@@ -1973,7 +1991,7 @@ else begin
 			rob[rob_que].ias <= vregfilesrc[decbuf.Ra[5:0]];
 		else
 `endif
-			rob[rob_que].ias <= regfilesrc[regmap[decbuf.Ra[5:0]]];
+			rob[rob_que].ias <= regfilesrc[decbuf.Ra[5:0]];
 		rob[rob_que].step_v <= TRUE;
 `ifdef SUPPORT_VECTOR
 		if (decbuf.vex) begin
@@ -1985,7 +2003,7 @@ else begin
 		else
 `endif
 		begin
-			rob[rob_que].ibs <= regfilesrc[regmap[decbuf.Rb[5:0]]];
+			rob[rob_que].ibs <= regfilesrc[decbuf.Rb[5:0]];
 		end
 		rob[rob_que].ics <= {1'b0,6'd0};
 		rob[rob_que].ids <= {1'b0,6'd0};
@@ -2029,21 +2047,6 @@ else begin
 				rob[rob_que].btag <= active_branch;
 				rob[rob_que].branch <= TRUE;
 			end
-		JAL:
-			begin
-				dc_redirecti.redirect_ip <= {{41{a2d_out.ir[31]}},a2d_out.ir[31:10],1'h0};
-				dc_redirecti.current_ip <= a2d_out.ip;
-				dc_redirecti.xrid <= rob_que;
-				dc_redirecti.step <= 6'd0;
-				dc2if_wr <= TRUE;
-			end
-		BAL:
-			begin
-				dc_redirecti.redirect_ip <= a2d_out.ip + {{41{a2d_out.ir[31]}},a2d_out.ir[31:10],1'h0};
-				dc_redirecti.current_ip <= a2d_out.ip;
-				dc_redirecti.step <= 6'd0;
-				dc2if_wr <= TRUE;
-			end
 		default:	;
 		endcase
 		case(a2d_out.ir.r2.opcode)
@@ -2077,8 +2080,8 @@ else begin
 				regd <= exbufi.ib;
 				regcv <= exbufi.iav;
 				regdv <= exbufi.ibv;
-				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
-				regdsrc <= regfilesrc[regmap[decbuf.Rb]];
+				regcsrc <= regfilesrc[decbuf.Ra];
+				regdsrc <= regfilesrc[decbuf.Rb];
 				regmsrc <= vm_regfilesrc[decbuf.Vm];
 				regm <= exbufi.vmask;
 				regz <= exbufi.z;
@@ -2121,8 +2124,8 @@ else begin
 					regd <= exbufi.ib;				
 					regdv <= exbufi.ibv;
 				end
-				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
-				regdsrc <= regfilesrc[regmap[decbuf.Rb]];
+				regcsrc <= regfilesrc[decbuf.Ra];
+				regdsrc <= regfilesrc[decbuf.Rb];
 				regmsrc <= vm_regfilesrc[decbuf.Vm];
 				regm <= exbufi.vmask;
 				regz <= exbufi.z;
@@ -2163,7 +2166,7 @@ else begin
 				brmod <= TRUE;
 				regc <= exbufi.ia;
 				regcv <= exbufi.iav;
-				regcsrc <= regfilesrc[regmap[decbuf.Ra]];
+				regcsrc <= regfilesrc[decbuf.Ra];
 				exi <= {{41{exbufi[28]}},exbufi.ir[28:20],14'h0};
 				imod_inst <= exbufi.ir;
 			end
@@ -2175,7 +2178,7 @@ else begin
 					stride <= TRUE;
 					regc <= {58'd0,exbufi.ir[19:14]};
 					regcv <= TRUE;
-					regcsrc <= regfilesrc[regmap[decbuf.Ra]];
+					regcsrc <= regfilesrc[decbuf.Ra];
 					imod_inst <= exbufi.ir;
 				end
 				else begin
@@ -2184,7 +2187,7 @@ else begin
 					stride <= TRUE;
 					regc <= exbufi.ia;
 					regcv <= exbufi.iav;
-					regcsrc <= regfilesrc[regmap[decbuf.Ra]];
+					regcsrc <= regfilesrc[decbuf.Ra];
 					imod_inst <= exbufi.ir;
 				end
 				if (!(exihi||eximid||exilo))
@@ -2289,7 +2292,7 @@ else begin
 			rob[rob_que].imm.val[63:14] <= exi[63:14];
 			rob[rob_que].Rt <= imod_inst.r2.Rt;
 			if (imod_inst.r2.Rt != 6'd0) begin
-				tAllocReg(imod_inst.r2.Rt,rob[rob_que].pRt);
+//				tAllocReg(imod_inst.r2.Rt,rob[rob_que].pRt);
 				rob[rob_que].rfwr <= TRUE;
 			end
 		end
@@ -2326,7 +2329,7 @@ else begin
 
 	$display("Execute");
 	$display("ip: %h  ir: %h  a:%h  b:%h  c:%h  d:%h  i:%h", exbufi.ip, exbufi.ir,exbufi.ia.val,exbufi.ib.val,exbufi.ic.val,exbufi.id.val,exbufi.imm.val);
-	if (TRUE) begin
+	if (rob_exec != 6'd63) begin
 		if (rob[rob_exec].dec || TRUE) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, rob[rob_exec].ip, rob[rob_exec].ir,
 			rob[rob_exec].ia.val,rob[rob_exec].iav?"v":" ",rob[rob_exec].ib.val,rob[rob_exec].ibv?"v":" ",
@@ -3743,9 +3746,9 @@ default:	;
 					endcase
 					if (rob[rob_deq].rfwr==TRUE) begin
 						regfile[rob[rob_deq].Rt[5:0]] <= rob[rob_deq].res;
-						regfilesrc[regmap[rob[rob_deq].Rt[5:0]]].rf <= 1'h0;
+						regfilesrc[rob[rob_deq].Rt[5:0]].rf <= 1'h0;
 						regalloc[rob[rob_deq].pRt[5:0]] <= 1'b0;	// deallocate mapped register
-						regmap[rob[rob_deq].Rt[5:0]] <= rob[rob_deq].Rt[5:0];
+						//regmap[rob[rob_deq].Rt[5:0]] <= rob[rob_deq].Rt[5:0];
 					end
 `ifdef SUPPORT_VECTOR					
 					if (rob[rob_deq].vrfwr) begin
@@ -3822,23 +3825,23 @@ default:	;
 
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		for (m = 0; m < 6; m = m + 1) begin
-			if (!rob[n].iav && rob[n].ias.rid==funcUnit[m].rid && rob[n].ia_ele==funcUnit[m].ele) begin
+			if (!rob[n].iav && rob[n].ias.rid==funcUnit[m].rid && rob[n].ia_ele==funcUnit[m].ele && funcUnit[m].cmt) begin
 				rob[n].iav <= TRUE;
 				rob[n].ia <= funcUnit[m].res;
 			end
-			if (!rob[n].ibv && rob[n].ibs.rid==funcUnit[m].rid && rob[n].ib_ele==funcUnit[m].ele) begin
+			if (!rob[n].ibv && rob[n].ibs.rid==funcUnit[m].rid && rob[n].ib_ele==funcUnit[m].ele && funcUnit[m].cmt) begin
 				rob[n].ibv <= TRUE;
 				rob[n].ib <= funcUnit[m].res;
 			end
-			if (!rob[n].icv && rob[n].ics.rid==funcUnit[m].rid && rob[n].ic_ele==funcUnit[m].ele) begin
+			if (!rob[n].icv && rob[n].ics.rid==funcUnit[m].rid && rob[n].ic_ele==funcUnit[m].ele && funcUnit[m].cmt) begin
 				rob[n].icv <= TRUE;
 				rob[n].ic <= funcUnit[m].res;
 			end
-			if (!rob[n].idv && rob[n].ids.rid==funcUnit[m].rid && rob[n].id_ele==funcUnit[m].ele) begin
+			if (!rob[n].idv && rob[n].ids.rid==funcUnit[m].rid && rob[n].id_ele==funcUnit[m].ele && funcUnit[m].cmt) begin
 				rob[n].idv <= TRUE;
 				rob[n].id <= funcUnit[m].res;
 			end
-			if (!rob[n].itv && rob[n].its.rid==funcUnit[m].rid && rob[n].it_ele==funcUnit[m].ele) begin
+			if (!rob[n].itv && rob[n].its.rid==funcUnit[m].rid && rob[n].it_ele==funcUnit[m].ele && funcUnit[m].cmt) begin
 				rob[n].itv <= TRUE;
 			end
 		end
@@ -3871,8 +3874,8 @@ default:	;
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	if (push_d2x) begin
 		if (decbuf.rfwr) begin
-			regfilesrc[fnNextAllocReg(decbuf.Rt[5:0])].rf <= 1'b1;
-			regfilesrc[fnNextAllocReg(decbuf.Rt[5:0])].rid <= rob_que;
+			regfilesrc[decbuf.Rt[5:0]].rf <= 1'b1;
+			regfilesrc[decbuf.Rt[5:0]].rid <= rob_que;
 		end
 		if (decbuf.vrfwr) begin
 			vregfilesrc[decbuf.Rt[5:0]].rf <= 1'b1;
@@ -4353,6 +4356,8 @@ begin
 	if (regno[14:12] <= omode) begin
 		casez(regno[15:0])
 		CSR_DCR0:	res.val <= cr0;
+		CSR_DHARTID: res.val <= hartid_i;
+		CSR_MHARTID: res.val <= hartid_i;
 		CSR_MCR0:	res.val <= cr0;
 		CSR_SEMA: res.val <= sema;
 		CSR_FSTAT:	res.val <= fpscr;
@@ -4573,7 +4578,7 @@ begin
 		if (regalloc[n]==1'b0) begin
 			regalloc[n] <= 1'b1;
 			mreg <= {1'b1,n[5:0]};
-			regmap[Rt] <= {1'b1,n[5:0]};
+			//regmap[Rt] <= {1'b1,n[5:0]};
 		end
 	end
 end

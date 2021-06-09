@@ -68,12 +68,38 @@ begin
 		// IF the prior ld/st is already out, it is still safe to issue the next
 		// one.
 		if (rob[m].mem_op && !rob[m].cmt && !rob[m].out && rob[m].v && !done)
-			uncommitted_ldst <= TRUE;
+			uncommitted_ldst = TRUE;
 		m = m - 1;
 		if (m < 0)
 			m = ROB_ENTRIES - 1;
 	end
 	fnPriorLdSt = uncommitted_ldst;
+end
+endfunction
+
+function fnPriorFC;
+input [5:0] ridi;
+integer n,m;
+reg done;
+reg uncommitted_fc;
+begin
+	done = FALSE;
+	uncommitted_fc = FALSE;
+	m = ridi - 1;
+	if (m < 0)
+		m = ROB_ENTRIES - 1;
+	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+		if (m==rob_que)
+			done = TRUE;
+		// IF the prior ld/st is already out, it is still safe to issue the next
+		// one.
+		if (rob[m].ir.r2.opcode[6:4]==3'd4 && !rob[m].cmt && !rob[m].out && rob[m].v && !done)
+			uncommitted_fc = TRUE;
+		m = m - 1;
+		if (m < 0)
+			m = ROB_ENTRIES - 1;
+	end
+	fnPriorFC = uncommitted_fc;
 end
 endfunction
 
@@ -99,9 +125,11 @@ begin
 		// made.
 		if (rob[n].dec && rob[n].v && !rob[n].cmt && !rob[n].out && n != rob_pexec && n != rob_pexec2 && !(robo.out && n==robo.rid)) begin
 			if (rob[n].iav && rob[n].ibv && rob[n].icv && rob[n].idv) begin		// Args are valid
-				if (!(rob[n].ir.r2.opcode[6:5]==2'd3 && fnPriorLdSt(n))) begin	// and loads / stores are in order
-					wakeup_list[n] = 1'b1;
-					any_woke = TRUE;
+				if (!fnPriorFC(n)) begin
+					if (!(rob[n].mem_op && fnPriorLdSt(n))) begin	// and loads / stores are in order
+						wakeup_list[n] = 1'b1;
+						any_woke = TRUE;
+					end
 				end
 			end
 		end
