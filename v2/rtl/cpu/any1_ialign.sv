@@ -43,8 +43,9 @@ module any1_ialign(i, o);
 input sInstAlignIn i;
 output sInstAlignOut o;
 
-always @(i)
+always_comb
 begin
+	o.v <= i.v;
 	o.predict_taken <= i.predict_taken;
 	if (|i.ip[1:0])
   	o.ir <= {40'h0,FLT_IADR,16'h0};		// instruction alignment fault

@@ -46,6 +46,7 @@ input [5:0] ven;
 always @*//(a2d_out, predicted_ip, ven)
 	begin
 //		decbuf.rid <= dc_rid;
+		decbuf.v <= a2d_out.v;
 		decbuf.ui <= TRUE;
 		decbuf.ir <= a2d_out.ir;
 		decbuf.ip <= a2d_out.ip;

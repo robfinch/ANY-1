@@ -123,7 +123,7 @@ begin
 		// instruction is selected for execution. So, to prevent the same
 		// instruction from being selected twice, a check of the exec index is
 		// made.
-		if (rob[n].dec && rob[n].v && !rob[n].cmt && !rob[n].out && n != rob_pexec && n != rob_pexec2 && !(robo.out && n==robo.rid)) begin
+		if (rob[n].dec && rob[n].v && !rob[n].cmt && !rob[n].out) begin
 			if (rob[n].iav && rob[n].ibv && rob[n].icv && rob[n].idv) begin		// Args are valid
 				if (!fnPriorFC(n)) begin
 					if (!(rob[n].mem_op && fnPriorLdSt(n))) begin	// and loads / stores are in order

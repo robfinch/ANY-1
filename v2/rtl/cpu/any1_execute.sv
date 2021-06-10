@@ -184,7 +184,7 @@ else begin
 		rob_exec <= new_rob_exec;
 	end
 */
-	if (robi.v==VAL && rob_exec != 6'd63) begin
+	if (robi.v==VAL && rob_exec != 6'd63 && !robi.cmt) begin
 		last_tid <= tid;
 		if (robi.dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, robi.ip, robi.ir,
@@ -715,6 +715,8 @@ else begin
 					ex_redirect.xrid <= rob_exec;
 					ex_redirect.wr <= TRUE;
 					restore_rfsrc <= TRUE;
+					robo.cmt <= FALSE;
+					robo.cmt2 <= FALSE;
 				end
 				else if (brAddrMispredict) begin
 					f2a_rst <= TRUE;
@@ -725,6 +727,8 @@ else begin
 					ex_redirect.step <= 6'd0;
 					ex_redirect.xrid <= rob_exec;
 					ex_redirect.wr <= TRUE;
+					robo.cmt <= FALSE;
+					robo.cmt2 <= FALSE;
 					restore_rfsrc <= TRUE;
 				end
 			end
@@ -743,6 +747,8 @@ else begin
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.wr <= TRUE;
 				tMod();
+				robo.cmt <= FALSE;
+				robo.cmt2 <= FALSE;
 			end
 		JAL:
 			begin
@@ -759,6 +765,8 @@ else begin
 				ex_redirect.step <= 6'd0;
 				ex_redirect.wr <= TRUE;
 				tMod();
+				robo.cmt <= FALSE;
+				robo.cmt2 <= FALSE;
 			end
 		BAL:
 			begin
@@ -775,6 +783,8 @@ else begin
 				ex_redirect.step <= 6'd0;
 				ex_redirect.wr <= TRUE;
 				tMod();
+				robo.cmt <= FALSE;
+				robo.cmt2 <= FALSE;
 			end
 		LEA,LDx,LDxX:
 			// This does not wait for registers to be valid.
