@@ -46,7 +46,7 @@ input sReorderEntry robo;
 // Wakeup list, one bit for each instruction.
 output reg [ROB_ENTRIES-1:0] wakeup_list;
 output reg [6:0] selection;
-	
+
 // Detect if there are any load/store instruction in the queue before this
 // one. The search takes place backwards through the queue until the queueing
 // spot is reached. All older instructions should be between the selected
@@ -91,9 +91,7 @@ begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		if (m==rob_que)
 			done = TRUE;
-		// IF the prior ld/st is already out, it is still safe to issue the next
-		// one.
-		if (rob[m].ir.r2.opcode[6:4]==3'd4 && !rob[m].cmt && !rob[m].out && rob[m].v && !done)
+		if (rob[m].ir.r2.opcode[6:4]==3'd4 && !rob[m].cmt && rob[m].v && !done)
 			uncommitted_fc = TRUE;
 		m = m - 1;
 		if (m < 0)
@@ -114,7 +112,7 @@ begin
 	// -   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -
 	// 1) Wakeup
 	// -   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -   -
-	wakeup_list <= {ROB_ENTRIES{1'b0}};
+	wakeup_list = {ROB_ENTRIES{1'b0}};
 	any_woke = FALSE;
 	// Search for and find all instructions that might be executed in this clock
 	// cycle.
@@ -123,7 +121,7 @@ begin
 		// instruction is selected for execution. So, to prevent the same
 		// instruction from being selected twice, a check of the exec index is
 		// made.
-		if (rob[n].dec && rob[n].v && !rob[n].cmt && !rob[n].out) begin
+		if (rob[n].dec && rob[n].v && !rob[n].cmt && !rob[n].out2) begin
 			if (rob[n].iav && rob[n].ibv && rob[n].icv && rob[n].idv) begin		// Args are valid
 				if (!fnPriorFC(n)) begin
 					if (!(rob[n].mem_op && fnPriorLdSt(n))) begin	// and loads / stores are in order

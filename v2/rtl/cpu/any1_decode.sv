@@ -194,7 +194,7 @@ always @*//(a2d_out, predicted_ip, ven)
 				endcase
 			end
 		CSR:	begin decbuf.Rt <= a2d_out.ir[15:8]; decbuf.ui <= FALSE; decbuf.imm.val <= {52'd0,a2d_out.ir[31:20]}; end
-		EXI0,EXI1,EXI2,BRMOD,IMOD,STRIDE:	decbuf.ui <= FALSE;
+		EXI0,EXI1,EXI2,BRMOD,BTFLDX,IMOD,STRIDE:	decbuf.ui <= FALSE;
 		VIMOD,VSTRIDE:	begin decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.ui <= FALSE; end
 `ifdef SUPPORT_VECTOR
 		VR1:

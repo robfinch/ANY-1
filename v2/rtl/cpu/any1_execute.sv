@@ -184,7 +184,7 @@ else begin
 		rob_exec <= new_rob_exec;
 	end
 */
-	if (robi.v==VAL && rob_exec != 6'd63 && !robi.cmt) begin
+	if (robi.v==VAL && !robi.cmt) begin
 		last_tid <= tid;
 		if (robi.dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, robi.ip, robi.ir,
@@ -198,9 +198,12 @@ else begin
 			robo.cmt <= TRUE;
 			robo.cmt2 <= TRUE;
 			robo.out <= TRUE;
+			robo.out2 <= FALSE;
 		end
-		else if (!robi.out) begin
+		else if (robi.out) begin
 		//robi.res.tag <= robi.ir.tag;
+		robo.out2 <= TRUE;
+		if (!robo.out2) begin
 		robo.rid <= robi.rid;
 		robo.btag <= 4'd0;
 		robo.takb <= FALSE;
@@ -523,7 +526,7 @@ else begin
 		SGTI:	if (robi.iav) begin robo.res.val <= $signed(robi.ia.val) > $signed(robi.imm.val); tMod(); end
 		SLTUI:	if (robi.iav) begin robo.res.val <= robi.ia.val < robi.imm.val; tMod(); end
 		SGTUI:	if (robi.iav) begin robo.res.val <= robi.ia.val > robi.imm.val; tMod(); end
-		BTFLD:	if (robi.iav) begin robo.res.val <= bf_out.val; tMod(); end
+		BTFLD:	begin robo.res.val <= bf_out.val; tMod(); robo.cmt <= TRUE; end
     BYTNDX:
 	    if (robi.iav) begin
 	    	if (robi.ir.r2.func!=4'd0) begin
@@ -802,6 +805,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
+				robo.out2 <= TRUE;
 			end
 		STx,STxX:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
@@ -820,6 +824,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
+				robo.out2 <= TRUE;
 			end
 		LDSx:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
@@ -839,6 +844,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
+				robo.out2 <= TRUE;
 			end
 			else if (robi.irmod.im.z)
 				tDoOp(64'd0);
@@ -865,6 +871,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
+				robo.out2 <= TRUE;
 			end
 			else if (robi.irmod.im.z) begin
 				membufi.rid <= rob_exec;
@@ -880,6 +887,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
+				robo.out2 <= TRUE;
 			end
 			else begin
 				tDoOp(64'd0);
@@ -905,6 +913,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
+				robo.out2 <= TRUE;
 			end
 			else if (robi.irmod.im.z)
 				tDoOp(64'd0);
@@ -932,6 +941,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
+				robo.out2 <= TRUE;
 			end
 			else begin
 				tDoOp(64'd0);
@@ -971,6 +981,7 @@ else begin
 					robo.cmt <= FALSE;
 					robo.cmt2 <= FALSE;
 					robo.wr_fu <= FALSE;
+					robo.out2 <= TRUE;
 				end
 			default:	;
 			endcase
@@ -1448,7 +1459,7 @@ else begin
 		VSGTI:	if (robi.iav) tDoOp($signed(robi.ia.val) > $signed(robi.imm.val));
 		VSLTUI:	if (robi.iav) tDoOp(robi.ia.val < robi.imm.val);
 		VSGTUI:	if (robi.iav) tDoOp(robi.ia.val > robi.imm.val);
-		VBTFLD:	if (robi.iav) tDoOp(bf_out.val);
+		VBTFLD:	tDoOp(bf_out.val);
     VBYTNDX:
 	    if (robi.iav) begin
 	   		if (vtmp==64'd0 | robi.vrfwr) begin
@@ -1699,6 +1710,12 @@ else begin
 		default:	;
 		endcase
 		end
+		else begin
+			robo.update_rob <= TRUE;
+		end
+		end
+		else
+			robo.out2 <= FALSE;
 		end
 	end
 	else begin
@@ -1716,6 +1733,7 @@ input Value res;
 begin
 	robo.update_rob <= TRUE;
 	robo.out <= TRUE;
+	robo.out2 <= FALSE;
 	if (robi.vmask.val[robi.step])
 		robo.res.val <= res.val;
 	else if (robi.irmod.im.z)
@@ -1735,6 +1753,7 @@ begin
 	robo.cmt2 <= TRUE;
 	robo.update_rob <= TRUE;
 	robo.vcmt <= robi.step >= vl;
+	robo.out2 <= FALSE;
 	if (robi.step >= vl) begin
 		vtmp <= 64'h0;
 		robo.vcmt <= TRUE;
