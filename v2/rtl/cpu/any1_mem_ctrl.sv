@@ -37,7 +37,7 @@
 
 import any1_pkg::*;
 
-module any1_mem_ctrl(rst,clk,UserMode,MUserMode,ASID,sregfile,ip,ihit,ifStall,ic_line,
+module any1_mem_ctrl(rst,clk,UserMode,MUserMode,omode,ASID,sregfile,ip,ihit,ifStall,ic_line,
 	fifoToCtrl_i,fifoToCtrl_full,fifoFromCtrl_o,fifoFromCtrl_rd,
 	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
 	dat_i, dat_o, sr_o, cr_o, rb_i, dce);
@@ -46,6 +46,7 @@ input rst;
 input clk;
 input UserMode;
 input MUserMode;
+input [2:0] omode;
 input [7:0] ASID;
 input [63:0] sregfile [0:15];
 input Address ip;
@@ -138,23 +139,27 @@ reg iaccess;
 reg daccess;
 reg [3:0] icnt;
 reg [3:0] dcnt;
+Address iadr;
+reg keyViolation = 1'b0;
 
 MemoryRequest memreq;
 reg memreq_rd;
 MemoryResponse memresp;
 reg zero_data;
 
-Address ea = {memreq.adr[AWID-1:AWID-4],memreq.adr[AWID-5:0] >> shr_ma};	// Keep same segment
+Address ea;
+always_comb
+ 	ea = {memreq.adr[AWID-1:AWID-4],memreq.adr[AWID-5:0] >> shr_ma};	// Keep same segment
+
 reg [7:0] ealow;
 wire [3:0] segsel = ea[AWID-1:AWID-4];
 wire [3:0] ea_acr = sregfile[segsel][3:0];
 wire [3:0] pc_acr = sregfile[ip[AWID-1:AWID-4]][3:0];
 
-`ifdef CPU_B128
 reg [31:0] sel;
 reg [255:0] dat, dati;
-wire [63:0] datis = dati >> {ealow[3:0],3'b0};
-`endif
+reg [63:0] datis;
+always_comb datis <= dati >> {ealow[3:0],3'b0};
 `ifdef CPU_B64
 reg [15:0] sel;
 reg [127:0] dat, dati;
@@ -167,26 +172,24 @@ wire [63:0] datis = dati >> {ealow[1:0],3'b0};
 `endif
 
 // Build an insert mask for data cache store operations.
-wire [567:0] stmask;
+reg [639:0] stmask;
 reg [127:0] stmask1;
 generate begin : gStMask
-`ifdef CPU_B128
 	for (g = 0; g < 16; g = g + 1)
 		always_comb
-			stmask1[g*4+3:g*4] = sel_o[g] ? 8'h00 : 8'hFF;
-assign stmask = stmask1 << {adr_o[5:4],7'd0};
-`endif
+			stmask1[g*4+3:g*4] <= sel_o[g] ? 8'h00 : 8'hFF;
+always_comb stmask <= stmask1 << {adr_o[5:4],7'd0};
 `ifdef CPU_B64
 	for (g = 0; g < 8; g = g + 1)
 		always_comb
-			stmask1[g*4+3:g*4] = sel_o[g] ? 8'h00 : 8'hFF;
-assign stmask = stmask1 << {adr_o[5:3],6'd0};
+			stmask1[g*4+3:g*4] <= sel_o[g] ? 8'h00 : 8'hFF;
+always_comb stmask <= stmask1 << {adr_o[5:3],6'd0};
 `endif
 `ifdef CPU_B32
 	for (g = 0; g < 4; g = g + 1)
 		always_comb
-			stmask1[g*4+3:g*4] = sel_o[g] ? 8'h00 : 8'hFF;
-assign stmask = stmask1 << {adr_o[5:2],5'd0};
+			stmask1[g*4+3:g*4] <= sel_o[g] ? 8'h00 : 8'hFF;
+always_comb stmask <= stmask1 << {adr_o[5:2],5'd0};
 `endif
 end
 endgenerate
@@ -226,7 +229,7 @@ initial begin
 end
 
 
-wire [3:0] ififo_cnt;
+wire [3:0] ififo_cnt, ofifo_cnt;
 
 wire [16:0] lfsr_o;
 
@@ -244,15 +247,16 @@ bc_fifo16X #(.WID($bits(MemoryRequest))) uififo1
 (
 	.clk(clk),
 	.reset(rst),
-	.wr(fifoToCtrl.fifo_wr),
+	.wr(fifoToCtrl_i.fifo_wr),
 	.rd(memreq_rd),
-	.di(fifoToCtrl),
+	.di(fifoToCtrl_i),
 	.dout(memreq),
 	.ctr(ififo_cnt)
 );
 
 assign fifoToCtrl_full = ififo_cnt==4'd15;
-wire fifoToCtrl_empty = ififo_cnt==4'd0;
+reg fifoToCtrl_empty;
+always_comb fifoToCtrl_empty <= ififo_cnt==4'd0;
 
 bc_fifo16X #(.WID($bits(MemoryResponse))) uififo2
 (
@@ -278,8 +282,6 @@ assign icache_wr = state==IFETCH3;
 reg ic_invline,ic_invall;
 reg [1:0] prev_ic_rway = 0;
 
-reg iaccess;
-reg [3:0] icnt;
 reg [511:0] ici;
 reg [AWID-7:0] ic_tag;
 reg [AWID-7:0] prev_ic_tag = 0;
@@ -422,14 +424,11 @@ wire [19:0] kyut = kyline[adr_o[23:18]] >> {adr_o[17:14],5'd0};
 // Data Cache
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
-reg [1:0] waycnt;
-reg daccess;
 reg [2:0] dwait;		// wait state counter for dcache
-reg [4:0] dcnt;
 Address dadr;
-reg [631:0] dci;		// 512 + 120 bit overflow area
-wire [631:0] dc_line;
-reg [631:0] datil;
+reg [639:0] dci;		// 512 + 120 bit overflow area
+wire [639:0] dc_line;
+reg [639:0] datil;
 reg dcachable;
 reg [1:0] dc_rway,dc_wway,prev_dc_rway;
 reg dcache_wr;
@@ -535,12 +534,52 @@ any1_TLB utlb (
 always @(posedge clk)
 if (rst) begin
 	dce <= FALSE;
+	zero_data <= FALSE;
+	dcachable <= TRUE;
+  dcvalid0 = 128'd0;
+  dcvalid1 = 128'd0;
+  dcvalid2 = 128'd0;
+  dcvalid3 = 128'd0;
+	ivvalid <= 5'h00;
+	ivcnt <= 3'd0;
+	vcn <= 3'd0;
+	for (n = 0; n < 5; n = n + 1) begin
+		ivtag[n] <= 32'd1;
+		ivcache[n] <= {8{NOP_INSN}};
+	end
+	shr_ma <= 6'd0;
+	tlben <= TRUE;
+	iadr <= RSTIP;
+	dadr <= RSTIP;	// prevents TLB miss at startup
+	sel <= 32'h0;
+	vpa_o <= LOW;
+	vda_o <= LOW;
+	cyc_o <= LOW;
+	stb_o <= LOW;
+	sel_o <= 16'h0;
+	we_o <= LOW;
+	dat_o <= 128'd0;
+	dat <= 256'd0;
+	sr_o <= LOW;
+	cr_o <= LOW;
+	waycnt <= 2'd0;
+	ic_wway <= 2'b00;
+	dcache_wr <= FALSE;
+	dwait <= 3'd0;
+	daccess <= FALSE;
+	ici <= 512'd0;
+	dci <= 640'd0;
+	memreq_rd <= FALSE;
+	memresp.fifo_wr <= FALSE;
 end
 else begin
 	inext <= FALSE;
+	iaccess <= FALSE;
+	ic_update <= 1'b0;
 	memreq_rd <= FALSE;
 	memresp.fifo_wr <= FALSE;
 	dcache_wr <= FALSE;
+	tlbwr <= FALSE;
 
 	case(state)
 	MEMORY1:
@@ -558,6 +597,7 @@ else begin
 			end
 			else begin
 				// On a miss goto load I$ process unless a hit in the victim cache.
+		    iadr <= {ip[AWID-1:6],6'h0};
 				gosub (IFETCH1);
 				for (n = 0; n < 5; n = n + 1) begin
 					if (ivtag[n]==ip[AWID-1:6] && ivvalid[n]) begin
@@ -589,7 +629,7 @@ else begin
 						memresp.step <= memreq.step;
 						if (memreq.dat[5:3]==3'd1)
 							dce <= TRUE;
-						if (membufo.Rt[5:3]==3'd2)
+						if (memreq.dat[5:3]==3'd2)
 							dce <= FALSE;
 				    memresp.cmt <= TRUE;
 						memresp.tid <= memreq.tid;
@@ -610,7 +650,8 @@ else begin
 	    		  tEA(ea);
 	      		xlaten <= TRUE;
 	      		// Setup proper select lines
-			      sel <= memreq.sel << ea[3:0];
+			      sel <= {16'h0,memreq.sel} << ea[3:0];
+	    		  dadr <= memreq.adr;
 			  		goto (MEMORY3);
 					end
 				endcase
@@ -620,9 +661,10 @@ else begin
     		  tEA(ea);
       		xlaten <= TRUE;
       		// Setup proper select lines
-		      sel <= zero_data ? 16'h0001 << ea[3:0] : memreq.sel << ea[3:0];
+		      sel <= zero_data ? 16'h0001 << ea[3:0] : {16'h0,memreq.sel} << ea[3:0];
 		      // Shift output data into position
     		  dat <= zero_data ? 256'd0 : {128'd0,memreq.dat} << {ea[3:0],3'b0};
+    		  dadr <= memreq.adr;
 		  		goto (MEMORY3);
 				end
 			default:	ret();	// unknown operation
@@ -675,14 +717,14 @@ else begin
 	    	vda_o <= HIGH;
 	      cyc_o <= HIGH;
 	      stb_o <= HIGH;
-	      sel_o <= sel[`SELL];
-	      dat_o <= dat[`DATL];
+	      sel_o <= sel[15:0];
+	      dat_o <= dat[127:0];
 	      case(memreq.func)
 	      LOAD:
 	      	begin
 	     			sr_o <= memreq.func2==LDOR;
   	    		if (dhit) begin
-    	  			tDeactviateBus();
+  	    			tDeactivateBus();
       				sr_o <= LOW;
 	      		end
 	      	end
@@ -713,7 +755,7 @@ else begin
 		  				dcache_wr <= TRUE;
 				      goto (MEMORY7);
 				      stb_o <= LOW;
-				      if (sel[`SELH]==1'h0)
+				      if (sel[31:16]==1'h0)
 				      	tDeactivateBus();
 				    end
 		  		end
@@ -728,7 +770,7 @@ else begin
 		      goto (MEMORY7);
 		      stb_o <= LOW;
 		      dati <= dat_i;
-		      if (sel[`SELH]==1'h0) begin
+		      if (sel[31:16]==1'h0) begin
 		      	tDeactivateBus();
 		      end
 		    end
@@ -738,7 +780,7 @@ else begin
 	MEMORY7:
 		begin
 		  if (~ack_i) begin
-		    if (|sel[`SELH])
+		    if (|sel[31:16])
 		      goto (MEMORY8);
 		    else begin
 		      case(memreq.func)
@@ -773,7 +815,7 @@ else begin
 				      end
 			    	end
 		      default:
-		        mgoto (DATA_ALIGN);
+		        goto (DATA_ALIGN);
 		      endcase
 		    end
 		  end
@@ -828,8 +870,8 @@ else begin
 		 			tDeactivateBus();
 				else begin
 	      	stb_o <= HIGH;
-	      	sel_o <= sel[`SELH];
-	      	dat_o <= dat[`DATH];
+	      	sel_o <= sel[31:16];
+	      	dat_o <= dat[255:128];
 	    	end
 	    end
 	  end
@@ -844,19 +886,19 @@ else begin
 	  			dcache_wr <= TRUE;
 		      goto (MEMORY13);
 		      stb_o <= LOW;
-		      if (sel[`SELH]==1'h0)
+		      if (sel[31:16]==1'h0)
 				    tDeactivateBus();
 		    end
 			end
 	  	else begin
 	    	dwait <= dwait + 2'd1;
 	    	if (dwait==3'd2)
-	      	mgoto (MEMORY13);
+	      	goto (MEMORY13);
 	    end
 		end
 	  else if (ack_i) begin
 	    goto (MEMORY13);
-	    dati[`DATH] <= dat_i;
+	    dati[255:128] <= dat_i;
 	    tDeactivateBus();
 	  end
 
@@ -881,9 +923,9 @@ else begin
 					    	ret();
 				    	end
 				    	else begin
-				    		shr_ma <= TRUE;
+				    		shr_ma <= shr_ma + 4'd9;
 				    		zero_data <= TRUE;
-				    		mgoto (MEMORY2);
+				    		goto (MEMORY2);
 				    	end
 		    		end
 		    		else begin
@@ -963,7 +1005,6 @@ else begin
 	    cyc_o <= HIGH;
 			stb_o <= HIGH;
 	    sel_o <= 16'hFFFF;
-	    adr_o <= {ip[AWID-1:6],6'h0};
   		goto (IFETCH2);
 	  end
 	IFETCH2:
@@ -973,11 +1014,11 @@ else begin
 	      ici <= {dat_i,ici[511:128]};	// shift in the data
 	      icnt <= icnt + 4'd4;					// increment word count
 	      if (icnt[3:2]==2'd3) begin		// Are we done?
-	      	tBusDeactivate();
+	      	tDeactivateBus();
 	      	iaccess <= FALSE;
 	      	goto (IFETCH3);
 	    	end
-	    	if (!bok_i) begin							// burst mode supported?
+	    	else if (!bok_i) begin				// burst mode supported?
 	    		cti_o <= 3'b000;						// no, use normal cycles
 	    		goto (IFETCH6);
 	    	end
@@ -1048,7 +1089,7 @@ else begin
 	    	dcnt <= dcnt + 4'd4;
 	      dci <= {dat_i,dci[639:128]};
 	      if (dcnt[4:2]==3'd4) begin		// Are we done?
-	      	tBusDeactivate();
+	      	tDeactivateBus();
 	      	goto (DFETCH7);
 	    	end
 	    	if (!bok_i) begin							// burst mode supported?
@@ -1131,7 +1172,7 @@ else begin
 	    	dcnt <= dcnt + 4'd4;
 	      dci <= {dat_i,dci[511:128]};
 	      if (dcnt[4:2]==3'd3) begin		// Are we done?
-	      	tBusDeactivate();
+	      	tDeactivateBus();
 	      	goto (KYLD7);
 	    	end
 	    	if (!bok_i) begin							// burst mode supported?
@@ -1187,17 +1228,46 @@ begin
 	if (!MUserMode || iea[AWID-1:24]=={AWID-24{1'b1}})
 		dadr <= iea;
 	else
-		dadr <= iea[AWID-5:0] + {sregfile[segsel][AWID-1:4],`SEG_SHIFT};
+		dadr <= iea[AWID-5:0] + {sregfile[segsel][AWID-1:4],14'd0};
 end
 endtask
 
-task tBusDeactivate;
+task tPMAEA;
+begin
+  if (keyViolation && omode == 3'd0)
+    memresp.cause <= 16'h8031;
+  // PMA Check
+  for (n = 0; n < 8; n = n + 1)
+    if (adr_o[31:4] >= PMA_LB[n] && adr_o[31:4] <= PMA_UB[n]) begin
+      if ((memreq.func==STORE && !PMA_AT[n][1]) || (memreq.func==LOAD && !PMA_AT[n][2]))
+		    memresp.cause <= 16'h803D;
+		  dcachable <= PMA_AT[n][3];
+    end
+end
+endtask
+
+task tPMAIP;
+begin
+  // PMA Check
+  // Abort cycle that has already started.
+  for (n = 0; n < 8; n = n + 1)
+    if (adr_o[31:4] >= PMA_LB[n] && adr_o[31:4] <= PMA_UB[n]) begin
+      if (!PMA_AT[n][0]) begin
+        memresp.cause <= 16'h803D;
+        tDeactivateBus();
+    	end
+    end
+end
+endtask
+
+task tDeactivateBus;
 begin
 	vpa_o <= LOW;			//
 	vda_o <= LOW;
 	cti_o <= 3'b000;	// Normal cycles again
 	cyc_o <= LOW;
 	stb_o <= LOW;
+	we_o <= LOW;
 	sel_o <= 16'h0000;
 end
 endtask

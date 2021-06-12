@@ -43,13 +43,16 @@ output reg [7:0] sel;
 
 always @*
 case(ir.r2.opcode)
-LDx,STx:
-	case(ir.r2.func)
+LDx,STx,LDxX,STxX,LDSx,STSx,LDxVX,CVLDSx,STxVX,CVSTSx:
+	case(ir.ld.func)
 	4'd0:	sel <= 8'h01;
 	4'd1:	sel <= 8'h03;
 	4'd2:	sel <= 8'h0F;
 	4'd3:	sel <= 8'hFF;
+	4'd6:	sel <= 8'hFF;
 	4'd7:	sel <= 8'hFF;
+	4'd14:	sel <= 8'hFF;
+	4'd15:	sel <= 8'hFF;
 	default:	sel <= 8'h00;
 	endcase
 default:	sel <= 8'h00;

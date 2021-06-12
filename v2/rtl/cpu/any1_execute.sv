@@ -176,6 +176,7 @@ else begin
 	ex_redirect.wr <= FALSE;
 	restore_rfsrc <= FALSE;
 	set_wfi <= FALSE;
+	robo.update_rob <= FALSE;
 
 	$display("Execute");
 /*
@@ -198,12 +199,9 @@ else begin
 			robo.cmt <= TRUE;
 			robo.cmt2 <= TRUE;
 			robo.out <= TRUE;
-			robo.out2 <= FALSE;
 		end
-		else if (robi.out) begin
+		else if (!robi.out) begin
 		//robi.res.tag <= robi.ir.tag;
-		robo.out2 <= TRUE;
-		if (!robo.out2) begin
 		robo.rid <= robi.rid;
 		robo.btag <= 4'd0;
 		robo.takb <= FALSE;
@@ -303,6 +301,7 @@ else begin
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				DIV,DIVU,DIVSU:
 					begin
@@ -315,6 +314,7 @@ else begin
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				MULF:	begin robo.res.val <= robi.ia.val[23:0] * robi.ib.val[15:0]; tMod(); end
 				CMP:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1; tMod(); end
@@ -367,6 +367,7 @@ else begin
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				default:	;
 				endcase
@@ -387,6 +388,7 @@ else begin
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				FRM:	begin robo.res.val <= robi.ia.val; tMod(); end
 				default:	;
@@ -407,6 +409,7 @@ else begin
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				FMIN:	// FMIN	
 					begin
@@ -483,6 +486,7 @@ else begin
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				default:	;
 				endcase
@@ -504,6 +508,7 @@ else begin
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				end
 		DIVI,DIVUI,DIVSUI:
@@ -517,6 +522,7 @@ else begin
 						robo.cmt <= FALSE;
 						robo.cmt2 <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				end
 		MULFI:if (robi.iav) begin robo.res.val <= robi.ia.val[23:0] + robi.imm.val[15:0]; tMod(); end
@@ -788,6 +794,7 @@ else begin
 				tMod();
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
+				robo.out <= TRUE;
 			end
 		LEA,LDx,LDxX:
 			// This does not wait for registers to be valid.
@@ -805,7 +812,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out2 <= TRUE;
+				robo.out <= TRUE;
 			end
 		STx,STxX:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
@@ -824,7 +831,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out2 <= TRUE;
+				robo.out <= TRUE;
 			end
 		LDSx:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
@@ -844,7 +851,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out2 <= TRUE;
+				robo.out <= TRUE;
 			end
 			else if (robi.irmod.im.z)
 				tDoOp(64'd0);
@@ -871,7 +878,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out2 <= TRUE;
+				robo.out <= TRUE;
 			end
 			else if (robi.irmod.im.z) begin
 				membufi.rid <= rob_exec;
@@ -887,7 +894,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out2 <= TRUE;
+				robo.out <= TRUE;
 			end
 			else begin
 				tDoOp(64'd0);
@@ -913,7 +920,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out2 <= TRUE;
+				robo.out <= TRUE;
 			end
 			else if (robi.irmod.im.z)
 				tDoOp(64'd0);
@@ -941,7 +948,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out2 <= TRUE;
+				robo.out <= TRUE;
 			end
 			else begin
 				tDoOp(64'd0);
@@ -981,7 +988,7 @@ else begin
 					robo.cmt <= FALSE;
 					robo.cmt2 <= FALSE;
 					robo.wr_fu <= FALSE;
-					robo.out2 <= TRUE;
+					robo.out <= TRUE;
 				end
 			default:	;
 			endcase
@@ -1150,6 +1157,7 @@ else begin
 						robo.cmt2 <= FALSE;
 						robo.vcmt <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				DIV,DIVU,DIVSU:
 					begin
@@ -1163,6 +1171,7 @@ else begin
 						robo.cmt2 <= FALSE;
 						robo.vcmt <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				MULF:	tDoOp(robi.ia.val[23:0] * robi.ib.val[15:0]);
 				CMP:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1);
@@ -1270,6 +1279,7 @@ else begin
 						robo.cmt2 <= FALSE;
 						robo.vcmt <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				DIV,DIVU,DIVSU:
 					begin
@@ -1283,6 +1293,7 @@ else begin
 						robo.cmt2 <= FALSE;
 						robo.vcmt <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				MULF:	tDoOp(robi.ia.val[23:0] * robi.ib.val[15:0]);
 				CMP:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1);
@@ -1436,6 +1447,7 @@ else begin
 						robo.cmt2 <= FALSE;
 						robo.vcmt <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				end
 		VDIVI,VDIVUI,VDIVSUI:
@@ -1450,6 +1462,7 @@ else begin
 						robo.cmt2 <= FALSE;
 						robo.vcmt <= FALSE;
 						robo.wr_fu <= FALSE;
+						robo.out <= TRUE;
 					end
 				end
 		VMULFI:	if (robi.iav) tDoOp(robi.ia.val[23:0] + robi.imm.val[15:0]);
@@ -1710,13 +1723,7 @@ else begin
 		default:	;
 		endcase
 		end
-		else begin
-			robo.update_rob <= TRUE;
-		end
-		end
-		else
-			robo.out2 <= FALSE;
-		end
+	end
 	end
 	else begin
 		if (robi.v==INV)
@@ -1733,11 +1740,10 @@ input Value res;
 begin
 	robo.update_rob <= TRUE;
 	robo.out <= TRUE;
-	robo.out2 <= FALSE;
 	if (robi.vmask.val[robi.step])
 		robo.res.val <= res.val;
 	else if (robi.irmod.im.z)
-		robo.res.val <= `VALUE_SIZE'd0;
+		robo.res.val <= {VALUE_SIZE{1'd0}};
 	robo.cmt <= TRUE;
 	robo.cmt2 <= TRUE;
 	if (robi.step >= vl) begin
@@ -1753,7 +1759,6 @@ begin
 	robo.cmt2 <= TRUE;
 	robo.update_rob <= TRUE;
 	robo.vcmt <= robi.step >= vl;
-	robo.out2 <= FALSE;
 	if (robi.step >= vl) begin
 		vtmp <= 64'h0;
 		robo.vcmt <= TRUE;

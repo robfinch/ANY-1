@@ -56,11 +56,12 @@ assign masko = mask;
 wire [2:0] op = inst.r2.func[2:0];
 wire [5:0] mb = c.val[5:0];
 wire [5:0] mw = d.val[5:0];
-wire [5:0] me = mb + mw;
+reg [5:0] me;
+always_comb me <= mb + mw;
 wire [5:0] ml = mw;		// mask length-1
 
 integer nn,n;
-always @(mb or me or nn)
+always @*
 	for (nn = 0; nn < DWIDTH; nn = nn + 1)
 		mask[nn] <= (nn >= mb) ^ (nn <= me) ^ (me >= mb);
 

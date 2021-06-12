@@ -37,15 +37,38 @@
 
 import any1_pkg::*;
 
-module any1_scheduler(rob, rob_que, rob_pexec, rob_pexec2, robo, wakeup_list, selection);
+module any1_scheduler(clk, rob, rob_que, robo, wakeup_list, selection);
+input clk;
 input sReorderEntry [ROB_ENTRIES-1:0] rob;
 input [5:0] rob_que;
-input [5:0] rob_pexec;
-input [5:0] rob_pexec2;
 input sReorderEntry robo;
 // Wakeup list, one bit for each instruction.
 output reg [ROB_ENTRIES-1:0] wakeup_list;
 output reg [6:0] selection;
+
+integer n;
+
+// Prevent the scheduler from choosing the same rob slot twice in a row.
+// Works for up to the previous three slots.
+reg [5:0] already_chosen [0:3];
+initial begin
+	for (n = 0; n < 4; n = n + 1)
+		already_chosen[n] <= 6'd0;
+end
+
+always @(posedge clk)
+begin
+	for (n = 3; n > 0; n = n - 1)
+		already_chosen[n] <= already_chosen[n-1];
+	already_chosen[0] <= selection;
+end
+
+function fnAlreadyChosen;
+input [5:0] nn;
+begin
+	fnAlreadyChosen = (nn==already_chosen[1]) || (nn==already_chosen[2]) || (nn==already_chosen[3]);
+end
+endfunction
 
 // Detect if there are any load/store instruction in the queue before this
 // one. The search takes place backwards through the queue until the queueing
@@ -121,9 +144,9 @@ begin
 		// instruction is selected for execution. So, to prevent the same
 		// instruction from being selected twice, a check of the exec index is
 		// made.
-		if (rob[n].dec && rob[n].v && !rob[n].cmt && !rob[n].out2) begin
+		if (rob[n].dec && rob[n].v && !rob[n].cmt && !rob[n].out) begin
 			if (rob[n].iav && rob[n].ibv && rob[n].icv && rob[n].idv) begin		// Args are valid
-				if (!fnPriorFC(n)) begin
+				if (!fnPriorFC(n) && !fnAlreadyChosen(n)) begin
 					if (!(rob[n].mem_op && fnPriorLdSt(n))) begin	// and loads / stores are in order
 						wakeup_list[n] = 1'b1;
 						any_woke = TRUE;
