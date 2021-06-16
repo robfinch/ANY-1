@@ -1,0 +1,2648 @@
+                        	.file "any1_rom.r64",1
+                        	.file "any1_rom.r64",1
+                        	.file "../fmtk/const.r64",1
+                        	.file "../fmtk/const.r64",1
+                        	; ============================================================================
+                        	;        __
+                        	;   \\__/ o\    (C) 2020  Robert Finch, Stratford
+                        	;    \  __ /    All rights reserved.
+                        	;     \/_//     robfinch<remove>@finitron.ca
+                        	;       ||
+                        	;  
+                        	;
+                        	; This source file is free software: you can redistribute it and/or modify 
+                        	; it under the terms of the GNU Lesser General Public License as published 
+                        	; by the Free Software Foundation, either version 3 of the License, or     
+                        	; (at your option) any later version.                                      
+                        	;                                                                          
+                        	; This source file is distributed in the hope that it will be useful,      
+                        	; but WITHOUT ANY WARRANTY; without even the implied warranty of           
+                        	; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            
+                        	; GNU General Public License for more details.                             
+                        	;                                                                          
+                        	; You should have received a copy of the GNU General Public License        
+                        	; along with this program.  If not, see <http://www.gnu.org/licenses/>.    
+                        	;
+                        	; ============================================================================
+                        	
+                        	TS_NONE			EQU		0
+                        	TS_READY		EQU		1
+                        	TS_DEAD			EQU		2
+                        	TS_MSGRDY		EQU		4
+                        	TS_WAITMSG	EQU		8
+                        	TS_TIMEOUT	EQU		16
+                        	TS_PREEMPT	EQU		32
+                        	TS_UNDEAD   EQU   64
+                        	TS_RUNNING	EQU		128
+                        	
+                        	AS_NONE     EQU   0
+                        	AS_LIVE     EQU   1
+                        	AS_DEAD     EQU   2
+                        	AS_UNDEAD   EQU   4
+                        	
+                        	PRI_NORMAL  EQU   2
+                        	PRI_LOW     EQU   3
+                        	
+                        	OST_WHITE   EQU   0
+                        	OST_GREY    EQU   1
+                        	OST_BLACK   EQU   2
+                        	OST_UNDEAD  EQU   64    ; no longer alive, but not dead yet (finalizer hasn't been called)
+                        	OST_DEAD    EQU   128   ; completely dead, finalizer called already
+                        	
+                        	TCB_MAGIC     EQU   ((' ' << 24) | ('T' << 16) | ('C' << 8) | 'B')
+ACB_MAGIC     EQU   ((' ' << 24) | ('A' << 16) | ('C' << 8) | 'B')
+MSG_MAGIC     EQU   ((' ' << 24) | ('M' << 16) | ('S' << 8) | 'G')
+MBX_MAGIC     EQU   ((' ' << 24) | ('M' << 16) | ('B' << 8) | 'X')
+
+                        	UNDEADQ     EQU   7
+                        	
+                        	; error codes
+                        	E_Ok		=		0x00
+                        	E_Arg		=		0x01
+                        	E_Func  =   0x02
+                        	E_BadMbx	=		0x04
+                        	E_QueFull	=		0x05
+                        	E_NoThread	=		0x06
+                        	E_NotAlloc	=		0x09
+                        	E_NoMsg		=		0x0b
+                        	E_Timeout	=		0x10
+                        	E_BadAlarm	=		0x11
+                        	E_NotOwner	=		0x12
+                        	E_QueStrategy =		0x13
+                        	E_BadDevNum	=		0x18
+                        	E_DCBInUse	=		0x19
+                        	E_BadDCBOffset = 0x1A
+                        	E_Busy = 0x1B
+                        	; Device driver errors
+                        	E_BadDevNum	=		0x20
+                        	E_NoDev		=		0x21
+                        	E_BadDevOp	=		0x22
+                        	E_ReadError	=		0x23
+                        	E_WriteError =		0x24
+                        	E_BadBlockNum	=	0x25
+                        	E_TooManyBlocks	=	0x26
+                        	E_BadTcbPointer = 0x27
+                        	E_BadTid = 0x28
+                        	
+                        	; resource errors
+                        	E_NoMoreMbx	=		0x40
+                        	E_NoMoreMsgBlks	=	0x41
+                        	E_NoMoreAlarmBlks	= 0x44
+                        	E_NoMoreTCBs	=	0x45
+                        	E_NoMoreAppIds = 0x46
+                        	E_NoMem = 0x47
+                        	
+                        	CSR_TRACECTRL = $70A0
+                        	CSR_PTA     = $1003
+                        	CSR_TASKID  = $1010
+                        	CSR_ASID    = $101F
+                        	CSR_MSTATUS = $3000
+                        	CSR_RSSTACK = $3043
+                        	CSR_PMSTACK = $3040
+                        	CSR_MEPC    = $3048
+                        	CSR_MSEMA   = $30C1
+                        	
+                        	CSR_REGSET  = $5012
+                        	CSR_DBAD0   = $5018
+                        	CSR_DBAD1   = $5019
+                        	CSR_DBAD2   = $501A
+                        	CSR_DBAD3   = $501B
+                        	CSR_DBCR    = $501C
+                        	CSR_DBSR    = $501D
+                        	
+                        	TCBPTR_MASK = $FFF803FF
+                        	
+                        	; Message types
+                        	MT_ANNOUNCE = $00000010
+                        	MT_IRQ      = $FFFFFFFF
+                        	.file "any1_rom.r64",1
+                        	.file "any1_rom.r64",1
+                        	.file "../fmtk/types.r64",1
+                        	.file "../fmtk/types.r64",1
+                        	; ============================================================================
+                        	;        __
+                        	;   \\__/ o\    (C) 2020  Robert Finch, Stratford
+                        	;    \  __ /    All rights reserved.
+                        	;     \/_//     robfinch<remove>@finitron.ca
+                        	;       ||
+                        	;  
+                        	;
+                        	; This source file is free software: you can redistribute it and/or modify 
+                        	; it under the terms of the GNU Lesser General Public License as published 
+                        	; by the Free Software Foundation, either version 3 of the License, or     
+                        	; (at your option) any later version.                                      
+                        	;                                                                          
+                        	; This source file is distributed in the hope that it will be useful,      
+                        	; but WITHOUT ANY WARRANTY; without even the implied warranty of           
+                        	; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            
+                        	; GNU General Public License for more details.                             
+                        	;                                                                          
+                        	; You should have received a copy of the GNU General Public License        
+                        	; along with this program.  If not, see <http://www.gnu.org/licenses/>.    
+                        	;
+                        	; ============================================================================
+                        	
+                        	OBJMagic    EQU   0
+                        	OBJSize     EQU   8
+                        	OBJTypenum  EQU   16
+                        	OBJID       EQU   20
+                        	OBJState    EQU   24    ; WHITE, GREY, BLACK
+                        	OBJScavcnt  EQU   25    ; scavange count
+                        	OBJOwningMap  EQU   26
+                        	OBJPad1       EQU   27
+                        	OBJCollectionIndex  EQU   28
+                        	OBJUsedInMap  EQU   32    ; used in map
+                        	OBJPad3       EQU   36
+                        	OBJFWAddr     EQU   40    ; forwarding address
+                        	OBJFinalizer  EQU   48
+                        	OBJ_SIZE      EQU   64
+                        	
+                        	; Task Control Block
+                        	TCBObject   EQU   $000    ; Object structure, state
+                        	TCBIntRegs  EQU   $040    ; integer register set storage area (room for 64-bit)
+                        	TCBxCR      EQU   $040
+                        	TCBxRA      EQU   $048
+                        	TCBxSP      EQU   $050
+                        	TCBxGP      EQU   $058
+                        	TCBxTP      EQU   $060
+                        	TCBxT0      EQU   $068
+                        	TCBxT1      EQU   $070
+                        	TCBxT2      EQU   $078
+                        	TCBxFP      EQU   $080
+                        	TCBxS1      EQU   $088
+                        	TCBxA0      EQU   $090
+                        	TCBxA1      EQU   $098
+                        	TCBxA2      EQU   $0A0
+                        	TCBxA3      EQU   $0A8
+                        	TCBxA4      EQU   $0B0
+                        	TCBxA5      EQU   $0B8
+                        	TCBxA6      EQU   $0C0
+                        	TCBxA7      EQU   $0C8
+                        	TCBxS2      EQU   $0D0
+                        	TCBxS3      EQU   $0D8
+                        	TCBxS4      EQU   $0E0
+                        	TCBxS5      EQU   $0E8
+                        	TCBxS6      EQU   $0F0
+                        	TCBxS7      EQU   $0F8
+                        	TCBxS8      EQU   $100
+                        	TCBxS9      EQU   $108
+                        	TCBxS10     EQU   $110
+                        	TCBxS11     EQU   $118
+                        	TCBxT3      EQU   $120
+                        	TCBxT4      EQU   $128
+                        	TCBxT5      EQU   $130
+                        	TCBxT6      EQU   $138
+                        	TCBxRA0     EQU   $140
+                        	TCBxRA1     EQU   $148
+                        	TCBxCN      EQU   $150
+                        	TCBFltRegs  EQU   $158    ; float register set storage area
+                        	TCBRegsEnd  EQU   $258
+                        	; First 128 bytes are for integer register set
+                        	; Second 128 bytes are for float register set
+                        	; Leave some room for 64-bit regs
+                        	TCBbases  	EQU		$258		; base register storage
+                        	TCBepc  		EQU		$2D8
+                        	TCBStatus		EQU		$2E0
+                        	TCBPriority	EQU		$2E1
+                        	TCBWaitMbx	EQU		$2E2
+                        	TCBRegset   EQU   $2E3
+                        	TCBHasFocus EQU   $2E4
+                        	TCBStackBot	EQU		$2E8
+                        	TCBMsgD1		EQU		$2F0
+                        	TCBMsgD2		EQU		$2F8
+                        	TCBMsgD3		EQU		$300
+                        	TCBStartTick	EQU	$308
+                        	TCBEndTick	EQU		$310
+                        	TCBTicks		EQU		$318
+                        	TCBException	EQU	$320
+                        	TCBNext			EQU		$328
+                        	TCBPrev			EQU		$330
+                        	TCBTimeout	EQU		$338
+                        	TCBtid      EQU   $340
+                        	TCBmid      EQU   $342
+                        	TCBappid    EQU   $344
+                        	TCBOpMode   EQU   $346
+                        	TCBMbxNext  EQU   $348
+                        	TCBMbxPrev  EQU   $350
+                        	TCBTaskNum  EQU   $358
+                        	TCBName			EQU		$360
+                        	
+                        	; Application Control Block
+                        	ACBObject     EQU   0
+                        	ACBpData      EQU   64
+                        	ACBDataSize   EQU   72
+                        	ACBpUIData    EQU   80
+                        	ACBUIDataSize EQU   88
+                        	ACBGCRoots    EQU   96
+                        	ACBGCRootCnt  EQU   104
+                        	ACBGCNdx      EQU   112
+                        	ACBGCMarkingQue EQU   120
+                        	ACBGCMarkingQueFull   EQU   128
+                        	ACBGCMarkingQueEmpty  EQU   129
+                        	ACBGCOverflow EQU   130
+                        	ACBpCode      EQU   134
+                        	ACBObjectList EQU   144
+                        	ACBGarbageList  EQU   152
+                        	ACBHeap       EQU   160   ; 640+ bytes for heap object info
+                        	ACBiofNext    EQU   824
+                        	ACBiofPrev    EQU   832
+                        	ACBUserName   EQU   840   ; 2 byte index of string in string area
+                        	ACBPath       EQU   842   ; 2 byte index of string in string area
+                        	ACBExitRunFile  EQU   844 ; 2 byte index of string in string area
+                        	ACBCommandLine  EQU   846 ; 2 byte index of string in string area
+                        	ACBpVidMem    EQU   848
+                        	ACBpVirtVidMem  EQU 856
+                        	ACBVideoRows  EQU   864
+                        	ACBVideoCols  EQU   865
+                        	ACBCursorRow  EQU   866
+                        	ACBCursorCol  EQU   867
+                        	ACBNormAttr   EQU   868
+                        	ACBKeyState1  EQU   872
+                        	ACBKeyState2  EQU   874
+                        	ACBKeybdWaitFlag  EQU   876
+                        	ACBKeybdHead  EQU   878
+                        	ACBKeybdTail  EQU   879
+                        	ACBKeybdBuffer  EQU   880
+                        	ACBnumber     EQU   944
+                        	ACBNext       EQU   952
+                        	ACBTask       EQU   960
+                        	ACBHasFocus   EQU   962
+                        	ACBmid        EQU   964
+                        	ACBStatus     EQU   966
+                        	ACBTemplates  EQU   968   ; 256 * 8 bytes reserved for template pointers
+                        	ACBPad        EQU   3016
+                        	ACBStrings    EQU   3072  ; start of 1kB string area
+                        	ACBEnd        EQU   4096
+                        	
+                        	; Application startup record
+                        	ASRPageSize   EQU   0
+                        	ASRPriority   EQU   1
+                        	ASRRegset     EQU   2
+                        	ASRmid        EQU   3
+                        	ASRAffinity   EQU   4
+                        	ASRCodeSize   EQU   8
+                        	ASRDataSize   EQU   16
+                        	ASRUIDataSize EQU   24
+                        	ASRHeapSize   EQU   32
+                        	ASRStackSize  EQU   40
+                        	ASRpCode      EQU   48
+                        	ASRpData      EQU   56
+                        	ASRpUIData    EQU   64
+                        	ASR_SIZE      EQU   72
+                        	
+                        	MBX_OWNER			equ		0		; tid of owning task
+                        	;MBX_WTIDS			equ		4		; tasks waiting at mailbox
+                        	MBX_LINK      equ   8
+                        	MBX_TQHEAD    equ   8   ; link field for free list shared with task queue head
+                        	MBX_TQTAIL    equ   16
+                        	MBX_MQHEAD		equ		24		
+                        	MBX_MQTAIL		equ		32
+                        	MBX_SIZE			equ		40
+                        	
+                        	MSG_LINK	  equ		0
+                        	MSG_RETADR  equ   8
+                        	MSG_TGTADR  equ   10
+                        	MSG_TYPE    equ   12
+                        	MSG_D1		  equ		16
+                        	MSG_D2		  equ		24
+                        	MSG_D3		  equ		32
+                        	MSG_SIZE	  equ		40
+                        	
+                        	.file "any1_rom.r64",1
+                        	.file "any1_rom.r64",1
+                        	.file "../fmtk/config.r64",1
+                        	.file "../fmtk/config.r64",1
+                        	MAX_TID		EQU		15
+                        	NR_TCB		EQU		32
+                        	NTASK     EQU   32      ; number of tasks allowed
+                        	LOG_TCBSZ	EQU		10
+                        	LOG_PGSZ	EQU		12
+                        	LOG_ACBSZ EQU   12
+                        	OSPAGES		EQU		8		    ; pages of memory dedicated to OS
+                        	MAXVPG    EQU   32767   ; maximum virtual page number
+                        	PAGESZ    EQU   4096    ; size of a page of memory
+                        	MEMSZ     EQU   131072  ; 4096B pages
+                        	MBX_BLOCKPTR_BUFSZ  EQU   8 ; number of block pointer entries
+                        	
+                        	.file "any1_rom.r64",1
+                        	.file "any1_rom.r64",1
+                        	.file "../fmtk/device.r64",1
+                        	.file "../fmtk/device.r64",1
+                        	; ============================================================================
+                        	;        __
+                        	;   \\__/ o\    (C) 2014-2021  Robert Finch, Stratford
+                        	;    \  __ /    All rights reserved.
+                        	;     \/_//     robfinch<remove>@finitron.ca
+                        	;       ||
+                        	;  
+                        	;
+                        	; This source file is free software: you can redistribute it and/or modify 
+                        	; it under the terms of the GNU Lesser General Public License as published 
+                        	; by the Free Software Foundation, either version 3 of the License, or     
+                        	; (at your option) any later version.                                      
+                        	;                                                                          
+                        	; This source file is distributed in the hope that it will be useful,      
+                        	; but WITHOUT ANY WARRANTY; without even the implied warranty of           
+                        	; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            
+                        	; GNU General Public License for more details.                             
+                        	;                                                                          
+                        	; You should have received a copy of the GNU General Public License        
+                        	; along with this program.  If not, see <http://www.gnu.org/licenses/>.    
+                        	;
+                        	; DeviceDriver.inc
+                        	; - Device driver structures and constants                                                                         
+                        	; ============================================================================
+                        	
+                        	;	.global			; global constants
+                        	
+                        	; Device Control Block
+                        	;
+                        	DCB_Name			EQU		0		; string: first byte is length, 11 chars max
+                        	DCB_Type			EQU		0x0C
+                        	DCB_nBPB			EQU		0x10
+                        	DCB_LastErc			EQU		0x18		; last error code
+                        	DCB_StartBlock		EQU		0x20		; starting block number (partitioned devices)
+                        	DCB_nBlocks			EQU		0x28		; number of blocks on device
+                        	DCB_pCmdProc		EQU		0x30		; pointer to command processor routine
+                        	DCB_ReentCount		EQU		0x38		; re-entrancy count (1 to 255)
+                        	DCB_fSingleUser		EQU		0x39
+                        	DCB_fUI       EQU   0x3A    ; user interface device
+                        	DCB_hJob			EQU		0x40		; handle to associated job
+                        	DCB_Mbx				EQU		0x48
+                        	DCB_pSema			EQU		0x50		; pointer to device semaphore
+                        	DCB_Resv1			EQU		0x58		; reserved
+                        	DCB_Resv2			EQU		0x60		; reserved
+                        	DCB_Size			EQU		0x60
+                        	
+                        	; Device command opcodes
+                        	;
+                        	DVC_Nop				EQU		0
+                        	DVC_Setup			EQU		1
+                        	DVC_Initialize		EQU		2
+                        	DVC_Status			EQU		3
+                        	DVC_MediaCheck		EQU		4
+                        	DVC_BuildBPB		EQU		5
+                        	DVC_Open			EQU		6
+                        	DVC_Close			EQU		7
+                        	DVC_GetChar			EQU		8
+                        	DVC_PeekChar		EQU		9
+                        	DVC_GetCharDirect	EQU		10
+                        	DVC_PeekCharDirect	EQU		11
+                        	DVC_InputStatus		EQU		12
+                        	DVC_PutChar			EQU		13
+                        	DVC_SetPosition		EQU		15
+                        	DVC_ReadBlock		EQU		16
+                        	DVC_WriteBlock		EQU		17
+                        	DVC_VerifyBlock		EQU		18
+                        	DVC_OutputStatus	EQU		19
+                        	DVC_FlushInput		EQU		20
+                        	DVC_FlushOutput		EQU		21
+                        	DVC_IRQ				EQU		22
+                        	DVC_IsRemoveable	EQU		23
+                        	DVC_IOCTRL_READ		EQU		24
+                        	DVC_IOCTRL_WRITE	EQU		25
+                        	DVC_OutputUntilBusy	EQU		26
+                        	DVC_IsUI          EQU   27
+                        	
+                        	MAX_DEV_OP			EQU		31
+                        	
+                        	
+                        	DRSP_DONE			EQU		1
+                        	
+                        	;Standard Devices are:
+                        	
+                        	;#		Device					Standard name
+                        	
+                        	;0		NULL device 			NUL		(OS built-in)
+                        	;1		Keyboard (sequential)	KBD		(OS built-in)
+                        	;2		Video (sequential)		VID		(OS built-in)
+                        	;3		Printer (parallel 1)	LPT
+                        	;4		Printer (parallel 2)	LPT2
+                        	;5		RS-232 1				COM1	(OS built-in)
+                        	;6		RS-232 2				COM2
+                        	;7		RS-232 3				COM3
+                        	;8		RS-232 4				COM4
+                        	;9		Parallel xfer	  PTI
+                        	;10		Front Panel 		FP
+                        	;11
+                        	;12		Hard disk				HD1
+                        	;13		Hard disk				HD2
+                        	;14
+                        	;15   Time slice / GP	VIA
+                        	;16		SDCard					CARD1 	(OS built-in)
+                        	;17
+                        	;18
+                        	;19
+                        	;20
+                        	;21
+                        	;22
+                        	;23
+                        	;24
+                        	;25
+                        	;26
+                        	;27
+                        	;28		Audio						PSG1	(OS built-in)
+                        	;29
+                        	;30   Random Number		PRNG
+                        	;31		Debug						DBG
+                        	
+                        	NR_DCB			EQU		32
+                        	.file "any1_rom.r64",1
+                        	.file "any1_rom.r64",1
+                        	.file "../fmtk/macro.r64",1
+                        	.file "../fmtk/macro.r64",1
+                        	; ============================================================================
+                        	;        __
+                        	;   \\__/ o\    (C) 2020  Robert Finch, Stratford
+                        	;    \  __ /    All rights reserved.
+                        	;     \/_//     robfinch<remove>@finitron.ca
+                        	;       ||
+                        	;  
+                        	;
+                        	; This source file is free software: you can redistribute it and/or modify 
+                        	; it under the terms of the GNU Lesser General Public License as published 
+                        	; by the Free Software Foundation, either version 3 of the License, or     
+                        	; (at your option) any later version.                                      
+                        	;                                                                          
+                        	; This source file is distributed in the hope that it will be useful,      
+                        	; but WITHOUT ANY WARRANTY; without even the implied warranty of           
+                        	; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            
+                        	; GNU General Public License for more details.                             
+                        	;                                                                          
+                        	; You should have received a copy of the GNU General Public License        
+                        	; along with this program.  If not, see <http://www.gnu.org/licenses/>.    
+                        	;
+                        	; ============================================================================
+                        	
+                        	; macros have to be defined before they are encountered.
+                        	
+                        	; disable interrupts
+                        	macro mDI
+  csrrc $x0,#CSR_PMSTACK,#1        ; disable interrupts
+endm
+                        	
+                        	; disable interrupts
+                        	macro mEI
+  csrrs $x0,#CSR_PMSTACK,#1        ; enable interrupts
+endm
+                        	
+                        	; unlock the a semaphore	
+                        	macro mUnlockSemaphore (adr)
+	ldi		$a0,#-1
+	sto		$a0,adr
+endm
+                        	
+                        	macro mGetCurrentTid
+  csrrw $a0,#CSR_TASKID,$x0
+endm
+                        	
+                        	macro	mHasFocus
+	ldi		$a0,#20
+	brk   #240
+endm
+                        	
+                        	macro mSleep(tm)
+	ldi		$a0,#5            ; FMTK Sleep() function
+	ldi		$a1,#tm
+	brk   #240
+endm
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Parameters:
+                        	;   a1 = device # to check
+                        	;------------------------------------------------------------------------------
+                        	
+                        	macro mWaitForFocus
+.WFF1@:
+  mov   $t2,$a1
+	
+	ldi		$a0,#20
+	brk   #240
+tst   $a1
+	bne 	.HasFocus@
+	ldi   $a0,#26             ; FMTK_IO
+	mov   $a1,$t2
+	ldi   $a2,#9              ; peekchar function
+	brk   #240
+	sne		$a0,#$14						; CTRL-T
+	bt		.WFF2@
+	; eat up the CTRL-T
+	ldi		$a0,#26							; FMTK_IO
+	mov   $a1,$t2
+	ldi		$a2,#8							; getchar function
+	brk   #240
+	ldi		$a0,#21							; switch IO Focus
+	brk   #240
+	jmp		.WFF1@
+.WFF2@:
+	
+	ldi		$a0,#5            ; FMTK Sleep() function
+	ldi		$a1,#1
+	brk   #240
+
+	jmp		.WFF1@
+.HasFocus@:
+endm
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Parameters:
+                        	;   $a0 = mailbox handle
+                        	; Modifies:
+                        	;   $t0
+                        	; Returns:
+                        	;   $a0 = mailbox pointer
+                        	;------------------------------------------------------------------------------
+                        	
+                        	macro mMbxHandleToPointer
+  lsr   $t0,$a0,#8    ; extract collection index
+  asl   $t0,$t0,#2
+  ldt   $t0,MbxBlockPtr[$t0]
+  and   $a0,$a0,#$FF
+  asl   $a0,$a0,#2
+  or    $a0,$a0,$t0
+endm
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Pop an entry off the timeout list. It is assumed the entry is popped when
+                        	; its timeout reached zero. Hence there is no adjustment of the following
+                        	; timeout made. Routine used only in the schedulerIRQ, so written as a macro.
+                        	;
+                        	; Parameters:
+                        	;		v0 = top timeout list
+                        	; Modifies:
+                        	;		v1,t0,t1,t2,t3
+                        	;	Returns:
+                        	;		v0 = timeout list pointer to TCB
+                        	;------------------------------------------------------------------------------
+                        	
+                        	;macro mPopTimeoutList
+                        	;	lbu		$v1,TCBStatus[$v0]		; no longer a waiting status
+                        	;	and		$t1,$v1,#TS_WAITMSG		; check if waiting for a message
+                        	;	beqz	$t1,.noWait@
+                        	;	ldbu  $a0,TCBtid[$v0]
+                        	;	mMbxRemoveTask							; remove task from mailbox list
+                        	.noWait@:
+                        	;	and		$v1,$v1,#~(TS_WAITMSG|TS_TIMEOUT)
+                        	;	stb		$v1,TCBStatus[$v0]
+                        	;	ldt		$v1,TCBNext[$v0]			; get next task on timeout list
+                        	;	stt		$v1,TimeoutList				; update list head
+                        	;	beqz	$v1,.done@
+                        	;	stt		$x0,TCBPrev[$v1]			; TimeoutList->prev = 0
+                        	.done@:
+                        	;	stt		$x0,TCBNext[$v0]
+                        	;	stt		$x0,TCBPrev[$v0]
+                        	endm
+                        	
+                        	macro mGetAppMid
+  asl   $a0,$a0,#LOG_PGSZ
+  ldb   $a0,ACBmid[$a0]
+endm
+                        	
+                        	; Macros to enable and disable time-slice interrupts
+                        	macro mTimeSliceEI
+	ldi		$t0,#$1A000180			; enable timer3 interrupts after 26 cycles
+	stt		$t0,VIA_IER+VIA
+endm
+                        	
+                        	macro mTimeSliceDI
+	ldi		$t0,#$100						; disable timer3 (time slice) interrupts
+	stt		$t0,VIA_IER+VIA
+	nop                   ; make sure disable has time for effect
+	nop
+endm
+                        	
+                        	; Inserting into the ready queue is done by both OS ecall functions and
+                        	; interrupt driven scheduling. It's important to have interrupts disabled
+                        	; so that there is no contention for the ready queue.
+                        	
+                        	macro mInsertIntoReadyQueue
+	asl   $t0,$a0,#LOG_TCBSZ
+	ldbu	$t1,TCBStatus[$t0]	; set status to ready
+	or		$t1,$t1,#TS_READY
+	stb		$t1,TCBStatus[$t0]
+	ldb		$t1,TCBPriority[$t0]
+	pushq	$a0,$t1
+endm
+                        	
+                        	.file "any1_rom.r64",1
+                        	.file "any1_rom.r64",1
+                        	.file "../fmtk/globals.r64",1
+                        	.file "../fmtk/globals.r64",1
+                        	; ============================================================================
+                        	;        __
+                        	;   \\__/ o\    (C) 2020  Robert Finch, Stratford
+                        	;    \  __ /    All rights reserved.
+                        	;     \/_//     robfinch<remove>@finitron.ca
+                        	;       ||
+                        	;  
+                        	;
+                        	; This source file is free software: you can redistribute it and/or modify 
+                        	; it under the terms of the GNU Lesser General Public License as published 
+                        	; by the Free Software Foundation, either version 3 of the License, or     
+                        	; (at your option) any later version.                                      
+                        	;                                                                          
+                        	; This source file is distributed in the hope that it will be useful,      
+                        	; but WITHOUT ANY WARRANTY; without even the implied warranty of           
+                        	; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the            
+                        	; GNU General Public License for more details.                             
+                        	;                                                                          
+                        	; You should have received a copy of the GNU General Public License        
+                        	; along with this program.  If not, see <http://www.gnu.org/licenses/>.    
+                        	;
+                        	; ============================================================================
+                        	
+                        	INBUF				equ		$0100
+                        	switchflag	equ		$0200
+                        	milliseconds	equ		$0208
+                        	CurrentTid  equ   $210
+                        	TaskNum     equ   $220
+                        	__xhandler_head equ $228
+                        	
+                        	ACBPtrs EQU $0280
+                        	APPID_POOL  EQU   $02F0
+                        	NPAGES	equ		$0300
+                        	QNDX		EQU		$0304
+                        	READYQ	EQU		$0308
+                        	TID_POOL  EQU		$0310
+                        	missed_ticks	equ		$0320
+                        	TimeoutList		equ		$0328
+                        	Tick		EQU		$0330
+                        	SysSema	EQU		$0340
+                        	MEPC0   EQU   $0350
+                        	MEPC1   EQU   $0358
+                        	MEPC2   EQU   $0360
+                        	MEPC3   EQU   $0368
+                        	CURIN   EQU   $0370
+                        	CUROUT  EQU   $0371
+                        	CHAINA0 EQU   $0378
+                        	CHAINA1 EQU   $0380
+                        	CHAINA2 EQU   $0388
+                        	CHAINA3 EQU   $0390
+                        	CHAINA4 EQU   $0398
+                        	CHAINA5 EQU   $03A0
+                        	READYQ  EQU   $0400
+                        	RDYQ0		EQU		$0400
+                        	RDYQ1		EQU		$0500
+                        	RDYQ2		EQU		$0600
+                        	RDYQ3		EQU		$0700
+                        	mbxs		EQU		$0800
+                        	mbxs_end	EQU	$0C00
+                        	FreeMsg	EQU		$0C00
+                        	FreeMbx EQU   $0C08
+                        	IdleTaskMbx EQU   $0C10
+                        	IdleTaskMsgD1 EQU   $0C18
+                        	IdleTaskMsgD2 EQU   $0C20
+                        	IdleTaskMsgD3 EQU   $0C28
+                        	IdleTaskId    EQU   $0C2A
+                        	PAMPtr  EQU   $0FF8
+                        	IOFocusNdx		EQU		$1080
+                        	IOFocusTbl		EQU		$1088
+                        	IRQFlag   EQU $1090
+                        	IRQCause  EQU $1098
+                        	MbxBlockPtr EQU   $10A0
+                        	MbxBlockPtrEnd  EQU MbxBlockPtr + MBX_BLOCKPTR_BUFSZ * 4
+                        	MbxBlockCounter EQU $10E0
+                        	RegsetTid   EQU   $10F0
+                        	SerRcvBuf		EQU		$1400
+                        	SerXmitBuf	EQU		$1800
+                        	SerHeadRcv	EQU		$1C00
+                        	SerTailRcv	EQU		$1C04
+                        	SerHeadXmit	EQU		$1C08
+                        	SerTailXmit	EQU		$1C0C
+                        	SerRcvXon		EQU		$1C10
+                        	SerRcvXoff	EQU		$1C11
+                        	; The following must be at least 128 byte aligned
+                        	DVF_Base		EQU		$2000
+                        	DVF_Limit		EQU		$3000
+                        	DCB_Base    EQU   $3000
+                        	DCB_Limit   EQU   $3C00
+                        	PAM     EQU   $4000
+                        	_PAM     EQU   $4000
+                        	_PAMend  EQU   $C000
+                        	
+                        	SysHeapStart  EQU   $5000
+                        	SysHeapEnd    EQU   $20000
+                        	
+                        	
+                        	.file "any1_rom.r64",1
+                        	.file "any1_rom.r64",1
+                        	
+                        	;TEST  equ   1
+                        	
+                        	CTRLC				equ		$03
+                        	CTRLT       equ   $14
+                        	BS					equ		$08
+                        	LNFD  			equ		$0A
+                        	CR					equ		$0D
+                        	XON					equ		$11
+                        	XOFF				equ		$13
+                        	EOF         equ   $1A
+                        	DEL					equ		$7F
+                        	VIA					equ		$FFFFFFFFFF910000
+                        	VIA_PA			equ		$04
+                        	VIA_DDRA		equ		$0C
+                        	VIA_T1CL		equ		$10
+                        	VIA_T1CH		equ		$14
+                        	VIA_T2CL    equ   $20
+                        	VIA_T2CH    equ   $24
+                        	VIA_ACR			equ		$2C
+                        	VIA_PCR			equ		$30
+                        	VIA_IFR			equ		$34
+                        	VIA_IER			equ		$38
+                        	VIA_PARAW		equ		$3C
+                        	UART				equ		$FFFFFFFFFF930000
+                        	UART_TRB		equ		$00
+                        	UART_STAT		equ		$04
+                        	UART_CMD		equ		$08
+                        	
+                        	CSR_UIE     equ   $004
+                        	ROMBASE		equ		$FFFFFFFFFFFC0000
+                        	IOBASE		equ		$FFFFFFFFFF800000
+                        	TEXTSCR		equ		$FFFFFFFFFF800000
+                        	KEYBD		equ		$FFFFFFFFFF8E0000
+                        	LEDS		equ			$FFFFFFFFFF910000
+                        	xbLEDS		equ			$FFFFFFFFFBDC0600
+                        	xbBridge1 equ   $FFFFFFFFFFDCF010
+                        	BUTTONS		equ		$FFFFFFFFFF910000
+                        	SCRATCHPAD	equ		$FFFFFFFFFF400000
+                        	SCRATCHMEM	equ		$FFFFFFFFFF400000
+                        	_DBGAttr  equ   SCRATCHMEM
+                        	;DBGATTR   equ   $0000FFFF000F0000   ; white on blue, priority $40
+                        	DBGATTR   equ   %000000_111111111111111111111_000001100000110111111_0000000000000000
+                        	_cursorX  equ   _DBGAttr + 8
+                        	_cursorY  equ   _cursorX + 1
+                        	
+                        	
+                        	.file "any1_rom.r64",49
+                        		code	18 bits
+                        	;------------------------------------------------------------------------------
+                        	; Exception vector table.
+                        	;------------------------------------------------------------------------------
+                        	{+
+                        		org		ROMBASE				; user mode exception
+FFFFFFFFFFFC0000 41 80 4E 00 00                    		jmp		DBGRout
+FFFFFFFFFFFC0005 00 00 00 00 00 00 00 00 00 00     		org 	ROMBASE+$C0				; machine mode exception
+FFFFFFFFFFFC000F 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0019 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0023 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC002D 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0037 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0041 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC004B 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0055 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC005F 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0069 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0073 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC007D 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0087 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0091 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC009B 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC00A5 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC00AF 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC00B9 00 00 00 00 00 00 00              
+FFFFFFFFFFFC00C0 41 80 4B 00 00                    		jmp		DBGRout
+FFFFFFFFFFFC00C5 00 00 00 00 00 00 00 00 00 00     		org		ROMBASE+$F2			; non-maskable interrupt
+FFFFFFFFFFFC00CF 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC00D9 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC00E3 00 00 00 00 00                    
+FFFFFFFFFFFC00E8 00 00 00 00 00                    
+FFFFFFFFFFFC00ED 00 00 00 00 00                    
+FFFFFFFFFFFC00F2 41 38 08 00 00                    		bra		MachineStart    ; cannot use a jump here, takes too much room
+                        	
+                        	;------------------------------------------------------------------------------
+                        	;------------------------------------------------------------------------------
+FFFFFFFFFFFC00F7 00 00 00 00 00 00 00 00 00        		org		ROMBASE+$100
+FFFFFFFFFFFC0100 41 00 43 00 00                    		jmp		IRQRout
+FFFFFFFFFFFC0105 00 00 00 00 00 00 00 00 00 00     		org 	ROMBASE+$1C0		; machine mode exception
+FFFFFFFFFFFC010F 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0119 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0123 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC012D 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0137 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0141 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC014B 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0155 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC015F 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0169 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0173 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC017D 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0187 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0191 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC019B 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC01A5 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC01AF 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC01B9 00 00 00 00 00 00 00              
+FFFFFFFFFFFC01C0 41 00 40 00 00                    		jmp		IRQRout
+FFFFFFFFFFFC01C5 00 00 00 00 00 00 00 00 00 00     		org		ROMBASE+$1F2		; non-maskable interrupt
+FFFFFFFFFFFC01CF 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC01D9 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC01E3 00 00 00 00 00                    
+FFFFFFFFFFFC01E8 00 00 00 00 00                    
+FFFFFFFFFFFC01ED 00 00 00 00 00                    
+FFFFFFFFFFFC01F2 41 38 04 00 00                    		bra		MachineStart    ; cannot use a jump here, takes too much room
+                        	
+FFFFFFFFFFFC01F7 00 00 00 00 00 00 00 00 00        		org		ROMBASE+$200
+FFFFFFFFFFFC0200 41 00 3F 00 00                    		jmp		IRQRout
+FFFFFFFFFFFC0205 00 00 00 00 00 00 00 00 00 00     		org 	ROMBASE+$2C0		; machine mode exception
+FFFFFFFFFFFC020F 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0219 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0223 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC022D 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0237 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0241 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC024B 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0255 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC025F 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0269 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0273 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC027D 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0287 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC0291 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC029B 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC02A5 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC02AF 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC02B9 00 00 00 00 00 00 00              
+FFFFFFFFFFFC02C0 41 00 3C 00 00                    		jmp		IRQRout
+FFFFFFFFFFFC02C5 00 00 00 00 00 00 00 00 00 00     		org		ROMBASE+$2F2		; non-maskable interrupt
+FFFFFFFFFFFC02CF 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC02D9 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC02E3 00 00 00 00 00                    
+FFFFFFFFFFFC02E8 00 00 00 00 00                    
+FFFFFFFFFFFC02ED 00 00 00 00 00                    
+FFFFFFFFFFFC02F2 41 38 00 00 00                    		bra		MachineStart    ; cannot use a jump here, takes too much room
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Reset starting address.
+                        	;------------------------------------------------------------------------------
+FFFFFFFFFFFC02F7 00 00 00 00 00 00 00 00 00        		org		ROMBASE+$300
+                        	MachineStart:
+                        	;  ldi   $t1,#$81
+                        	;  sto   $t1,xbBridge1
+FFFFFFFFFFFC0300 04 03 00 AA 00                    	  ldi   $t0,#$AA
+FFFFFFFFFFFC0305 50 10 F9 FF FF                    	  stb   $t0,LEDS
+FFFFFFFFFFFC030A 70 00 00 03 00                    
+FFFFFFFFFFFC030F 04 14 00 AA 00                    	  ldi   $a0,#$AA
+FFFFFFFFFFFC0314 50 10 F9 FF FF                    	  stb   $a0,LEDS
+FFFFFFFFFFFC0319 70 00 00 14 00                    
+                        	
+FFFFFFFFFFFC031E 50 0C F4 FF FF                    		ldi		$sp,#SCRATCHMEM+$CDF8		  ; setup machine mode stack pointer
+FFFFFFFFFFFC0323 04 3E 00 F8 CD                    
+FFFFFFFFFFFC0328 04 3E 3E F8 FF                    		sub 	$sp,$sp,#8
+FFFFFFFFFFFC032D 04 14 00 0A 00                    		ldi   $a0,#10
+FFFFFFFFFFFC0332 04 15 00 00 00                    		ldi   $a1,#0
+FFFFFFFFFFFC0337 41 85 0D 00 00                    		call  _Delay2s
+FFFFFFFFFFFC033C 41 1D 16 00 00                    		call  dbg_HomeCursor
+FFFFFFFFFFFC0341 50 F0 1B 0C FE                    		ldi		$a1,#DBGATTR		  ; set zorder $40, white text, blue background
+FFFFFFFFFFFC0346 51 FF 3F 00 00                    
+FFFFFFFFFFFC034B 04 15 00 00 00                    
+FFFFFFFFFFFC0350 50 00 F4 FF FF                    		sto		$a1,_DBGAttr
+FFFFFFFFFFFC0355 70 00 00 15 30                    
+                        	  ; clear debug screen
+FFFFFFFFFFFC035A 50 00 F4 FF FF                    	  ldo   $a0,_DBGAttr
+FFFFFFFFFFFC035F 60 14 00 00 30                    
+FFFFFFFFFFFC0364 50 00 F8 FF FF                    	  ldi   $t0,#TEXTSCR
+FFFFFFFFFFFC0369 04 03 00 00 00                    
+                        	ifdef TEST
+                        	  ldi   $t1,#6
+                        	else
+FFFFFFFFFFFC036E 04 04 00 58 06                    	  ldi   $t1,#56*29
+                        	endif
+                        	.0001:
+FFFFFFFFFFFC0373 04 04 04 FF FF                    	  sub   $t1,$t1,#1
+FFFFFFFFFFFC0378 58 00 04 03 00                    	  sto   $a0,[$t0+$t1*8]
+FFFFFFFFFFFC037D 71 00 03 14 30                    
+FFFFFFFFFFFC0382 4F C4 04 00 FF                    	  bne   $t1,$x0,.0001
+FFFFFFFFFFFC0387 50 F0 1B 0C FE                    		ldi		$a1,#DBGATTR|$41
+FFFFFFFFFFFC038C 51 FF 3F 00 00                    
+FFFFFFFFFFFC0391 04 15 00 41 00                    
+FFFFFFFFFFFC0396 50 00 F8 FF FF                    		sto		$a1,TEXTSCR
+FFFFFFFFFFFC039B 70 00 00 15 30                    
+FFFFFFFFFFFC03A0 50 00 F8 FF FF                    		sto		$a1,TEXTSCR+8
+FFFFFFFFFFFC03A5 70 08 00 15 30                    
+FFFFFFFFFFFC03AA 50 00 F8 FF FF                    		sto		$a1,TEXTSCR+16
+FFFFFFFFFFFC03AF 70 10 00 15 30                    
+FFFFFFFFFFFC03B4 50 00 F8 FF FF                    		sto		$a1,TEXTSCR+24
+FFFFFFFFFFFC03B9 70 18 00 15 30                    
+                        	
+                        	;  ldi   $a0,#msgStart
+                        	  ;call  PutHexTetra
+FFFFFFFFFFFC03BE 50 C1 FF FF FF                    	  ldi   $a0,#msgStart
+FFFFFFFFFFFC03C3 04 14 00 CC 14                    
+FFFFFFFFFFFC03C8 41 A9 33 00 00                    	  call  PutString
+                        	
+                        	;  call  _ramtest2
+                        	;	csrrs $x0,#CSR_TRACECTRL,#1 ; turn on tracing
+FFFFFFFFFFFC03CD 41 45 F7 0F 00                    	  call  _pti_init
+FFFFFFFFFFFC03D2 50 80 00 00 00                    	  ldi   $a1,#$80000
+FFFFFFFFFFFC03D7 04 15 00 00 00                    
+FFFFFFFFFFFC03DC 50 00 02 00 00                    	  ldi   $a0,#$200000
+FFFFFFFFFFFC03E1 04 14 00 00 00                    
+FFFFFFFFFFFC03E6 41 E5 F6 0F 00                    	  call  _pti_read_block
+                        	
+FFFFFFFFFFFC03EB 41 D5 F6 0F 00                    		call  MMUInit					; initialize MMU for address space zero.
+FFFFFFFFFFFC03F0 41 C5 F6 0F 00                    		call  _FMTKInit
+                        		;call  ViaSetup
+                        	;	call  _SerialInit
+FFFFFFFFFFFC03F5 41 B5 F6 0F 00                    		call  _InitPIC
+FFFFFFFFFFFC03FA 04 03 00 05 00                    		ldi   $t0,#5          ; set current input and output to serial port
+FFFFFFFFFFFC03FF 70 70 00 03 03                    		stb   $t0,CURIN
+FFFFFFFFFFFC0404 70 71 00 03 03                    		stb   $t0,CUROUT
+FFFFFFFFFFFC0409 04 03 00 00 00                    		ldi		$t0,#0
+FFFFFFFFFFFC040E 0F 00 07 03 20                    		csrrw $x0,#CSR_MSEMA,$t0  ; turn off semaphores
+FFFFFFFFFFFC0413 0F 00 07 06 20                    		csrrw	$x0,#$181,$t0		    ; set ASID
+FFFFFFFFFFFC0418 0F 00 43 00 20                    		csrrw $x0,#CSR_TASKID,$t0 ; clear task id
+FFFFFFFFFFFC041D 50 C0 FF FF FF                    		ldi		$t0,#$FFFFFFFFFFFC0000
+FFFFFFFFFFFC0422 04 03 00 00 00                    
+FFFFFFFFFFFC0427 0F 00 D7 00 21                    		csrrw $x0,#$5035,$t0		; set tvec for debug mode
+FFFFFFFFFFFC042C 50 C0 FF FF FF                    		ldi		$t0,#$FFFFFFFFFFFC0100
+FFFFFFFFFFFC0431 04 03 00 00 01                    
+FFFFFFFFFFFC0436 0F 00 D3 00 21                    		csrrw $x0,#$5034,$t0		; set tvec for interrupt mode
+FFFFFFFFFFFC043B 50 C0 FF FF FF                    		ldi		$t0,#$FFFFFFFFFFFC0200
+FFFFFFFFFFFC0440 04 03 00 00 02                    
+FFFFFFFFFFFC0445 0F 00 CF 00 21                    		csrrw $x0,#$5033,$t0		; set tvec for machine mode
+FFFFFFFFFFFC044A 04 03 00 1F FC                    		ldi   $t0,#$FFFFFFFFFFFFFC1F  ; run user mode in register set #0
+FFFFFFFFFFFC044F 0F 00 0F 01 20                    		csrrw $x0,#CSR_RSSTACK,$t0
+FFFFFFFFFFFC0454 50 C0 FF FF FF                    		ldi		$t0,#UserStart
+FFFFFFFFFFFC0459 04 03 00 A4 04                    
+FFFFFFFFFFFC045E 0F 00 23 01 21                    		csrrw	$x0,#$5048,$t0	  ; set mepc
+FFFFFFFFFFFC0463 70 58 00 03 23                    		stt   $t0,MEPC1
+FFFFFFFFFFFC0468 04 14 00 01 00                    	  ldi   $a0,#1            ; start task
+FFFFFFFFFFFC046D 04 15 00 00 00                    	  ldi   $a1,#0
+FFFFFFFFFFFC0472 04 16 00 00 00                    	  ldi   $a2,#0
+FFFFFFFFFFFC0477 50 C0 FF FF FF                    	  ldi   $a3,#UserStart2
+FFFFFFFFFFFC047C 04 17 00 AE 04                    
+FFFFFFFFFFFC0481 04 18 00 00 00                    	  ldi   $a4,#$00
+FFFFFFFFFFFC0486 41 7D F4 0F 00                    	  call  OSOCall
+FFFFFFFFFFFC048B 0F 00 55 00 20                    	  csrrw $x0,#CSR_TASKID,$a1
+FFFFFFFFFFFC0490 04 02 00 10 00                    	  csrrs $x0,#CSR_PMSTACK,#16 ; enable interrupts on return
+FFFFFFFFFFFC0495 0F 00 02 01 40                    
+FFFFFFFFFFFC049A 0F 00 80 02 61                    		csrrc $x0,#CSR_TRACECTRL,#0 ; turn off tracing
+FFFFFFFFFFFC049F 45 00 00 00 00                    		rte                       ; switch to user mode
+;------------------------------------------------------------------------------
+                        	; User mode code staret here
+                        	; First thing to do is start a task so that the startup code may run on the
+                        	; first task switch.
+                        	;------------------------------------------------------------------------------
+                        	  align 	code
+UserStart:
+FFFFFFFFFFFC04A4 41 3D 31 00 00                    	  call  DumpTraceQueue
+FFFFFFFFFFFC04A9 7A 00 00 00 12                    	  wai                   ; wait for task switch
+                        	UserStart2:
+FFFFFFFFFFFC04AE 04 14 00 0C 00                    	  ldi   $a0,#12         ; start app
+FFFFFFFFFFFC04B3 50 C1 FF FF FF                    	  ldi   $a1,#SystemASR
+FFFFFFFFFFFC04B8 04 15 00 B4 13                    
+FFFFFFFFFFFC04BD 00 00 21 00 00                    	  brk   #240
+                        	.appBad:
+FFFFFFFFFFFC04C2 0C 70 14 00 0B                    	  tst   $cr0,$a0
+FFFFFFFFFFFC04C7 8F 00 00 00 00                    
+FFFFFFFFFFFC04CC 4F D8 70 FF FF                    	  bne   $cr0,.appBad
+FFFFFFFFFFFC04D1 34 0B 15 00 00                    	  mov   $s1,$a1
+FFFFFFFFFFFC04D6 04 14 00 0E 00                    	  ldi   $a0,#14         ; get current tid
+FFFFFFFFFFFC04DB 00 00 21 00 00                    	  brk   #240            ; $a1 = task id
+FFFFFFFFFFFC04E0 04 14 00 1E 00                    	  ldi   $a0,#30         ; set task's app id
+FFFFFFFFFFFC04E5 34 16 0B 00 00                    	  mov   $a2,$s1         ; $a2 = app id
+FFFFFFFFFFFC04EA 00 00 21 00 00                    	  brk   #240
+                        	
+FFFFFFFFFFFC04EF 34 0B 15 00 00                    	  mov   $s1,$a1         ; s1 = app id
+FFFFFFFFFFFC04F4 50 7F 00 0A 00                    		ldi		$sp,#$A0080000-4  ; setup user mode stack pointer
+FFFFFFFFFFFC04F9 04 3E 00 FC FF                    
+                        	
+FFFFFFFFFFFC04FE 04 14 00 0C 00                    	  ldi   $a0,#12         ; start app
+FFFFFFFFFFFC0503 50 C1 FF FF FF                    	  ldi   $a1,#TinyBasicASR
+FFFFFFFFFFFC0508 04 15 00 40 14                    
+FFFFFFFFFFFC050D 00 00 21 00 00                    	  brk   #240
+FFFFFFFFFFFC0512 04 14 00 01 00                    		ldi		$a0,#1          ; Start finalizer task, task #1
+FFFFFFFFFFFC0517 34 15 0B 00 00                    		mov   $a1,$s1
+FFFFFFFFFFFC051C 04 16 00 00 00                    		ldi		$a2,#0
+FFFFFFFFFFFC0521 50 00 00 00 00                    		ldi		$a3,#Finalizer
+FFFFFFFFFFFC0526 51 00 00 F8 FF                    
+FFFFFFFFFFFC052B 04 17 00 AA 01                    
+FFFFFFFFFFFC0530 04 18 00 0B 00                    		ldi   $a4,#$0B        ; user mode, regset 11
+FFFFFFFFFFFC0535 00 00 21 00 00                    		brk   #240
+FFFFFFFFFFFC053A 04 14 00 01 00                    		ldi		$a0,#1          ; Start task for monitor, task #2
+FFFFFFFFFFFC053F 34 15 0B 00 00                    		mov   $a1,$s1
+FFFFFFFFFFFC0544 04 16 00 00 00                    		ldi		$a2,#0
+FFFFFFFFFFFC0549 50 C0 FF FF FF                    		ldi		$a3,#MonEntry
+FFFFFFFFFFFC054E 04 17 00 EA 09                    
+FFFFFFFFFFFC0553 04 18 00 0A 00                    		ldi   $a4,#$0A        ; user mode, regset 10
+FFFFFFFFFFFC0558 00 00 21 00 00                    		brk   #240
+FFFFFFFFFFFC055D 04 14 00 19 00                    	  ldi   $a0,#25         ; map OS vars
+FFFFFFFFFFFC0562 00 00 21 00 00                    	  brk   #240
+FFFFFFFFFFFC0567 34 3C 15 00 00                    	  mov   $gp,$a1
+                        	
+                        	UserStart3:
+FFFFFFFFFFFC056C 50 7F 00 0A 00                    		ldi		$sp,#$A0080000-4  ; setup user mode stack pointer
+FFFFFFFFFFFC0571 04 3E 00 FC FF                    
+FFFFFFFFFFFC0576 04 14 00 18 00                    		ldi		$a0,#24							; RequestIOFocus
+FFFFFFFFFFFC057B 34 15 0B 00 00                    		mov   $a1,$s1
+FFFFFFFFFFFC0580 00 00 21 00 00                    		brk   #240
+                        	;	ldi		$sp,#$70000		      ; setup temporary user mode stack pointer
+                        	;	mov   $a0,$a1             ; $a0 = tid
+                        	;	call AllocStack
+                        	;	add   $sp,$v1,#1020       ; place stack pointer at top of allocated region
+FFFFFFFFFFFC0585 04 03 00 08 00                    		ldi		$t0,#$08						; turn on the LED
+FFFFFFFFFFFC058A 50 10 F9 FF FF                    		stt		$t0,VIA+VIA_PARAW
+FFFFFFFFFFFC058F 70 3C 00 03 20                    
+FFFFFFFFFFFC0594 04 05 00 10 00                    		ldi		$t2,#16							; send an XON just in case
+FFFFFFFFFFFC0599 04 17 00 11 00                    		ldi		$a3,#XON
+                        	.0004:
+FFFFFFFFFFFC059E 41 29 05 00 00                    		call  Putch ;SerialPutChar
+R2 operation needs two source operands. (1314)
+R2 operation needs two source operandsFFFFFFFFFFFC05A3 02 1F 1F 00 05                    		sub.	$t2,$t2,#1
+FFFFFFFFFFFC05A8 4F D8 70 FF FF                    		bne	  $cr0,.0004
+                        	.0002:
+                        	;  ldi   $a0,#25             ; Map OS vars
+                        	;  brk #240
+                        	;  mov   $gp,$a1
+                        	  ; Request that the idle task announce itself.
+                        	;  ldi   $a0,#9              ; SendMsg
+                        	;  ldwu  $a1,IdleTaskMbx[$gp]
+                        	;  beqz  $a1,.noMbx
+                        	;  ldi   $a2,#MT_ANNOUNCE
+                        	;  ldi   $a3,#0
+                        	;  ldi   $a4,#0
+                        	;  brk #240
+                        	.noMbx:
+FFFFFFFFFFFC05AD 50 C1 FF FF FF                    		ldi		$a0,#msgStart				; spit out a startup message
+FFFFFFFFFFFC05B2 04 14 00 CC 14                    
+FFFFFFFFFFFC05B7 41 ED 2B 00 00                    		call  PutString
+                        	;		ldi		a0,#1
+                        	;		ldi		a1,#24000
+                        	;		ldi		a2,#Monitor
+                        	;		brk #240
+FFFFFFFFFFFC05BC 41 D5 EF 0F 00                    		call  DumpReadyQueue
+FFFFFFFFFFFC05C1 41 A4 10 00 00                    		jmp		MonEntry
+                        	
+                        			; Now a loop to recieve and echo back characters
+                        	.0003:
+                        	;	ldi		$a0,#26							; FMTK_IO
+                        	;	ldi   $a1,#5
+                        	;	ldi		$a2,#9							; peekchar function
+                        	;	brk #240
+                        	;	mov   $v0,$v1
+                        	;	bltz	$v1,.0003
+                        	;	ldi		$a0,#26							; FMTK_IO
+                        	;	ldi   $a1,#5
+                        	;	ldi		$a2,#8							; getchar function
+                        	;	brk #240
+                        	;	mov		$a3,$v1
+                        	;	mov   $a0,$a3
+                        	;	call PutHexByte
+                        	;	bra		.0003
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; This task runs only if nothing else can run. It must run at the machine
+                        	; operating mode.
+                        	; Search for ready tasks and add them back into the ready queue.
+                        	;------------------------------------------------------------------------------
+                        	;  align 	code
+                        	IdleTask:
+FFFFFFFFFFFC05C6 04 14 00 06 00                    	  ldi   $a0,#6                ; alloc mailbox
+FFFFFFFFFFFC05CB 04 15 00 00 00                    	  ldi   $a1,#0                ; app #0
+FFFFFFFFFFFC05D0 00 00 21 00 00                    	  brk   #240
+FFFFFFFFFFFC05D5 50 00 00 00 00                    	  stw   $a1,IdleTaskMbx[$gp]  ; save mailbox handle off
+FFFFFFFFFFFC05DA 70 10 3C 15 1C                    
+                        	.loop2:
+FFFFFFFFFFFC05DF 04 03 00 00 40                    	  ldi   $t0,#$4000
+FFFFFFFFFFFC05E4 04 04 00 01 00                    	  ldi   $t1,#1
+                        	.loop:
+FFFFFFFFFFFC05E9 04 14 00 0B 00                    	  ldi   $a0,#11               ; PeekMsg
+FFFFFFFFFFFC05EE 50 00 00 00 00                    	  ldwu  $a1,IdleTaskMbx[$gp]
+FFFFFFFFFFFC05F3 64 15 3C 10 1C                    
+FFFFFFFFFFFC05F8 04 16 00 18 0C                    	  ldi   $a2,#IdleTaskMsgD1
+FFFFFFFFFFFC05FD 04 17 00 20 0C                    	  ldi   $a3,#IdleTaskMsgD2
+FFFFFFFFFFFC0602 04 18 00 28 0C                    	  ldi   $a4,#IdleTaskMsgD3
+FFFFFFFFFFFC0607 04 19 00 01 00                    	  ldi   $a5,#1                ; remove from queue if present
+                        	;  brk #240
+                        	;  bnez  $a0,.noMsg
+                        	;  ldt   $a0,IdleTaskMsgD1
+                        	;  xor   $t1,$a0,#MT_ANNOUNCE
+                        	;  bnez  $t1,.noAnnounce
+                        	;  ldi   $a0,#msgIdleAnnounce
+                        	;  call PutString
+                        	.noAnnounce:
+                        	.noMsg:
+FFFFFFFFFFFC060C 04 14 00 11 00                    	  ldi   $a0,#17               ; run as OS
+FFFFFFFFFFFC0611 50 C0 FF FF FF                    	  ldi   $a1,#.IdleCode
+FFFFFFFFFFFC0616 04 15 00 34 06                    
+FFFFFFFFFFFC061B 34 16 03 00 00                    	  mov   $a2,$t0
+FFFFFFFFFFFC0620 00 00 21 00 00                    	  brk   #240
+FFFFFFFFFFFC0625 04 03 03 00 10                    	  add   $t0,$t0,#PAGESZ
+FFFFFFFFFFFC062A 27 03 80 00 00                    	  sne   $t0,#MEMSZ*PAGESZ
+                        	  bt    .loop
+FFFFFFFFFFFC062F 41 C0 FE FF FF                    		jmp		.loop2
+                        	  ; This section of code runs as part of the OS
+                        	  ; Don't callany functions though as there's no stack available
+                        	.IdleCode:
+FFFFFFFFFFFC0634 60 03 16 00 20                    	  ldt   $t0,OBJMagic[$a2]
+FFFFFFFFFFFC0639 27 03 80 00 00                    	  sne   $t0,#TCB_MAGIC
+                        	  bt    .nxtObj
+FFFFFFFFFFFC063E 64 06 05 E0 02                    	  ldbu  $t3,TCBStatus[$t2]    ; get status
+R2 operation needs two source operands. (1465)
+R2 operation needs two source operandsFFFFFFFFFFFC0643 02 1F 1F 00 00                    	  and.  $t3,$t3,#TS_READY
+FFFFFFFFFFFC0648 4E D8 70 FF FF                    	  beq   $cr0,.nxtObj
+                        	  ; The task was ready, but not found in the ready queue. So add it
+FFFFFFFFFFFC064D 02 14 16 0C 02                    	  lsr   $a0,$a2,#LOG_PGSZ
+                        	  
+FFFFFFFFFFFC0652 0F 00 01 01 60                    	  csrrc $x0,#CSR_PMSTACK,#1        ; disable interrupts
+                        	
+FFFFFFFFFFFC0657 02 03 14 0A 01                    		asl   $t0,$a0,#LOG_TCBSZ
+FFFFFFFFFFFC065C 64 04 03 E0 02                    		ldbu	$t1,TCBStatus[$t0]	; set status to ready
+FFFFFFFFFFFC0661 09 04 04 01 00                    		or		$t1,$t1,#TS_READY
+FFFFFFFFFFFC0666 70 E0 03 04 02                    		stb		$t1,TCBStatus[$t0]
+FFFFFFFFFFFC066B 60 04 03 E1 02                    		ldb		$t1,TCBPriority[$t0]
+FFFFFFFFFFFC0670 7A 00 14 04 08                    		pushq	$a0,$t1
+                        	
+FFFFFFFFFFFC0675 0F 00 01 01 40                    	  csrrs $x0,#CSR_PMSTACK,#1        ; enable interrupts
+                        	.nxtObj:
+FFFFFFFFFFFC067A 04 14 00 00 00                    	  ldi   $a0,#E_Ok
+FFFFFFFFFFFC067F 41 EC EC 0F 00                    	  jmp   OSExit
+                        	
+                        	msgIdleAnnounce:
+FFFFFFFFFFFC0684 49 64 6C 65 20 74 61 73 6B 20     	  db  "Idle task running.",CR,0
+FFFFFFFFFFFC068E 72 75 6E 6E 69                    
+FFFFFFFFFFFC0693 6E 67 2E 0D 00                    
+                        	
+                        	;------------------------------------------------------------------------------
+                        	;------------------------------------------------------------------------------
+                        	;  align 	code
+                        	_Delay2s:
+                        	ifdef TEST
+                        	  ldi     $a1,#10
+                        	else
+FFFFFFFFFFFC0698 50 DC 02 00 00                    		ldi			$a1,#3000000
+FFFFFFFFFFFC069D 04 15 00 C0 C6                    
+                        	endif
+                        	.0001:
+FFFFFFFFFFFC06A2 02 16 15 10 22                    		srl			$a2,$a1,#16
+FFFFFFFFFFFC06A7 50 10 F9 FF FF                    		stb			$a2,LEDS
+FFFFFFFFFFFC06AC 70 00 00 16 00                    
+FFFFFFFFFFFC06B1 04 15 15 FF FF                    		sub 		$a1,$a1,#1
+FFFFFFFFFFFC06B6 48 B0 80 15 FF                    		bgt		  $a1,#0,.0001
+FFFFFFFFFFFC06BB 42 00 01 00 00                    		ret
+
+                        	;------------------------------------------------------------------------------
+                        	; Get a character from input device. Checks for a CTRL-T which indicates to
+                        	; switch the I/O focus.
+                        	;
+                        	; Parameters:
+                        	;		none
+                        	; Returns:
+                        	;		$a0 = character, -1 if none available
+                        	;------------------------------------------------------------------------------
+                        	  ; align cache
+                        	Getch:
+FFFFFFFFFFFC06C0 04 3E 3E F0 FF                    		sub		$sp,$sp,#16
+FFFFFFFFFFFC06C5 70 08 3E 15 30                    		sto		$a1,8[$sp]
+FFFFFFFFFFFC06CA 04 15 00 05 00                    		ldi   $a1,#5  ;CURIN
+FFFFFFFFFFFC06CF 41 65 0A 00 00                    		call  fgetc
+FFFFFFFFFFFC06D4 60 15 3E 08 30                    		ldo		$a1,8[$sp]
+FFFFFFFFFFFC06D9 02 1E 1E 1F 04                    		add   $sp,$sp,$16
+FFFFFFFFFFFC06DE 42 00 01 00 00                    		ret
+
+                        	;------------------------------------------------------------------------------
+                        	; Parameters:
+                        	;   $a0 = character to put
+                        	;------------------------------------------------------------------------------
+                        	  ; align cache
+                        	_putch:
+FFFFFFFFFFFC06E3 41 E8 03 00 00                    	  bra   dbg_Putch
+                        	  ; align cache
+                        	Putch:
+FFFFFFFFFFFC06E8 41 D4 03 00 00                    	  bra   dbg_Putch
+FFFFFFFFFFFC06ED 04 3E 3E E8 FF                    		sub		$sp,$sp,#24
+FFFFFFFFFFFC06F2 70 08 3E 17 30                    		sto		$a3,8[$sp]
+FFFFFFFFFFFC06F7 70 10 3E 15 30                    		sto		$a1,16[$sp]
+FFFFFFFFFFFC06FC 34 17 14 00 00                    		mov		$a3,$a0
+FFFFFFFFFFFC0701 04 15 00 05 00                    		ldi		$a1,#5  ;CUROUT    ; serial port
+FFFFFFFFFFFC0706 41 59 07 00 00                    		call	fputc
+FFFFFFFFFFFC070B 60 17 3E 08 30                    		ldo		$a3,8[$sp]
+FFFFFFFFFFFC0710 60 15 3E 10 30                    		ldo		$a1,16[$sp]
+FFFFFFFFFFFC0715 04 3E 3E 18 00                    		add   $sp,$sp,#24
+FFFFFFFFFFFC071A 42 00 01 00 00                    		ret
+
+                        	  ; align cache
+                        	calcScreenPos:
+FFFFFFFFFFFC071F 50 00 F4 FF FF                    	  ldbu  $t0,_cursorY
+FFFFFFFFFFFC0724 64 03 00 09 00                    
+FFFFFFFFFFFC0729 28 03 80 00 00                    	  slt   $t0,#29
+                        	  bf    .0001
+                        	.0002:
+FFFFFFFFFFFC072E 15 04 03 38 00                    	  mulf  $t1,$t0,#56
+FFFFFFFFFFFC0733 50 00 F4 FF FF                    	  ldbu  $t0,_cursorX
+FFFFFFFFFFFC0738 64 03 00 08 00                    
+FFFFFFFFFFFC073D 28 03 80 00 00                    	  slt   $t0,#56
+                        	  bf    .0003
+                        	.0004:
+FFFFFFFFFFFC0742 02 04 04 03 04                    	  add   $t1,$t1,$t0
+FFFFFFFFFFFC0747 02 04 04 03 01                    	  asl   $t1,$t1,#3
+FFFFFFFFFFFC074C 50 00 F8 FF FF                    	  add   $t2,$t1,#TEXTSCR
+FFFFFFFFFFFC0751 04 05 04 00 00                    
+FFFFFFFFFFFC0756 42 00 01 00 00                    	  ret
+.0001:
+FFFFFFFFFFFC075B 04 03 00 1C 00                    	  ldi   $t0,#28
+FFFFFFFFFFFC0760 50 00 F4 FF FF                    	  stb   $t0,_cursorY
+FFFFFFFFFFFC0765 70 09 00 03 00                    
+FFFFFFFFFFFC076A 41 10 FF FF FF                    	  bra   .0002
+                        	.0003:
+FFFFFFFFFFFC076F 04 03 00 37 00                    	  ldi   $t0,#55
+FFFFFFFFFFFC0774 50 00 F4 FF FF                    	  stb   $t0,_cursorX
+FFFFFFFFFFFC0779 70 08 00 03 00                    
+FFFFFFFFFFFC077E 41 10 FF FF FF                    	  bra   .0004
+                        	
+                        	  ; align cache
+                        	incScreenPos:
+FFFFFFFFFFFC0783 50 00 F4 FF FF                    	  ldbu  $t0,_cursorX
+FFFFFFFFFFFC0788 64 03 00 08 00                    
+FFFFFFFFFFFC078D 04 03 03 01 00                    	  add   $t0,$t0,#1
+FFFFFFFFFFFC0792 28 03 80 00 00                    	  slt   $t0,#56
+                        	  bt    .0001
+FFFFFFFFFFFC0797 50 00 F4 FF FF                    	  stb   $x0,_cursorX
+FFFFFFFFFFFC079C 70 08 00 00 00                    
+FFFFFFFFFFFC07A1 50 00 F4 FF FF                    	  ldbu  $t0,_cursorY
+FFFFFFFFFFFC07A6 64 03 00 09 00                    
+FFFFFFFFFFFC07AB 04 03 03 01 00                    	  add   $t0,$t0,#1
+FFFFFFFFFFFC07B0 28 03 80 00 00                    	  slt   $t0,#29
+                        	  bt    .0002
+FFFFFFFFFFFC07B5 41 A9 02 00 00                    	  call  dbg_ScrollUp
+FFFFFFFFFFFC07BA 42 00 01 00 00                    	  ret
+.0002:
+FFFFFFFFFFFC07BF 50 00 F4 FF FF                    	  stb   $t0,_cursorY
+FFFFFFFFFFFC07C4 70 09 00 03 00                    
+FFFFFFFFFFFC07C9 42 00 01 00 00                    	  ret
+.0001:
+FFFFFFFFFFFC07CE 50 00 F4 FF FF                    	  stb   $t0,_cursorX
+FFFFFFFFFFFC07D3 70 08 00 03 00                    
+FFFFFFFFFFFC07D8 42 00 01 00 00                    	  ret
+  
+                        	  ; align cache
+                        	dbg_Putch:
+FFFFFFFFFFFC07DD 50 00 00 00 00                    		ldi		$t3,#C$
+FFFFFFFFFFFC07E2 51 00 00 F8 FF                    
+FFFFFFFFFFFC07E7 04 06 00 CB 01                    
+FFFFFFFFFFFC07EC 4E 90 14 06 01                    	  beq  	$a0,$t3,.cr
+FFFFFFFFFFFC07F1 04 06 00 0A 00                    	  ldi		$t3,#LNFD
+FFFFFFFFFFFC07F6 4E A0 14 06 00                    	  beq  	$a0,$t3,.lf
+FFFFFFFFFFFC07FB 50 00 F4 FF FF                    	  ldo   $t3,_DBGAttr
+FFFFFFFFFFFC0800 60 06 00 00 30                    
+FFFFFFFFFFFC0805 02 06 14 06 01                    	  or    $t3,$a0,$t3
+FFFFFFFFFFFC080A 41 55 FC FF FF                    	  call  calcScreenPos
+FFFFFFFFFFFC080F 70 00 05 06 30                    	  sto   $t3,[$t2]
+FFFFFFFFFFFC0814 41 BD FD FF FF                    	  call  incScreenPos
+FFFFFFFFFFFC0819 42 00 01 00 00                    	  ret
+ .lf:
+FFFFFFFFFFFC081E 50 00 F4 FF FF                    	  stb   $x0,_cursorX
+FFFFFFFFFFFC0823 70 08 00 00 00                    
+FFFFFFFFFFFC0828 50 00 F4 FF FF                    	  ldbu  $a0,_cursorY
+FFFFFFFFFFFC082D 64 14 00 09 00                    
+FFFFFFFFFFFC0832 04 14 14 01 00                    	  add   $a0,$a0,#1
+FFFFFFFFFFFC0837 28 06 14 1D 00                    	  slt   $t3,$a0,#29
+FFFFFFFFFFFC083C 4E 8C 06 00 00                    	  beq   $t3,$x0,dbg_ScrollUp
+FFFFFFFFFFFC0841 50 00 F4 FF FF                    	  stb   $a0,_cursorY
+FFFFFFFFFFFC0846 70 09 00 14 00                    
+FFFFFFFFFFFC084B 42 00 01 00 00                    	  ret
+.cr:
+FFFFFFFFFFFC0850 50 00 F4 FF FF                    	  stb   $x0,_cursorX
+FFFFFFFFFFFC0855 70 08 00 00 00                    
+FFFFFFFFFFFC085A 42 00 01 00 00                    	  ret
+
+                        	  ; align cache
+                        	dbg_ScrollUp:
+FFFFFFFFFFFC085F 50 00 F8 FF FF                    	  ldi   $t0,#TEXTSCR
+FFFFFFFFFFFC0864 04 03 00 00 00                    
+                        	ifdef TEST
+                        	  ldi   $t1,#6
+                        	else
+FFFFFFFFFFFC0869 04 04 00 20 06                    	  ldi   $t1,#56*28
+                        	endif
+                        	.0001:
+FFFFFFFFFFFC086E 60 05 03 C0 31                    	  ldo   $t2,56*8[$t0]
+FFFFFFFFFFFC0873 04 04 04 FF FF                    	  sub  	$t1,$t1,#1      ; placed here eliminates pipeline bubble
+FFFFFFFFFFFC0878 70 00 03 05 30                    	  sto   $t2,[$t0]
+FFFFFFFFFFFC087D 04 03 03 08 00                    	  add   $t0,$t0,#8
+FFFFFFFFFFFC0882 4F B0 04 00 FF                    	  bne   $t1,$x0,.0001
+FFFFFFFFFFFC0887 41 29 00 00 00                    	  call  dbg_BlankLastLine
+FFFFFFFFFFFC088C 42 00 01 00 00                    	  ret
+
+                        	  ; align cache
+                        	dbg_BlankLastLine:
+FFFFFFFFFFFC0891 50 00 F8 FF FF                    	  ldi   $t0,#TEXTSCR+56*28
+FFFFFFFFFFFC0896 04 03 00 20 06                    
+FFFFFFFFFFFC089B 04 04 00 37 00                    	  ldi   $t1,#55
+FFFFFFFFFFFC08A0 04 05 00 00 00                    	  ldi   $t2,_DBGAttr
+  or    $t2,$t2,#' '
+FFFFFFFFFFFC08A5 09 05 05 20 00                    
+                        	.0001:
+FFFFFFFFFFFC08AA 58 00 04 03 00                    	  sto   $t2,[$t0+$t1*8]
+FFFFFFFFFFFC08AF 71 00 03 05 30                    
+FFFFFFFFFFFC08B4 04 04 04 FF FF                    	  sub  	$t1,$t1,#1
+FFFFFFFFFFFC08B9 4A C4 00 04 FF                    	  bgtu  $t1,$X0,.0001
+FFFFFFFFFFFC08BE 42 00 01 00 00                    	  ret
+
+                        	  ; align cache
+                        	dbg_HomeCursor:
+FFFFFFFFFFFC08C3 50 00 F4 FF FF                    	  stb   $x0,_cursorX
+FFFFFFFFFFFC08C8 70 08 00 00 00                    
+FFFFFFFFFFFC08CD 50 00 F4 FF FF                    	  stb   $x0,_cursorY
+FFFFFFFFFFFC08D2 70 09 00 00 00                    
+FFFFFFFFFFFC08D7 42 00 01 00 00                    	  ret
+  
+                        	;------------------------------------------------------------------------------
+                        	; fputc - put a character to an I/O device. If the task doesn't have the I/O
+                        	; focus then it is rescheduled, allowing another task to run.
+                        	;
+                        	; Stack Space:
+                        	;		6 words
+                        	; Register Usage:
+                        	;		a0 = FMTK_IO specify
+                        	;		a2 = device putchar function
+                        	; Parameters:
+                        	;		a1 = I/O channel
+                        	;		a3 = character to put
+                        	; Modifies:
+                        	;		none
+                        	; Returns:
+                        	;   EOF if error occurred, otherwise character to put
+                        	;------------------------------------------------------------------------------
+                        	  ; align cache
+                        	fputc:
+FFFFFFFFFFFC08DC 04 3E 3E E0 FF                    		sub	$sp,$sp,#32
+FFFFFFFFFFFC08E1 70 10 3E 15 30                    		sto		$a1,16[$sp]
+FFFFFFFFFFFC08E6 70 18 3E 16 30                    		sto		$a2,24[$sp]
+FFFFFFFFFFFC08EB 00 1A 80 00 00                    		seq   $a6,#'B'
+                        		bf    .noBypass
+FFFFFFFFFFFC08F0 41 89 E3 0F 00                    		call  SerialPutChar
+FFFFFFFFFFFC08F5 41 54 01 00 00                    		jmp   .xit
+                        	.noBypass:
+                        		; If the device is a UI device there may be multiple owning jobs. It doesn't
+                        		; do any good to check for ownership. Instead the I/O focus is checked to
+                        		; see if it's present.
+FFFFFFFFFFFC08FA 41 69 E3 0F 00                    		call  GetUIFlag
+FFFFFFFFFFFC08FF 0C 70 15 00 0B                    		tst   $cr0,$a1
+FFFFFFFFFFFC0904 8F 00 00 00 00                    
+FFFFFFFFFFFC0909 4E 50 70 FF 00                    		beq   $cr0,.checkOwner
+FFFFFFFFFFFC090E 60 15 3E 10 30                    	  ldo   $a1,16[$sp]
+FFFFFFFFFFFC0913 41 0D E3 0F 00                    		call  WaitForIOFocus
+FFFFFFFFFFFC0918 41 64 00 00 00                    		jmp   .0001
+                        	.checkOwner:
+FFFFFFFFFFFC091D 41 ED E2 0F 00                    	  call  CheckDevOwner
+FFFFFFFFFFFC0922 0C 70 14 00 0B                    	  tst   $cr0,$a0
+FFFFFFFFFFFC0927 8F 00 00 00 00                    
+FFFFFFFFFFFC092C 4F C8 70 FF 00                    	  bne   $cr0,.notOwner
+                        	.0001:
+FFFFFFFFFFFC0931 60 15 3E 10 30                    	  ldo   $a1,16[$sp]
+FFFFFFFFFFFC0936 04 14 00 1A 00                    		ldi		$a0,#26							; FMTK_IO
+FFFFFFFFFFFC093B 04 16 00 0D 00                    		ldi		$a2,#13							; putchar function
+FFFFFFFFFFFC0940 00 00 21 00 00                    		brk   #240
+FFFFFFFFFFFC0945 34 14 17 00 00                    		mov   $a0,$a3
+                        	.xit:
+FFFFFFFFFFFC094A 60 15 3E 10 30                    		ldo		$a1,16[$sp]
+FFFFFFFFFFFC094F 60 16 3E 18 30                    		ldo		$a2,24[$sp]
+FFFFFFFFFFFC0954 04 3E 3E 20 00                    		add   $sp,$sp,#32
+FFFFFFFFFFFC0959 42 00 01 00 00                    		ret
+.notOwner:
+FFFFFFFFFFFC095E 04 14 00 1A 00                    	  ldi   $a0,#EOF
+FFFFFFFFFFFC0963 41 9C FF FF FF                    	  jmp   .xit
+                        	 
+                        	;------------------------------------------------------------------------------
+                        	; fgetc - get a character from an I/O device. If the task doesn't have the I/O
+                        	; focus then it is rescheduled, allowing another task to run.
+                        	;
+                        	; Stack Space:
+                        	;		4 words
+                        	; Register Usage:
+                        	;		a0 = FMTK_IO specify
+                        	;		a2 = device getchar function
+                        	; Parameters:
+                        	;		a1 = I/O channel
+                        	; Modifies:
+                        	;		none
+                        	; Returns:
+                        	;		a0 character, -1 if none available
+                        	;------------------------------------------------------------------------------
+                        	  ; align cache
+                        	fgetc:
+FFFFFFFFFFFC0968 04 3E 3E E0 FF                    		sub	$sp,$sp,#32
+FFFFFFFFFFFC096D 70 10 3E 15 30                    		sto		$a1,16[$sp]
+FFFFFFFFFFFC0972 70 18 3E 16 30                    		sto		$a2,24[$sp]
+FFFFFFFFFFFC0977 41 75 E1 0F 00                    		call  GetUIFlag
+FFFFFFFFFFFC097C 0C 00 15 00 0B                    		tst   $a1
+FFFFFFFFFFFC0981 8F 00 00 00 00                    
+FFFFFFFFFFFC0986 4E 50 FF FF 00                    		beq   .checkOwner
+FFFFFFFFFFFC098B 60 15 3E 10 20                    		ldt		$a1,16[$sp]
+FFFFFFFFFFFC0990 41 19 E1 0F 00                    		call  WaitForIOFocus
+FFFFFFFFFFFC0995 41 78 00 00 00                    		jmp   .0001
+                        	.checkOwner:
+FFFFFFFFFFFC099A 60 15 3E 10 20                    		ldt		$a1,16[$sp]
+FFFFFFFFFFFC099F 41 E5 E0 0F 00                    	  call  CheckDevOwner
+FFFFFFFFFFFC09A4 0C 00 14 00 0B                    	  tst   $a0
+FFFFFFFFFFFC09A9 8F 00 00 00 00                    
+FFFFFFFFFFFC09AE 4F C8 FF FF 00                    	  bne   .notOwner
+                        	.0001:
+FFFFFFFFFFFC09B3 04 14 00 1A 00                    		ldi		$a0,#26							; FMTK_IO
+FFFFFFFFFFFC09B8 60 15 3E 10 20                    		ldt		$a1,16[$sp]
+FFFFFFFFFFFC09BD 04 16 00 08 00                    		ldi		$a2,#8							; getchar function
+FFFFFFFFFFFC09C2 00 00 21 00 00                    		brk   #240
+FFFFFFFFFFFC09C7 34 14 15 00 00                    		mov   $a0,$a1
+                        	.0002:
+FFFFFFFFFFFC09CC 60 15 3E 10 30                    		ldo		$a1,16[$sp]
+FFFFFFFFFFFC09D1 60 16 3E 18 30                    		ldo		$a2,24[$sp]
+FFFFFFFFFFFC09D6 04 3E 3E 20 00                    		add   $sp,$sp,#32
+FFFFFFFFFFFC09DB 42 00 01 00 00                    		ret
+.notOwner:
+FFFFFFFFFFFC09E0 04 14 00 FF FF                    	  ldi   $a0,#-1
+FFFFFFFFFFFC09E5 41 9C FF FF FF                    	  jmp   .0002
+                        	
+                        	;------------------------------------------------------------------------------
+                        	;------------------------------------------------------------------------------
+                        	  ; align cache
+                        	MonEntry:
+                        	;		flw			$f2,fltTen
+                        	;		fsw			$f2,f2Save
+                        	;		flw			$f1,fltTen
+                        	;		fsw			$f1,f1Save
+                        	;		fadd		$f18,$f2,$f1
+                        	;		fsw			$f18,f18Save
+FFFFFFFFFFFC09EA 04 14 00 0A 00                    			ldi		$a0,#10
+FFFFFFFFFFFC09EF 04 16 00 06 00                    			ldi		$a2,#6
+                        	;		call	fltToString
+                        	;		ldi		$a0,#STRTMP
+                        	;		call	PutString
+                        	
+                        	  ; align cache
+                        	Monitor:
+                        	.getFocus:
+                        	;	ldi   $a0,#20       ; has IO focus
+                        	;	brk #240
+                        	;	bnez  $v1,.hasFocus
+                        	;	ldi   $a0,#21       ; switch focus
+                        	;	brk #240
+                        	;	bra   .getFocus
+                        	.hasFocus:
+                        	;		call	DumpReadyList
+                        	;		call	DumpTimeoutList
+FFFFFFFFFFFC09F4 04 0B 00 00 00                    		ldi		  $s1,#0					; s1 = input pointer
+FFFFFFFFFFFC09F9 41 E1 19 00 00                    		call    PutInlineString
+FFFFFFFFFFFC09FE 0D 0A 3E 00                       		db      CR,LNFD,'>',0
+                        	.0001:
+FFFFFFFFFFFC0A02 41 F9 F2 FF FF                    		call	    Getch						; wait until character pressed
+FFFFFFFFFFFC0A07 0C 00 14 00 0B                    		tst     $a0        ; test return value
+FFFFFFFFFFFC0A0C 8F 00 00 00 00                    
+FFFFFFFFFFFC0A11 48 C4 FF FF FF                    		bmi	    .0001
+FFFFFFFFFFFC0A16 00 14 80 00 00                    		seq     $a0,#LNFD  ; process line feed
+FFFFFFFFFFFC0A1B 0D FF FF 14 00                    		seq.or  $a0,#CR    ; and carriage return
+                        		bt	    .procLine
+FFFFFFFFFFFC0A20 00 14 80 00 00                    		seq		  $a0,#BS
+                        		bt	    .doBackspace
+FFFFFFFFFFFC0A25 00 14 80 00 00                    		seq		  $a0,#DEL
+                        		bt	    .doDelete
+FFFFFFFFFFFC0A2A 70 00 0B 14 01                    		stb		  $a0,INBUF[$s1]
+FFFFFFFFFFFC0A2F 04 0B 0B 01 00                    		add		  $s1,$s1,#1
+FFFFFFFFFFFC0A34 41 D1 F2 FF FF                    		call    Putch
+FFFFFFFFFFFC0A39 41 24 FF FF FF                    		jmp		  .0001
+                        	.doDelete:
+FFFFFFFFFFFC0A3E 34 0C 0B 00 00                    		mov		  $s2,$s1
+FFFFFFFFFFFC0A43 04 0C 0C 01 00                    		add		  $s2,$s2,#1
+                        	.0002:
+FFFFFFFFFFFC0A48 60 03 0C 00 01                    		ldb		  $t0,INBUF[$s2]
+FFFFFFFFFFFC0A4D 70 FF 0C 03 00                    		stb		  $t0,INBUF-1[$s2]
+FFFFFFFFFFFC0A52 04 0C 0C 01 00                    		add		  $s2,$s2,#1
+FFFFFFFFFFFC0A57 04 03 0C 00 01                    		add		  $t0,$s2,#INBUF
+FFFFFFFFFFFC0A5C 28 03 80 7F 00                    		slt		  $t0,#INBUF+$7F
+                        		bt		  .0002
+FFFFFFFFFFFC0A61 70 00 0C 00 01                    		stb		  $x0,INBUF[$s2]
+FFFFFFFFFFFC0A66 41 70 FE FF FF                    		jmp		  .0001
+                        	.doBackspace:
+FFFFFFFFFFFC0A6B 0C 00 0B 00 0B                    	  tst     $s1
+FFFFFFFFFFFC0A70 8F 00 00 00 00                    
+FFFFFFFFFFFC0A75 4E 34 FF FF FE                    		beq		  .0001		        ; can't backspace anymore
+FFFFFFFFFFFC0A7A 41 B9 F1 FF FF                    		call    Putch           ; show the backspace
+FFFFFFFFFFFC0A7F 04 0B 0B FF FF                    		sub		  $s1,$s1,#1
+FFFFFFFFFFFC0A84 34 0C 0B 00 00                    		mov		  $s2,$s1
+                        	.0003:
+FFFFFFFFFFFC0A89 60 03 0C 01 01                    		ldb		  $t0,INBUF+1[$s2]
+FFFFFFFFFFFC0A8E 70 00 0C 03 01                    		stb		  $t0,INBUF[$s2]
+FFFFFFFFFFFC0A93 04 0C 0C 01 00                    		add		  $s2,$s2,#1
+FFFFFFFFFFFC0A98 04 03 0C 00 01                    		add		  $t0,$s2,#INBUF
+FFFFFFFFFFFC0A9D 28 03 80 7F 00                    		slt		  $t0,#INBUF+$7F
+                        		bt		  .0003
+FFFFFFFFFFFC0AA2 70 00 0C 00 01                    		stb		  $x0,INBUF[$s2]
+FFFFFFFFFFFC0AA7 41 6C FD FF FF                    		jmp		  .0001
+                        	.procLine:
+FFFFFFFFFFFC0AAC 70 00 0B 00 01                    		stb		  $x0,INBUF[$s1]
+FFFFFFFFFFFC0AB1 04 0B 00 00 00                    		ldi		  $s1,#0
+                        	.skip:
+FFFFFFFFFFFC0AB6 60 03 0B 00 01                    		ldb.	  $t0,INBUF[$s1]
+FFFFFFFFFFFC0ABB 5A 00 3F 3F 00                    		beq		  .0005
+FFFFFFFFFFFC0AC0 4E B8 FF FF DC                    
+FFFFFFFFFFFC0AC5 00 03 80 00 00                    		seq		  $t0,#'>'
+                        		bf		  .0004
+                        	.skip2:
+FFFFFFFFFFFC0ACA 04 0B 0B 01 00                    		add		  $s1,$s1,#1
+FFFFFFFFFFFC0ACF 41 9C FF FF FF                    		jmp		  .skip
+                        	.0004:
+FFFFFFFFFFFC0AD4 00 03 80 00 00                    		seq		  $t0,#' '
+FFFFFFFFFFFC0AD9 0D FF FF 03 00                    		seq.or  $t0,#'\t'
+                        		bt		  .skip2
+FFFFFFFFFFFC0ADE 00 03 80 00 00                    		seq     $t0,#'X'  ; exit from monitor
+                        		bf      .notX
+FFFFFFFFFFFC0AE3 04 14 00 00 00                    		ldi     $a0,#E_Ok
+FFFFFFFFFFFC0AE8 41 48 DB 0F 00                    		jmp     OSExit
+                        	.notX:
+FFFFFFFFFFFC0AED 00 03 80 00 00                    		seq		  $t0,#'M'
+                        		bt	    doMem
+FFFFFFFFFFFC0AF2 00 03 80 00 00                    		seq     $t0,#'V'
+                        		bt      doVMem
+FFFFFFFFFFFC0AF7 00 03 80 00 00                    		seq     $t0,#'P'
+                        		bt      doPStat
+FFFFFFFFFFFC0AFC 00 03 80 00 00                    		seq		  $t0,#'B'
+                        		bt		  .0006
+FFFFFFFFFFFC0B01 41 C9 12 00 00                    		call    GetDecNum
+FFFFFFFFFFFC0B06 0C 00 14 00 0B                    		tst     $a0
+FFFFFFFFFFFC0B0B 8F 00 00 00 00                    
+FFFFFFFFFFFC0B10 4F 28 FF FF 00                    		bne     .basSize
+FFFFFFFFFFFC0B15 04 14 00 00 7D                    		ldi     $a0,#32000
+                        	.basSize:
+FFFFFFFFFFFC0B1A 04 14 00 0C 00                    		ldi		  $a0,#12					; Start App
+FFFFFFFFFFFC0B1F 50 00 00 00 00                    		ldi     $a1,#TBASR
+FFFFFFFFFFFC0B24 51 00 00 F8 FF                    
+FFFFFFFFFFFC0B29 04 15 00 F3 01                    
+FFFFFFFFFFFC0B2E 00 00 21 00 00                    		brk     #240
+FFFFFFFFFFFC0B33 34 0B 15 00 00                    		mov		  $s1,$a1					; save v1
+FFFFFFFFFFFC0B38 50 C1 FF FF FF                    		ldi		  $a0,#msgCRLF
+FFFFFFFFFFFC0B3D 04 14 00 E5 15                    
+FFFFFFFFFFFC0B42 41 C1 15 00 00                    		call    PutString
+FFFFFFFFFFFC0B47 34 14 0B 00 00                    		mov		  $a0,$s1					; get back v1
+FFFFFFFFFFFC0B4C 41 55 13 00 00                    		call    PutHexByte
+FFFFFFFFFFFC0B51 50 C1 FF FF FF                    		ldi		  $a0,#msgTaskStart
+FFFFFFFFFFFC0B56 04 14 00 D7 15                    
+FFFFFFFFFFFC0B5B 41 5D 15 00 00                    		call    PutString
+FFFFFFFFFFFC0B60 41 45 D9 0F 00                    		call    DumpReadyQueue
+                        		; The monitor is running in machine mode. A return instruction is used to
+                        		; switch to user mode. The return address must be set to the desired user
+                        		; code address.
+                        		
+FFFFFFFFFFFC0B65 0F 00 01 01 60                    	  csrrc $x0,#CSR_PMSTACK,#1        ; disable interrupts
+                        	; disable interrupts
+FFFFFFFFFFFC0B6A 50 00 00 00 00                    		ldi     $t0,#CSTART       ; pick start of Tiny Basic
+FFFFFFFFFFFC0B6F 51 00 00 F8 FF                    
+FFFFFFFFFFFC0B74 04 03 00 F7 01                    
+FFFFFFFFFFFC0B79 0F 00 07 0D 20                    		csrrw   $x0,#$341,$t0     ; set as return address
+FFFFFFFFFFFC0B7E 50 11 00 00 00                    		ldi     $t0,#$00011111    ; bits to select register set #1
+FFFFFFFFFFFC0B83 04 03 00 11 11                    
+FFFFFFFFFFFC0B88 0F 00 4B 00 21                    		csrrw   $x0,#CSR_REGSET,$t0     ; select register set #1 (will decrement to zero then on mret)
+FFFFFFFFFFFC0B8D 45 00 00 00 00                    		rte                     ; will begin running Tiny Basic in user mode
+	;ldi		$a0,#5					; Reschedule task
+                        		;ldi		$a1,#1					; sleep(0)
+                        		;brk #240
+FFFFFFFFFFFC0B92 41 88 F9 FF FF                    		jmp		  Monitor
+                        	.0006:
+FFFFFFFFFFFC0B97 00 03 80 00 00                    		seq		  $t0,#'D'
+                        		bf		  .0007
+FFFFFFFFFFFC0B9C 60 03 0B 01 01                    		ldb		  $t0,INBUF+1[$s1]
+FFFFFFFFFFFC0BA1 00 03 80 00 00                    		seq		  $t0,#'T'
+                        		bf		  .noT
+FFFFFFFFFFFC0BA6 41 51 D9 0F 00                    		call    DumpTimeoutList
+FFFFFFFFFFFC0BAB 41 24 F9 FF FF                    		jmp		  Monitor
+                        	.noT:
+FFFFFFFFFFFC0BB0 41 05 D8 0F 00                    		call	  DumpReadyQueue
+                        		;ldi		$a0,#15
+                        		;brk #240
+FFFFFFFFFFFC0BB5 41 FC F8 FF FF                    		jmp		  Monitor
+                        	.0007:
+FFFFFFFFFFFC0BBA 00 03 80 00 00                    		seq		  $t0,#'E'
+                        		bt		  EditMem
+FFFFFFFFFFFC0BBF 00 03 80 00 00                    		seq		  $t0,#'F'
+                        		bf		  .0009
+FFFFFFFFFFFC0BC4 60 03 0B 01 01                    		ldb     $t0,INBUF+1[$s1]
+FFFFFFFFFFFC0BC9 27 03 80 00 00                    		sne     $t0,#'I'
+                        		bt      .notFind
+FFFFFFFFFFFC0BCE 04 0B 0B 01 00                    		add     $s1,$s1,#1
+FFFFFFFFFFFC0BD3 41 C0 09 00 00                    		jmp     Find
+                        	.notFind:
+FFFFFFFFFFFC0BD8 41 BC 08 00 00                    		jmp		  FillMem
+                        	.0009:
+FFFFFFFFFFFC0BDD 27 03 80 00 00                    		sne		  $t0,#'S'
+                        		bt		  .0010
+FFFFFFFFFFFC0BE2 04 14 00 05 00                    		ldi		  $a0,#5					; sleep(0)
+FFFFFFFFFFFC0BE7 04 15 00 01 00                    		ldi		  $a1,#1
+FFFFFFFFFFFC0BEC 00 00 21 00 00                    		brk     #240
+FFFFFFFFFFFC0BF1 41 0C F8 FF FF                    		jmp		  Monitor
+                        	.0010:
+FFFFFFFFFFFC0BF6 27 03 80 00 00                    		sne		  $t0,#'K'
+                        		bt		  .0011
+FFFFFFFFFFFC0BFB 41 C5 0C 00 00                    		call    GetHexNum
+FFFFFFFFFFFC0C00 34 15 14 00 00                    		mov		  $a1,$a0					; a0 = pid
+FFFFFFFFFFFC0C05 04 14 00 03 00                    		ldi		  $a0,#3					; kill task
+FFFFFFFFFFFC0C0A 00 00 21 00 00                    		brk     #240
+FFFFFFFFFFFC0C0F 41 94 F7 FF FF                    		jmp		  Monitor
+                        	.0011:
+FFFFFFFFFFFC0C14 27 04 80 00 00                    		sne		  $t1,#'?'
+                        		bt		  .0012
+FFFFFFFFFFFC0C19 50 C1 FF FF FF                    		ldi		  $a0,#msgMonHelp
+FFFFFFFFFFFC0C1E 04 14 00 E5 14                    
+FFFFFFFFFFFC0C23 41 3D 12 00 00                    		call    PutString
+FFFFFFFFFFFC0C28 41 30 F7 FF FF                    		jmp		  Monitor
+                        	.0012:
+                        	.0005:
+FFFFFFFFFFFC0C2D 41 1C F7 FF FF                    		jmp		  Monitor
+                        	
+                        	  ; align cache
+                        	doMem:
+FFFFFFFFFFFC0C32 04 3E 3E F8 FF                    		sub	$sp,$sp,#8
+FFFFFFFFFFFC0C37 04 0B 0B 01 00                    		add		$s1,$s1,#1
+FFFFFFFFFFFC0C3C 60 03 0B 00 01                    		ldb		$t0,INBUF[$s1]
+FFFFFFFFFFFC0C41 27 03 80 00 00                    		sne   $t0,#'O'
+                        		bt    .0001
+FFFFFFFFFFFC0C46 04 0B 0B 01 00                    		add		$s1,$s1,#1
+                        	.0001:
+FFFFFFFFFFFC0C4B 70 00 3E 0B 30                    		sto		$s1,[$sp]
+FFFFFFFFFFFC0C50 04 14 00 0D 00                    		ldi		$a0,#CR
+FFFFFFFFFFFC0C55 41 4D EA FF FF                    		call  Putch
+FFFFFFFFFFFC0C5A 04 14 00 00 01                    		ldi		$a0,#INBUF
+FFFFFFFFFFFC0C5F 41 4D 11 00 00                    		call  PutString
+FFFFFFFFFFFC0C64 60 0B 3E 00 30                    		ldo		$s1,[$sp]
+FFFFFFFFFFFC0C69 04 3E 3E 08 00                    		add		$sp,$sp,#8
+FFFFFFFFFFFC0C6E 41 F9 0A 00 00                    		call  GetHexNum
+FFFFFFFFFFFC0C73 34 0D 14 00 00                    		mov		$s3,$a0
+FFFFFFFFFFFC0C78 34 0F 14 00 00                    		mov   $s5,$a0
+FFFFFFFFFFFC0C7D 04 0B 0B 01 00                    		add		$s1,$s1,#1
+FFFFFFFFFFFC0C82 41 A9 0A 00 00                    		call	  GetHexNum
+FFFFFFFFFFFC0C87 02 0E 14 0D 04                    		add		$s4,$a0,$s3
+                        	.loop2:
+FFFFFFFFFFFC0C8C 41 D1 E8 FF FF                    		call	Getch						; check for ctrl-c
+FFFFFFFFFFFC0C91 00 14 80 00 00                    		seq		$a0,#3
+                        		bt		Monitor
+FFFFFFFFFFFC0C96 04 14 00 0D 00                    		ldi		$a0,#CR
+FFFFFFFFFFFC0C9B 41 35 E9 FF FF                    		call	Putch
+FFFFFFFFFFFC0CA0 34 14 0D 00 00                    		mov		$a0,$s3
+FFFFFFFFFFFC0CA5 41 8D D5 0F 00                    		call	PutHexWord
+FFFFFFFFFFFC0CAA 04 14 00 3A 00                    		ldi		$a0,#':'
+FFFFFFFFFFFC0CAF 41 E5 E8 FF FF                    		call	Putch
+FFFFFFFFFFFC0CB4 04 0C 00 07 00                    		ldi		$s2,#7
+                        	.loop:
+FFFFFFFFFFFC0CB9 04 14 00 20 00                    		ldi		$a0,#' '
+FFFFFFFFFFFC0CBE 41 A9 E8 FF FF                    		call	Putch
+FFFFFFFFFFFC0CC3 0C 70 03 00 0B                    		tst   $cr0,$t0
+FFFFFFFFFFFC0CC8 8F 00 00 00 00                    
+FFFFFFFFFFFC0CCD 4F 78 70 FF 00                    		bne   $cr0,.userMem
+FFFFFFFFFFFC0CD2 04 14 00 21 00                    		ldi   $a0,#33         ; Fetch memory word
+FFFFFFFFFFFC0CD7 34 15 0D 00 00                    		mov   $a1,$s3
+FFFFFFFFFFFC0CDC 00 00 21 00 00                    		brk   #240
+FFFFFFFFFFFC0CE1 34 14 15 00 00                    		mov   $a0,$a1
+FFFFFFFFFFFC0CE6 41 EC F5 FF FF                    		jmp   .0002
+                        	.userMem
+FFFFFFFFFFFC0CEB 60 14 0D 00 00                    		ldb		$a0,[$s3]
+                        	.0002:
+FFFFFFFFFFFC0CF0 41 C5 0C 00 00                    		call	PutHexByte
+FFFFFFFFFFFC0CF5 04 0D 0D 01 00                    		add		$s3,$s3,#1
+R2 operation needs two source operands. (2246)
+R2 operation needs two source operandsFFFFFFFFFFFC0CFA 02 1F 1F 00 05                    		sub.	$s2,$s2,#1
+FFFFFFFFFFFC0CFF 49 E8 FF FF FE                    		bge		.loop
+FFFFFFFFFFFC0D04 2C 0D 0E 00 00                    		sltu  $s3,$s4
+	bt	  .loop2
+FFFFFFFFFFFC0D09 41 A1 0D 00 00                    		call  PutInlineString
+FFFFFFFFFFFC0D0E 20 20 00                          		db    ' ',' ',0
+FFFFFFFFFFFC0D11 34 0D 0F 00 00                    		mov   $s3,$s5
+                        	.0004:
+FFFFFFFFFFFC0D16 64 14 0D 00 00                    		ldbu  $a0,[$s3]
+FFFFFFFFFFFC0D1B 28 14 80 00 00                    		slt   $a0,#$20
+                        		bt    .unprintable
+FFFFFFFFFFFC0D20 41 21 E7 FF FF                    		call  Putch
+FFFFFFFFFFFC0D25 41 F4 F5 FF FF                    		jmp   .0003
+                        	.unprintable:
+FFFFFFFFFFFC0D2A 04 14 00 2E 00                    	  ldi   $a0,#'.'
+FFFFFFFFFFFC0D2F 41 E5 E6 FF FF                    	  call  Putch
+                        	.0003:
+FFFFFFFFFFFC0D34 04 0D 0D 01 00                    	  add   $s3,$s3,#1
+FFFFFFFFFFFC0D39 2C 0D 0E 00 00                    	  sltu  $s3,$s4
+  bt    .0004
+FFFFFFFFFFFC0D3E 04 14 00 0D 00                    	  ldi   $a0,#CR
+FFFFFFFFFFFC0D43 41 95 E6 FF FF                    	  call  Putch
+FFFFFFFFFFFC0D48 41 38 FD FF FF                    		jmp		Monitor		
+                        	
+                        	  ; align cache
+                        	EditMem:
+FFFFFFFFFFFC0D4D 0F 00 11 00 40                    		csrrs $x0,#CSR_UIE,#1        ; enable gc interrupt
+FFFFFFFFFFFC0D52 41 69 07 00 00                    		call	  GetHexNum			; get address to edit
+FFFFFFFFFFFC0D57 34 0D 14 00 00                    		mov		$s3,$a0
+FFFFFFFFFFFC0D5C 04 0B 0B 01 00                    		add		$s1,$s1,#1
+FFFFFFFFFFFC0D61 41 2D 07 00 00                    		call	  GetHexNum			; get value to set
+FFFFFFFFFFFC0D66 70 00 14 0D 00                    		stb		$s3,[$a0]			; update mem
+FFFFFFFFFFFC0D6B 41 AC FC FF FF                    		jmp		Monitor
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; >V 0
+                        	; Displays the virtual memory map for the specified app.
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	doVMem:
+FFFFFFFFFFFC0D70 04 0B 0B 01 00                    	  add   $s1,$s1,#1
+FFFFFFFFFFFC0D75 41 F9 08 00 00                    	  call  GetDecNum
+FFFFFFFFFFFC0D7A 04 04 00 00 00                    	  ldi   $t1,#0
+FFFFFFFFFFFC0D7F 02 03 14 10 01                    	  asl   $t0,$a0,#16
+                        	.0001:
+R2 operation needs two source operands. (2312)
+R2 operation needs two source operandsFFFFFFFFFFFC0D84 02 1F 1F 00 00                    	  and.  $a0,$t1,#3
+FFFFFFFFFFFC0D89 4F 34 FF FF 00                    	  bne   .notLF
+FFFFFFFFFFFC0D8E 41 8D 0B 00 00                    	  call  PutInlineString
+FFFFFFFFFFFC0D93 0D 0A 00                          	  db    CR,LNFD,0
+                        	.notLF:
+FFFFFFFFFFFC0D96 34 14 03 00 00                    	  mov   $a0,$t0
+FFFFFFFFFFFC0D9B 41 B5 D1 0F 00                    	  call  PutHexWord
+FFFFFFFFFFFC0DA0 04 14 00 3A 00                    	  ldi   $a0,#':'
+FFFFFFFFFFFC0DA5 41 0D E5 FF FF                    	  call  Putch
+FFFFFFFFFFFC0DAA 02 14 00 03 1C                    	  mvmap $a0,$x0,$t0
+FFFFFFFFFFFC0DAF 41 7D D1 0F 00                    	  call  PutHexHalf
+FFFFFFFFFFFC0DB4 04 14 00 20 00                    	  ldi   $a0,#' '
+FFFFFFFFFFFC0DB9 41 BD E4 FF FF                    	  call  Putch
+FFFFFFFFFFFC0DBE 04 03 03 01 00                    	  add   $t0,$t0,#1
+FFFFFFFFFFFC0DC3 04 04 04 01 00                    	  add   $t1,$t1,#1
+FFFFFFFFFFFC0DC8 28 04 80 00 00                    	  slt   $t1,#256
+                        	  bt    .0001
+FFFFFFFFFFFC0DCD 41 24 FB FF FF                    	  jmp   Monitor
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; >P
+                        	; Display the PAM bits status.
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	doPStat:
+FFFFFFFFFFFC0DD2 41 7D 0A 00 00                    	  call  PutInlineString
+FFFFFFFFFFFC0DD7 0D 0A 00                          	  db    CR,LNFD,0
+FFFFFFFFFFFC0DDA 04 04 00 00 00                    	  ldi   $t1,#0        ; $a1 = bit number
+                        	.0001:
+FFFFFFFFFFFC0DDF 04 14 00 20 00                    	  ldi   $a0,#32       ; Get PAM bit pair
+FFFFFFFFFFFC0DE4 00 00 21 00 00                    	  brk   #240
+FFFFFFFFFFFC0DE9 04 14 15 30 00                    	  add   $a0,$a1,#'0'
+FFFFFFFFFFFC0DEE 41 E9 E3 FF FF                    	  call  Putch
+FFFFFFFFFFFC0DF3 04 04 04 01 00                    	  add   $t1,$t1,#1
+FFFFFFFFFFFC0DF8 28 04 80 00 00                    	  slt   $t1,#MEMSZ
+FFFFFFFFFFFC0DFD 4F 88 FF FF FF                    	  bne   .0001
+FFFFFFFFFFFC0E02 41 50 FA FF FF                    	  jmp   Monitor
+                        	 
+                        	;------------------------------------------------------------------------------
+                        	;	>F 1000 800 EE
+                        	; Fills memory beginning at address $1000 for $800 bytes with the value $EE
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	FillMem:
+FFFFFFFFFFFC0E07 41 95 04 00 00                    		call	GetHexNum			; get address
+FFFFFFFFFFFC0E0C 34 0D 14 00 00                    		mov		$s3,$a0
+FFFFFFFFFFFC0E11 04 0B 0B 01 00                    		add		$s1,$s1,#1
+FFFFFFFFFFFC0E16 41 59 04 00 00                    		call	GetHexNum			; get length
+FFFFFFFFFFFC0E1B 34 0E 14 00 00                    		mov		$s4,$a0
+FFFFFFFFFFFC0E20 04 0B 0B 01 00                    		add		$s1,$s1,#1
+FFFFFFFFFFFC0E25 41 1D 04 00 00                    		call	GetHexNum			; get byte to use
+                        	.0001:
+R2 operation needs two source operands. (2398)
+R2 operation needs two source operandsFFFFFFFFFFFC0E2A 02 1F 1F 00 05                    		sub.	$s4,$s4,#1
+FFFFFFFFFFFC0E2F 58 00 0E 00 00                    		stb		$a0,[$s3+$s4]
+FFFFFFFFFFFC0E34 71 00 0D 14 00                    
+FFFFFFFFFFFC0E39 48 C4 FF FF FF                    		bgt		.0001
+FFFFFFFFFFFC0E3E 41 60 F9 FF FF                    		jmp		Monitor
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; FI Hello
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	Find:
+FFFFFFFFFFFC0E43 04 14 00 0D 00                    	  ldi   $a0,#CR
+FFFFFFFFFFFC0E48 41 81 E2 FF FF                    	  call  Putch
+FFFFFFFFFFFC0E4D 04 14 00 0A 00                    	  ldi   $a0,#LNFD
+FFFFFFFFFFFC0E52 41 59 E2 FF FF                    	  call  Putch
+FFFFFFFFFFFC0E57 41 DD 02 00 00                    	  call  SkipSpaces
+FFFFFFFFFFFC0E5C 34 0C 0B 00 00                    	  mov   $s2,$s1
+                        	.fwe:
+FFFFFFFFFFFC0E61 64 03 0C 00 01                    	  ldbu.   $t0,INBUF[$s2]
+FFFFFFFFFFFC0E66 0D FF FF 03 00                    	  seq.or  $t0,#' '
+FFFFFFFFFFFC0E6B 0D FF FF 03 00                    	  seq.or  $t0,#CR    ; cmp power!
+                        	  bt      .endOfWord
+FFFFFFFFFFFC0E70 04 0C 0C 01 00                    	  add     $s2,$s2,#1
+FFFFFFFFFFFC0E75 41 B0 FF FF FF                    	  jmp     .fwe
+                        	.endOfWord:
+FFFFFFFFFFFC0E7A 70 00 0C 00 01                    	  stb   $x0,INBUF[$s2]
+FFFFFFFFFFFC0E7F 34 0C 0B 00 00                    	  mov   $s2,$s1
+FFFFFFFFFFFC0E84 04 14 00 00 00                    	  ldi   $a0,#0
+FFFFFFFFFFFC0E89 04 15 00 00 00                    	  ldi   $a1,#0
+                        	.loop:
+FFFFFFFFFFFC0E8E 41 C9 E0 FF FF                    		call	Getch						; check for ctrl-c
+FFFFFFFFFFFC0E93 00 14 80 00 00                    		seq   $a0,#3
+                        		bt	  Monitor
+                        	.0001:
+FFFFFFFFFFFC0E98 64 03 14 00 00                    	  ldbu  $t0,[$a0]
+FFFFFFFFFFFC0E9D 64 04 0C 00 01                    	  ldbu. $t1,INBUF[$s2]
+FFFFFFFFFFFC0EA2 4E 04 FF FF 01                    	  beq   .found
+FFFFFFFFFFFC0EA7 00 03 04 00 00                    	  seq   $t0,$t1
+  bf    .next
+FFFFFFFFFFFC0EAC 04 14 14 01 00                    	  add   $a0,$a0,#1
+FFFFFFFFFFFC0EB1 04 0C 0C 01 00                    	  add   $s2,$s2,#1
+FFFFFFFFFFFC0EB6 41 0C F8 FF FF                    	  jmp   .loop
+                        	.next:
+FFFFFFFFFFFC0EBB 34 0C 0B 00 00                    	  mov   $s2,$s1         ; start over again with $s2
+FFFFFFFFFFFC0EC0 04 14 15 01 00                    	  add   $a0,$a1,#1      ; start over again with $a0, but increment by one
+FFFFFFFFFFFC0EC5 50 80 00 00 00                    	  ldi   $t2,#$80000     ; 512k
+FFFFFFFFFFFC0ECA 04 05 00 00 00                    
+FFFFFFFFFFFC0ECF 34 15 14 00 00                    	  mov   $a1,$a0         ; remember new starting pos.
+FFFFFFFFFFFC0ED4 0D 00 14 05 04                    	  slt   $cr0,$a0,$t2
+FFFFFFFFFFFC0ED9 4F 80 70 FF F7                    	  bne   $cr0,.loop
+FFFFFFFFFFFC0EDE 41 5C 00 00 00                    	  jmp   .notFound
+                        	.found:
+FFFFFFFFFFFC0EE3 41 81 04 00 00                    	  call  PutHexTetra
+FFFFFFFFFFFC0EE8 41 25 06 00 00                    	  call  PutInlineString
+FFFFFFFFFFFC0EED 0D 0A 00                          	  db    CR,LNFD,0
+FFFFFFFFFFFC0EF0 41 2C FF FF FF                    	  jmp   .next
+                        	.notFound:
+FFFFFFFFFFFC0EF5 04 14 00 0D 00                    	  ldi   $a0,#CR
+FFFFFFFFFFFC0EFA 41 B9 DF FF FF                    	  call  Putch
+FFFFFFFFFFFC0EFF 04 14 00 0A 00                    	  ldi   $a0,#LNFD
+FFFFFFFFFFFC0F04 41 91 DF FF FF                    	  call  Putch
+FFFFFFFFFFFC0F09 41 3C FE FF FF                    	  jmp   Monitor
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Skip over spaces and tabs in the input buffer.
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	SkipSpaces:
+                        	.skip2:
+FFFFFFFFFFFC0F0E 60 03 0B 00 01                    		ldb		  $t0,INBUF[$s1]
+FFFFFFFFFFFC0F13 00 03 80 00 00                    		seq		  $t0,#' '   ; space or
+FFFFFFFFFFFC0F18 0D FF FF 03 00                    		seq.or  $t0,#'\t'  ; tab - compare power use here
+                        		bf	    .done
+FFFFFFFFFFFC0F1D 04 0B 0B 01 00                    		add 		$s1,$s1,#1
+FFFFFFFFFFFC0F22 41 B0 FF FF FF                    		bra	  	.skip2
+                        	.done
+FFFFFFFFFFFC0F27 42 00 01 00 00                    	  ret
+
+                        	;------------------------------------------------------------------------------
+                        	; Get a hex number from the input buffer.
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	GetHexNum:
+FFFFFFFFFFFC0F2C 04 14 00 00 00                    		ldi		$a0,#0							; a0 = num
+FFFFFFFFFFFC0F31 41 75 FF FF FF                    		call   	SkipSpaces
+                        	.next:
+FFFFFFFFFFFC0F36 60 03 0B 00 01                    		ldb		  $t0,INBUF[$s1]
+FFFFFFFFFFFC0F3B 29 03 80 00 00                    		sge     $t0,#'0'
+FFFFFFFFFFFC0F40 0D FF 03 FF 06                    		sle.and	$t0,#'9'
+                        		bt		  .isDigit
+FFFFFFFFFFFC0F45 29 03 80 00 00                    		sge		  $t0,#'A'
+FFFFFFFFFFFC0F4A 0D FF 03 FF 06                    		sle.and $t0,#'F'
+                        		bt		  .isHexUpper
+FFFFFFFFFFFC0F4F 29 03 80 00 00                    		sge		  $t0,#'a'
+FFFFFFFFFFFC0F54 0D FF 03 FF 06                    		sle.and	$t0,#'f'
+                        		bt		.isHexLower
+                        	.0001:
+FFFFFFFFFFFC0F59 42 00 01 00 00                    		ret
+.isHexUpper:
+FFFFFFFFFFFC0F5E 02 14 14 04 01                    		asl		$a0,$a0,#4
+FFFFFFFFFFFC0F63 04 03 03 BF FF                    		sub		$t0,$t0,#'A'
+FFFFFFFFFFFC0F68 04 03 03 0A 00                    		add		$t0,$t0,#10
+FFFFFFFFFFFC0F6D 02 14 14 03 01                    		or		$a0,$a0,$t0
+FFFFFFFFFFFC0F72 04 0B 0B 01 00                    		add		$s1,$s1,#1
+FFFFFFFFFFFC0F77 41 FC FE FF FF                    		jmp		.next
+                        	.isHexLower:
+FFFFFFFFFFFC0F7C 02 14 14 04 01                    		asl		$a0,$a0,#4
+FFFFFFFFFFFC0F81 04 03 03 9F FF                    		sub		$t0,$t0,#'a'
+FFFFFFFFFFFC0F86 04 03 03 0A 00                    		add		$t0,$t0,#10
+FFFFFFFFFFFC0F8B 02 14 14 03 01                    		or		$a0,$a0,$t0
+FFFFFFFFFFFC0F90 04 0B 0B 01 00                    		add		$s1,$s1,#1
+FFFFFFFFFFFC0F95 41 84 FE FF FF                    		jmp		.next
+                        	.isDigit:
+FFFFFFFFFFFC0F9A 02 14 14 04 01                    		asl		$a0,$a0,#4
+FFFFFFFFFFFC0F9F 04 03 03 D0 FF                    		sub		$t0,$t0,#'0'
+FFFFFFFFFFFC0FA4 02 14 14 03 01                    		or		$a0,$a0,$t0
+FFFFFFFFFFFC0FA9 04 0B 0B 01 00                    		add		$s1,$s1,#1
+FFFFFFFFFFFC0FAE 41 20 FE FF FF                    		jmp		.next
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Get a decimal number from the input buffer.
+                        	;------------------------------------------------------------------------------
+                        	  ; align cache
+                        	GetDecNum:
+FFFFFFFFFFFC0FB3 04 14 00 00 00                    		ldi		$a0,#0							; a0 = num
+FFFFFFFFFFFC0FB8 41 59 FD FF FF                    		call 	  SkipSpaces
+                        	.next:
+FFFFFFFFFFFC0FBD 60 03 0B 00 01                    		ldb		  $t0,INBUF[$s1]
+FFFFFFFFFFFC0FC2 29 03 80 00 00                    		sge     $t0,#'0'
+FFFFFFFFFFFC0FC7 0D FF 03 FF 06                    		sle.and $t0,#'9'
+                        		bt		  .isDigit
+                        	.0001:
+FFFFFFFFFFFC0FCC 42 00 01 00 00                    		ret
+.isDigit:
+FFFFFFFFFFFC0FD1 02 05 14 01 01                    		asl		$t2,$a0,#1    ; multiply by 10
+FFFFFFFFFFFC0FD6 02 14 14 03 01                    		asl   $a0,$a0,#3    ; * 8
+FFFFFFFFFFFC0FDB 02 14 14 05 04                    		add   $a0,$a0,$t2   ; + *2
+FFFFFFFFFFFC0FE0 04 03 03 D0 FF                    		sub		$t0,$t0,#'0'
+FFFFFFFFFFFC0FE5 02 14 14 03 04                    		add		$a0,$a0,$t0
+FFFFFFFFFFFC0FEA 04 0B 0B 01 00                    		add		$s1,$s1,#1
+FFFFFFFFFFFC0FEF 41 38 FF FF FF                    		jmp		.next
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Output an octabyte as a hex string.
+                        	;
+                        	; Parameters:
+                        	;   a0 = contains octabyte value to output
+                        	; Registers Affected:
+                        	;   none
+                        	; Returns:
+                        	;   none
+                        	;------------------------------------------------------------------------------
+                        	  ; align cache
+                        	PutHexOcta:
+FFFFFFFFFFFC0FF4 02 14 14 20 04                    		ror		$a0,$a0,#32
+FFFFFFFFFFFC0FF9 41 29 00 00 00                    		call	PutHexTetra
+FFFFFFFFFFFC0FFE 02 14 14 20 03                    		rol   $a0,$a0,#32
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Output a word as a hex string.
+                        	;
+                        	; Parameters:
+                        	;   a0 = contains word to output
+                        	; Registers Affected:
+                        	;   none
+                        	; Returns:
+                        	;   none
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	PutHexTetra:
+FFFFFFFFFFFC1003 02 14 14 10 04                    		ror		$a0,$a0,#16
+FFFFFFFFFFFC1008 41 29 00 00 00                    		call	PutHexWyde
+FFFFFFFFFFFC100D 02 14 14 10 03                    		rol		$a0,$a0,#16
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Output a half-word (16 bits) as a hex string.
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	PutHexWyde:
+FFFFFFFFFFFC1012 02 14 14 08 04                    		ror		$a0,$a0,#8
+FFFFFFFFFFFC1017 41 29 00 00 00                    		call	PutHexByte
+FFFFFFFFFFFC101C 02 14 14 08 03                    		rol		$a0,$a0,#8
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Output a byte as a hex string.
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	PutHexByte:
+FFFFFFFFFFFC1021 02 14 14 04 04                    		ror		$a0,$a0,#4		; put the high order nybble first
+FFFFFFFFFFFC1026 41 29 00 00 00                    		call	PutHexNybble
+FFFFFFFFFFFC102B 02 14 14 04 03                    		rol		$a0,$a0,#4		; restore a0
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; Output a nybble as a hex string.
+                        	;
+                        	; Parameters:
+                        	;   a0 = contains nybble to output
+                        	; Registers Affected:
+                        	;   none
+                        	; Returns:
+                        	;   none
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	PutHexNybble:
+FFFFFFFFFFFC1030 04 3E 3E F0 FF                    		sub	$sp,$sp,#16
+FFFFFFFFFFFC1035 70 00 3E 14 30                    		sto		$a0,0[$sp]
+FFFFFFFFFFFC103A 70 08 3E 03 30                    		sto   $t0,8[$sp]
+FFFFFFFFFFFC103F 08 14 14 0F 00                    		and		$a0,$a0,#15		; strip off high order bits
+FFFFFFFFFFFC1044 28 14 80 00 00                    		slt   $a0,#10
+                        		bt		.lt10
+FFFFFFFFFFFC1049 04 14 14 F6 FF                    		sub		$a0,$a0,#10
+FFFFFFFFFFFC104E 04 14 14 11 00                    		add		$a0,$a0,#'A'-'0'
+                        	.lt10:
+FFFFFFFFFFFC1053 04 14 14 30 00                    		add		$a0,$a0,#'0'
+FFFFFFFFFFFC1058 41 41 DA FF FF                    		call	Putch
+                        	.0001:
+FFFFFFFFFFFC105D 60 14 3E 00 30                    		ldo		$a0,0[$sp]
+FFFFFFFFFFFC1062 60 03 3E 08 30                    		ldo   $t0,8[$sp]
+FFFFFFFFFFFC1067 04 3E 3E 10 00                    		add   $sp,$sp,#16
+FFFFFFFFFFFC106C 42 00 01 00 00                    		ret
+
+                        	;------------------------------------------------------------------------------
+                        	; PutInlineString
+                        	;   Put a string of characters to output device. The string parameter is
+                        	; located as an inline parameter.
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	PutInlineString:
+FFFFFFFFFFFC1071 60 04 3E 00 30                    	  ldo   $t1,[$sp]         ; pop return address
+FFFFFFFFFFFC1076 04 3E 3E 08 00                    	  add   $sp,$sp,#8
+FFFFFFFFFFFC107B 04 3E 3E F8 FF                    		sub		$sp,$sp,#8				
+FFFFFFFFFFFC1080 70 00 3E 14 30                    		sto		$a0,[$sp]				  ; save a0
+FFFFFFFFFFFC1085 04 04 04 04 00                    		add		$t1,$t1,#4  			; t1 = pointer to string
+                        	.0001:
+FFFFFFFFFFFC108A 60 14 04 00 00                    		ldb		$a0,[$t1]
+FFFFFFFFFFFC108F 04 04 04 01 00                    		add		$t1,$t1,#1				; advance pointer to next byte
+FFFFFFFFFFFC1094 4E 3C 14 80 00                    		beq 	$a0,#0,.done      ; branch if done
+FFFFFFFFFFFC1099 41 3D D9 FF FF                    		call	Putch							; output character
+FFFFFFFFFFFC109E 41 B0 FF FF FF                    		bra		.0001
+                        	.done:
+FFFFFFFFFFFC10A3 60 14 3E 00 30                    		ldo		$a0,[$sp]				  ; restore a0
+FFFFFFFFFFFC10A8 04 3E 3E 08 00                    		add   $sp,$sp,#8
+FFFFFFFFFFFC10AD 42 00 00 00 00                    	  jmp   [$t1]
+                        	
+                        	;------------------------------------------------------------------------------
+                        	; PutString
+                        	;    Put a string of characters to the serial transmitter. Calls the 
+                        	; Putch routine, so this routine also blocks if the transmitter is not
+                        	; empty.
+                        	;
+                        	; Parameters:
+                        	;		$a0 = pointer to null terminated string to put
+                        	; Modifies:
+                        	;		$t0,$t1,$t2,$t3
+                        	; Stack Space:
+                        	;		2 words
+                        	;------------------------------------------------------------------------------
+                        	  ; align cache
+                        	PutString:
+FFFFFFFFFFFC10B2 04 3E 3E F0 FF                    		sub		$sp,$sp,#16
+FFFFFFFFFFFC10B7 70 00 3E 14 30                    		sto		$a0,[$sp]				  ; save argument
+FFFFFFFFFFFC10BC 70 08 3E 0B 30                    		sto   $s1,8[$sp]        ; and reg var
+FFFFFFFFFFFC10C1 34 0B 14 00 00                    		mov		$s1,$a0						; t1 = pointer to string
+                        	.0001:
+FFFFFFFFFFFC10C6 60 14 0B 00 00                    		ldb		$a0,[$s1]
+FFFFFFFFFFFC10CB 04 0B 0B 01 00                    		add		$s1,$s1,#1				; advance pointer to next byte
+FFFFFFFFFFFC10D0 4E 3C 14 80 00                    		beq 	$a0,#0,.done     	; branch if done
+FFFFFFFFFFFC10D5 41 4D D8 FF FF                    		call	Putch							; output character
+FFFFFFFFFFFC10DA 41 B0 FF FF FF                    		bra		.0001
+                        	.done:
+FFFFFFFFFFFC10DF 60 14 3E 00 30                    		ldo		$a0,[$sp]				  ; restore argument
+FFFFFFFFFFFC10E4 60 0B 3E 08 30                    		ldo   $s1,8[$sp]
+FFFFFFFFFFFC10E9 04 3E 3E 10 00                    		add   $sp,$sp,#16
+FFFFFFFFFFFC10EE 42 00 01 00 00                    		ret
+
+                        	;------------------------------------------------------------------------------
+                        	;------------------------------------------------------------------------------
+                        	
+                        	  ; align cache
+                        	DumpTraceQueue:
+FFFFFFFFFFFC10F3 04 1A 00 58 00                    		ldi     $a6,#'X'        ; bypass='B' in fputc routine
+                        	.dmpTrace:
+FFFFFFFFFFFC10F8 04 14 00 0D 00                    		ldi     $a0,#CR
+FFFFFFFFFFFC10FD 41 AD D7 FF FF                    		call    Putch
+FFFFFFFFFFFC1102 04 15 00 0E 00                    		ldi     $a1,#14         ; processor trace queue status
+FFFFFFFFFFFC1107 7A 14 15 00 0A                    		peekq.  $a0,$a1
+FFFFFFFFFFFC110C 48 64 FF FF 00                    		bmi     .dmpTraceEmpty  ; emptied out?
+FFFFFFFFFFFC1111 04 15 00 0F 00                    		ldi     $a1,#15         ; processor trace queue data
+FFFFFFFFFFFC1116 AA FF 00 00 00                    		popq.   $a0,$a1
+FFFFFFFFFFFC111B 41 65 FB FF FF                    		call    PutHexOcta
+FFFFFFFFFFFC1120 41 60 FF FF FF                    		jmp     .dmpTrace
+                        	.dmpTraceEmpty:
+FFFFFFFFFFFC1125 04 14 00 0D 00                    		ldi     $a0,#CR
+FFFFFFFFFFFC112A 41 F9 D6 FF FF                    		call    Putch
+                        	.inf:
+FFFFFFFFFFFC112F 41 00 00 00 00                    	  jmp     .inf
+FFFFFFFFFFFC1134 42 00 01 00 00                    	  ret
+
+                        	;------------------------------------------------------------------------------
+                        	; Exception processing code staret here.
+                        	; As per the RISCV privilege spec, the MSB indicates an external interrupt.
+                        	; The system uses cause codes 32 to 63 for external devices. This cause code
+                        	; range is reserved in the RISCV spec.
+                        	;
+                        	; On incoming the register file has been set to the interrupt register file
+                        	; or the machine mode register file.
+                        	;------------------------------------------------------------------------------
+FFFFFFFFFFFC1139 00 00 00 00 00 00 00              	  align 16
+                        	; Top of stack for different register sets
+                        	StackTbl:
+FFFFFFFFFFFC1140 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1148 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1150 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1158 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1160 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1168 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1170 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1178 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1180 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1188 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1190 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC1198 00 00 00 00 00 00 00 00           	  dw    $0
+FFFFFFFFFFFC11A0 FC F3 07 00 00 00 00 00           	  dw    $7F400-4
+FFFFFFFFFFFC11A8 FC F7 07 00 00 00 00 00           	  dw    $7F800-4
+FFFFFFFFFFFC11B0 FC FB 07 00 00 00 00 00           	  dw    $7FC00-4
+FFFFFFFFFFFC11B8 FC FF 07 00 00 00 00 00           	  dw    $80000-4
+                        	
+                        	.file "any1_rom.r64",1242
+                        		code
+                        		align	16
+                        	IRQRout:
+FFFFFFFFFFFC11C0 0F 03 08 0D 20                    		csrrw	$t0,#$342,$x0			; get cause code
+FFFFFFFFFFFC11C5 0C 00 03 00 0B                    		tst   $t0
+FFFFFFFFFFFC11CA 8F 00 00 00 00                    
+FFFFFFFFFFFC11CF 48 7C FF FF 01                    		bmi	  .isIRQ		        ; irq or brk #240?
+FFFFFFFFFFFC11D4 00 03 80 00 00                    		seq   $t0,#2            ; illegal instruction?
+                        		bt    .illegal
+FFFFFFFFFFFC11D9 50 FF FF 0F 00                    		and   $t2,$t0,#$FFFFFFFC
+FFFFFFFFFFFC11DE 08 05 03 FC FF                    
+FFFFFFFFFFFC11E3 00 05 80 00 00                    		seq   $t2,#8
+                        		bt    .brk
+                        		; Some other cause
+                        	.illegal:
+FFFFFFFFFFFC11E8 50 04 00 00 00                    	  stt   $t0,$4018
+FFFFFFFFFFFC11ED 70 18 00 03 20                    
+FFFFFFFFFFFC11F2 0F 00 81 02 61                    		csrrc $x0,#CSR_TRACECTRL,#1 ; turn off tracing
+FFFFFFFFFFFC11F7 50 C1 FF FF FF                    		ldi   $t0,#DumpTraceQueue
+FFFFFFFFFFFC11FC 04 03 00 F3 10                    
+FFFFFFFFFFFC1201 0F 00 23 01 20                    		csrrw $x0,#CSR_MEPC,$t0
+FFFFFFFFFFFC1206 45 00 00 00 00                    		rte
+.soc:
+FFFFFFFFFFFC120B 41 00 00 00 00                    	  jmp   .soc
+                        	.brk:
+                        	  ; We reset the stack pointer at each callto the OS in case an error causes
+                        	  ; it to be messed up.
+FFFFFFFFFFFC1210 0F 03 0C 01 20                    	  csrrw $t0,#CSR_RSSTACK,$x0   ; get register sets
+FFFFFFFFFFFC1215 08 03 03 0F 00                    	  and   $t0,$t0,#15       ; extract register set selection (will be 13,14, or 15)
+FFFFFFFFFFFC121A 02 05 03 02 01                    	  asl   $t2,$t0,#2        ; $t2 = table index
+FFFFFFFFFFFC121F 50 C1 FF FF FF                    		ldt		$sp,StackTbl[$t2]	; setup machine mode stack pointer
+FFFFFFFFFFFC1224 60 3E 05 40 21                    
+FFFFFFFFFFFC1229 41 30 C0 0F 00                    		jmp		OSECALL					  ; goto operating system calldispatcher
+                        	.isIRQ:
+FFFFFFFFFFFC122E 0F 03 0C 01 20                    	  csrrw $t0,#CSR_RSSTACK,$x0   ; get register sets
+FFFFFFFFFFFC1233 08 03 03 0F 00                    	  and   $t0,$t0,#15       ; extract register set selection (will be 13,14, or 15)
+FFFFFFFFFFFC1238 02 05 03 02 01                    	  asl   $t2,$t0,#2        ; $t2 = table index
+FFFFFFFFFFFC123D 50 C1 FF FF FF                    		ldt		$sp,StackTbl[$t2]	; setup machine mode stack pointer
+FFFFFFFFFFFC1242 60 3E 05 40 21                    
+FFFFFFFFFFFC1247 0F 03 08 0D 20                    		csrrw	$t0,#$342,$x0			; get cause code
+                        	
+FFFFFFFFFFFC124C 50 01 00 00 00                    	  ldt   $t1,IRQFlag     ; update IRQ flag for Tiny Basic
+FFFFFFFFFFFC1251 60 04 00 90 20                    
+FFFFFFFFFFFC1256 04 04 04 01 00                    	  add   $t1,$t1,#1
+FFFFFFFFFFFC125B 50 01 00 00 00                    	  stt   $t1,IRQFlag
+FFFFFFFFFFFC1260 70 90 00 04 20                    
+FFFFFFFFFFFC1265 08 03 03 FF 00                    	  and   $t0,$t0,#$FF
+FFFFFFFFFFFC126A 50 01 00 00 00                    	  stt   $t0,IRQCause    ; update cause code for Tiny Basic
+FFFFFFFFFFFC126F 70 98 00 03 20                    
+R2 operation needs two source operands. (3030)
+R2 operation needs two source operandsFFFFFFFFFFFC1274 02 1F 1F 00 05                    	  sub.  $t1,$t0,#1
+FFFFFFFFFFFC1279 5A 00 3F 3E 00                    	  beq   $cr0,.softwareIrq
+FFFFFFFFFFFC127E 4E F4 70 FF BE                    
+R2 operation needs two source operands. (3033)
+R2 operation needs two source operandsFFFFFFFFFFFC1283 02 1F 1F 00 05                    	  sub.  $t1,$t1,#1
+FFFFFFFFFFFC1288 5A 00 3F 3E 00                    	  beq   $cr0,.timerIrq
+FFFFFFFFFFFC128D 4E BC 70 FF BE                    
+R2 operation needs two source operands. (3036)
+R2 operation needs two source operandsFFFFFFFFFFFC1292 02 1F 1F 00 05                    	  sub.  $t1,$t1,#1      ; garbage collect interrupt?
+FFFFFFFFFFFC1297 5A 00 3F 3E 00                    	  beq   $cr0,.gcIrq
+FFFFFFFFFFFC129C 4E 84 70 FF BE                    
+FFFFFFFFFFFC12A1 08 07 03 1F 00                    		and		$t4,$t0,#31			; interrupting device # is low order 5 bits of cause code
+FFFFFFFFFFFC12A6 04 06 00 05 00                    		ldi   $t3,#5          ; try 5 times
+                        	.devAgain:
+FFFFFFFFFFFC12AB 34 08 07 00 00                    		mov   $t5,$t4
+FFFFFFFFFFFC12B0 02 08 08 07 01                    		asl		$t5,$t5,#7				; 128 bytes per device func table
+FFFFFFFFFFFC12B5 04 08 08 58 20                    		add		$t5,$t5,#DVF_Base+22*4	; load IRQ routine vector from device func table
+FFFFFFFFFFFC12BA 60 08 08 00 30                    		ldo.	$t5,[$t5]
+FFFFFFFFFFFC12BF 5A 00 3F 3E 00                    		beq	  $cr0,.noIRQ	    ; make sure there's an address to go to
+FFFFFFFFFFFC12C4 4E EC 70 FF BD                    
+FFFFFFFFFFFC12C9 34 72 08 00 00                    		mov   $cn,$t5
+FFFFFFFFFFFC12CE 42 00 00 00 00                    		jmp		[$cn]						; jump to the IRQ routine
+                        	.noIRQ:
+R2 operation needs two source operands. (3062)
+R2 operation needs two source operandsFFFFFFFFFFFC12D3 02 1F 1F 00 05                    	  sub.  $t3,$t3,#1
+FFFFFFFFFFFC12D8 4F 28 70 FF 00                    	  bne   $cr0,.InitDev
+                        	.softwareIrq:
+                        	.timerIrq:
+FFFFFFFFFFFC12DD 41 1C 02 00 00                    	  jmp   ERETx2
+                        		; The device function tables may have been zeroed out, try initializing them.
+                        		; The following uses $a0-$a1, $t0-$t2
+                        	.InitDev:
+FFFFFFFFFFFC12E2 00 07 80 00 00                    		seq   $t4,#5
+                        		bf    .notSerial
+FFFFFFFFFFFC12E7 04 14 00 05 00                    		ldi		$a0,#5							; serial device
+FFFFFFFFFFFC12EC 50 00 00 00 00                    		ldi		$a1,#SerialFuncTbl
+FFFFFFFFFFFC12F1 51 00 00 F8 FF                    
+FFFFFFFFFFFC12F6 04 15 00 42 02                    
+FFFFFFFFFFFC12FB 41 21 BD 0F 00                    		jal	  CopyDevFuncTbl
+FFFFFFFFFFFC1300 04 14 00 05 00                    		ldi		$a0,#5							; serial device
+FFFFFFFFFFFC1305 50 00 00 00 00                    		ldi   $a1,#SerialDCB
+FFFFFFFFFFFC130A 51 00 00 F8 FF                    
+FFFFFFFFFFFC130F 04 15 00 44 02                    
+FFFFFFFFFFFC1314 41 C5 BC 0F 00                    		jal   CopyDevDCB
+FFFFFFFFFFFC1319 41 B4 BC 0F 00                    		jmp   .devAgain
+                        	.notSerial:
+FFFFFFFFFFFC131E 04 14 00 0F 00                    		ldi		$a0,#15							; VIA device
+FFFFFFFFFFFC1323 00 07 14 00 00                    		seq   $t4,$a0
+	bf    .notVia
+FFFFFFFFFFFC1328 50 00 00 00 00                    		ldi		$a1,#ViaFuncTbl
+FFFFFFFFFFFC132D 51 00 00 F8 FF                    
+FFFFFFFFFFFC1332 04 15 00 47 02                    
+FFFFFFFFFFFC1337 41 31 BC 0F 00                    		jal	  CopyDevFuncTbl
+FFFFFFFFFFFC133C 04 14 00 0F 00                    		ldi		$a0,#15							; VIA device
+FFFFFFFFFFFC1341 50 00 00 00 00                    		ldi		$a1,#ViaDCB
+FFFFFFFFFFFC1346 51 00 00 F8 FF                    
+FFFFFFFFFFFC134B 04 15 00 48 02                    
+FFFFFFFFFFFC1350 41 D5 BB 0F 00                    		jal	  CopyDevDCB
+FFFFFFFFFFFC1355 41 C4 BB 0F 00                    		jmp   .devAgain
+                        	.notVia:
+FFFFFFFFFFFC135A 41 28 00 00 00                    	  jmp   ERETx2
+                        	.gcIrq:
+                        	;	ldi		$sp,#$7F800-4		; setup interrupt mode stack pointer
+FFFFFFFFFFFC135F 41 B1 BB 0F 00                    	  call gcIncrement
+                        	ERETx2:
+                        	;  mDI
+                        	;  csrrc $x0,#$7C0,#31   ; select machine regs only
+                        	;  csrrw $t0,#$7C0,$x0   ; get register sets
+                        	;  srl   $t0,$t0,#5      ; extract register set selection
+                        	;  sll   $t0,$t0,#3
+                        	;  ldt   $t1,MEPC0[$t0]  ; get it
+                        	;  csrrw $x0,#$341,$t1   ; set mepc
+                        	  
+FFFFFFFFFFFC1364 0F 00 01 01 60                    	  csrrc $x0,#CSR_PMSTACK,#1        ; disable interrupts
+FFFFFFFFFFFC1369 79 00 00 00 00                    	nop
+FFFFFFFFFFFC136E 79 00 00 00 00                    	  nop
+FFFFFFFFFFFC1373 0F 03 0C 01 20                    	  csrrw $t0,#CSR_RSSTACK,$x0   ; get register sets
+FFFFFFFFFFFC1378 08 03 03 0F 00                    	  and   $t0,$t0,#15       ; extract register set selection (will be 13,14, or 15)
+FFFFFFFFFFFC137D 02 05 03 02 01                    	  asl   $t2,$t0,#2        ; $t2 = table index
+FFFFFFFFFFFC1382 50 C1 FF FF FF                    		ldt		$sp,StackTbl[$t2]	; setup machine mode stack pointer
+FFFFFFFFFFFC1387 60 3E 05 40 21                    
+FFFFFFFFFFFC138C 45 00 00 00 00                    		rte
+
+                        		; In case the pipeline runs ahead into the following table which will
+                        		; result in illegal instructions.
+FFFFFFFFFFFC1391 79 00 00 00 00                    		nop
+FFFFFFFFFFFC1396 79 00 00 00 00                    		nop
+FFFFFFFFFFFC139B 79 00 00 00 00                    	  nop
+                        	
+                        	  ; align cache
+                        	DBGRout:
+FFFFFFFFFFFC13A0 0D 00 80 00 00                    	  rex   #3,x0
+  rte
+	nop
+FFFFFFFFFFFC13A5 79 00 00 00 00                    
+FFFFFFFFFFFC13AA 79 00 00 00 00                    		nop
+FFFFFFFFFFFC13AF 79 00 00 00 00                    	  nop
+                        	
+                        	; Application startup record for system
+                        	SystemASR:
+FFFFFFFFFFFC13B4 00                                	  db    0     ; page size (can't change on this system)
+FFFFFFFFFFFC13B5 02                                	  db    2     ; priority normal
+FFFFFFFFFFFC13B6 0C                                	  db    12    ; register set for startup task
+FFFFFFFFFFFC13B7 00                                	  db    0     ; memory map #0
+FFFFFFFFFFFC13B8 00 00 00 00 00 00 00 00           	  dw    0     ; processor affinity
+FFFFFFFFFFFC13C0 00 00 00 00 00 00 00 00           	  dw    0     ; code size (0 = in ROM, don't move)
+FFFFFFFFFFFC13C8 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC13D0 00 00 00 00 00 00 00 00           	  dw    0     ; data size (preinitialized data)
+FFFFFFFFFFFC13D8 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC13E0 00 00 00 00 00 00 00 00           	  dw    0     ; uninitialized data size
+FFFFFFFFFFFC13E8 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC13F0 00 00 00 00 00 00 00 00           	  dw    0     ; Heap size
+FFFFFFFFFFFC13F8 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC1400 00 04 00 00 00 00 00 00           	  dw    1024  ; stack size
+FFFFFFFFFFFC1408 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC1410 C6 05 FC FF FF FF FF FF           	  dw    IdleTask  ; pointer to code
+FFFFFFFFFFFC1418 00 00 00 00 00 00 00 00           	  dw    0       ; reserved
+FFFFFFFFFFFC1420 00 00 00 00 00 00 00 00           	  dw    0     ; pointer to data
+FFFFFFFFFFFC1428 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC1430 00 00 00 00 00 00 00 00           	  dw    0     ; ui data
+FFFFFFFFFFFC1438 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+                        	
+                        	; Application startup record for Tiny Basic
+                        	TinyBasicASR:
+FFFFFFFFFFFC1440 00                                	  db    0     ; page size (can't change on this system)
+FFFFFFFFFFFC1441 02                                	  db    2     ; priority normal
+FFFFFFFFFFFC1442 00                                	  db    0     ; register set
+FFFFFFFFFFFC1443 01                                	  db    1     ; memory map
+FFFFFFFFFFFC1444 00 00 00 00 00 00 00 00           	  dw    0     ; processor affinity
+FFFFFFFFFFFC144C 00 00 00 00 00 00 00 00           	  dw    0     ; code size (0 = in ROM, don't move)
+FFFFFFFFFFFC1454 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC145C 00 00 00 00 00 00 00 00           	  dw    0     ; data size (preinitialized data)
+FFFFFFFFFFFC1464 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC146C 00 80 00 00 00 00 00 00           	  dw    32768 ; uninitialized data size
+FFFFFFFFFFFC1474 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC147C 00 00 00 00 00 00 00 00           	  dw    0     ; Heap size
+FFFFFFFFFFFC1484 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC148C 00 08 00 00 00 00 00 00           	  dw    2048  ; stack size
+FFFFFFFFFFFC1494 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC149C F7 01 00 00 00 00 00 80           	  dw    CSTART  ; pointer to code
+FFFFFFFFFFFC14A4 00 00 00 00 00 00 00 00           	  dw    0       ; reserved
+FFFFFFFFFFFC14AC 00 00 00 00 00 00 00 00           	  dw    0     ; pointer to data
+FFFFFFFFFFFC14B4 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+FFFFFFFFFFFC14BC 00 00 00 00 00 00 00 00           	  dw    0     ; ui data
+FFFFFFFFFFFC14C4 00 00 00 00 00 00 00 00           	  dw    0     ; reserved
+                        	    
+                        	;------------------------------------------------------------------------------
+                        	; Message strings
+                        	;------------------------------------------------------------------------------
+                        	
+                        	msgStart:
+FFFFFFFFFFFC14CC 46 65 6D 74 69 6B 69 20 53 79     			db		"Femtiki System Starting.",10
+FFFFFFFFFFFC14D6 73 74 65 6D 20                    
+FFFFFFFFFFFC14DB 53 74 61 72 74                    
+FFFFFFFFFFFC14E0 69 6E 67 2E 0A                    
+                        	msgMonHelp:
+FFFFFFFFFFFC14E5 4D 6F 6E 69 74 6F 72 20 43 6F     			db		"Monitor Commands",10
+FFFFFFFFFFFC14EF 6D 6D 61 6E 64 73 0A              
+FFFFFFFFFFFC14F6 42 20 2D 20 73 74 61 72 74 20     			db		"B - start tiny basic",10
+FFFFFFFFFFFC1500 74 69 6E 79 20 62 61 73 69 63     
+FFFFFFFFFFFC150A 0A                                
+FFFFFFFFFFFC150B 44 20 2D 20 64 75 6D 70 20 72     			db		"D - dump ready que",10
+FFFFFFFFFFFC1515 65 61 64 79 20 71 75 65 0A        
+FFFFFFFFFFFC151E 45 20 2D 20 65 64 69 74 20 6D     			db		"E - edit memory",10
+FFFFFFFFFFFC1528 65 6D 6F 72 79 0A                 
+FFFFFFFFFFFC152E 46 20 2D 20 66 69 6C 6C 20 6D     			db		"F - fill memory",10
+FFFFFFFFFFFC1538 65 6D 6F 72 79 0A                 
+FFFFFFFFFFFC153E 46 49 20 3C 73 74 72 69 6E 67     			db    "FI <string>- find string in memory",10
+FFFFFFFFFFFC1548 3E 2D 20 66 69 6E 64 20 73 74     
+FFFFFFFFFFFC1552 72 69 6E 67 20                    
+FFFFFFFFFFFC1557 69 6E 20 6D 65                    
+FFFFFFFFFFFC155C 6D 6F 72 79 0A                    
+FFFFFFFFFFFC1561 4B 20 3C 74 69 64 3E 20 2D 20     			db		"K <tid> - kill task", 10
+FFFFFFFFFFFC156B 6B 69 6C 6C 20                    
+FFFFFFFFFFFC1570 74 61 73 6B 0A                    
+FFFFFFFFFFFC1575 4D 20 3C 73 74 61 72 74 3E 20     			db		"M <start> <length>	- dump memory",10
+FFFFFFFFFFFC157F 3C 6C 65 6E 67 74 68 3E 09 2D     
+FFFFFFFFFFFC1589 20 64 75 6D 70 20 6D 65 6D 6F     
+FFFFFFFFFFFC1593 72 79 0A                          
+FFFFFFFFFFFC1596 50 20 2D 20 64 69 73 70 6C 61     			db    "P - display PAM",10
+FFFFFFFFFFFC15A0 79 20 50 41 4D 0A                 
+FFFFFFFFFFFC15A6 53 20 2D 20 73 77 69 74 63 68     			db		"S - switch task",10
+FFFFFFFFFFFC15B0 20 74 61 73 6B 0A                 
+FFFFFFFFFFFC15B6 56 20 3C 6D 69 64 3E 20 64 75     			db    "V <mid> dump virtual memory map",10
+FFFFFFFFFFFC15C0 6D 70 20 76 69 72 74 75 61 6C     
+FFFFFFFFFFFC15CA 20 6D 65 6D 6F 72 79 20 6D 61     
+FFFFFFFFFFFC15D4 70 0A                             
+FFFFFFFFFFFC15D6 00                                			db		0
+                        			; align cache
+                        	msgTaskStart:
+FFFFFFFFFFFC15D7 20 74 61 73 6B 20 73 74 61 72     			db		" task started."
+FFFFFFFFFFFC15E1 74 65 64 2E                       
+                        	msgCRLF:
+FFFFFFFFFFFC15E5 0D 0A 00                          			db		13,10,0
+                        	flt50:
+FFFFFFFFFFFC15E8 00 00 00 00 00 00 00 00 00 00     		dw	0x00000000,0x00000000,0x00000000,0x40049000
+FFFFFFFFFFFC15F2 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC15FC 00 00 00 00 00 90 04 40 00 00     
+FFFFFFFFFFFC1606 00 00                             
+                        	flt20:
+FFFFFFFFFFFC1608 00 00 00 00 00 00 00 00 00 00     		dw	0x00000000,0x00000000,0x00000000,0x40034000
+FFFFFFFFFFFC1612 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC161C 00 00 00 00 00 40 03 40 00 00     
+FFFFFFFFFFFC1626 00 00                             
+                        	flt10:
+FFFFFFFFFFFC1628 00 00 00 00 00 00 00 00 00 00     		dw	0x00000000,0x00000000,0x00000000,0x40024000
+FFFFFFFFFFFC1632 00 00 00 00 00 00 00 00 00 00     
+FFFFFFFFFFFC163C 00 00 00 00 00 40 02 40 00 00     
+FFFFFFFFFFFC1646 00 00                             
+                        	
+                        	;.include "fltToString.r64"
+                        	;.include "bios-mem.r64"
+                        	;.include "bios-pam.r64"
+                        	;.include "bios-tlb.r64"
+                        	;.include "ramtest.r64"
+                        	
+                        	;.include "../fmtk/msg.r64"
+                        	;.include "../fmtk/tcb.r64"
+                        	;.include "../fmtk/task.r64"
+                        	;.include "../fmtk/io.r64"
+                        	;.include "../fmtk/iofocus.r64"
+                        	;.include "../fmtk/serial.r64"
+                        	;.include "../fmtk/source/drivers/pti_driver.r64"
+                        	;.include "../fmtk/app.r64"
+                        	;.include "../fmtk/Finalizer.r64"
+                        	;.include "../fmtk/gcIncremental.r64"
+                        	;.include "../fmtk/source/kernel/fmtk.r64"
+                        	;.include "../fmtk/source/kernel/FMTKc.r64"
+                        	;.include "../fmtk/source/kernel/SetupDevices.r64"
+                        	;.include "../fmtk/source/kernel/pic.r64"
+                        	;.include "../fmtk/source/kernel/DBGConsole.r64"
+                        	;.include "../fmtk/source/fmtk.l64"
+                        	;.include "../fmtk/finalizer.r64"
+                        	;.include "../fmtk/gcIncremental.r64"
+                        	;.include "TinyBasic.r64"
+                        	;.include "../cc64libc/source/rtf64/io.r64"
+                        	;.include "../cc64libc/source/cc64libc.l64"
+                        	;.include "../c_standard_lib-master/c_standard_lib-master/c_standard_lib.l64"
+                        	.file "any1_rom.r64",1
+                        	.file "any1_rom.r64",1
+                        	
+                        		rodata
+                        		align 8
+                        	__rodata_start:
+                        	
+                        		rodata
+                        		align 8
+                        	begin_init_data:
+                        	_begin_init_data:
+                        	
+                        		rodata
+                        		align 8
+                        	end_init_data:
+                        	_end_init_data:
+
+rodata start: FFFFFFFFFFFC4000
+data start:                0
+bss start:                0
+
+595 symbols
+  Symbol Name                              seg     address bits references
+  C                                          code  80000000000001cb 32 1
+  CR                                        const  00000d 5 12
+  CSR_MEPC                                  const  003048 15 1
+  CSR_MSEMA                                 const  0030c1 15 1
+  CSR_PMSTACK                               const  003040 15 5
+  CSR_RSSTACK                               const  003043 15 4
+  CSR_TASKID                                const  001010 14 2
+  CSR_TRACECTRL                             const  0070a0 16 2
+  CSTART                                     code  80000000000001f7 32 2
+  CURIN                                     const  000370 11 1
+  CUROUT                                    const  000371 11 1
+  CheckDevOwner                              code  80000000000001d8 32 2
+  DBGATTR                                   const  3ffffe0c1bf0000 59 2
+  DBGRout                                    code  fffffffffffc13a0 18 2
+  DVF_Base                                  const  002000 15 1
+  DumpTraceQueue                             code  fffffffffffc10f3 18 2
+  DumpTraceQueue.dmpTrace                    code  fffffffffffc10f8 18 1
+  DumpTraceQueue.dmpTraceEmpty               code  fffffffffffc1125 18 1
+  DumpTraceQueue.inf                         code  fffffffffffc112f 18 1
+  EOF                                       const  00001a 6 1
+  E_Ok                                      const  000000 1 2
+  FillMem.0001                               code  fffffffffffc0e2a 18 1
+  Finalizer                                  code  80000000000001aa 32 1
+  Find.fwe                                   code  fffffffffffc0e61 18 1
+  GetDecNum.next                             code  fffffffffffc0fbd 18 1
+  GetHexNum                                  code  fffffffffffc0f2c 18 8
+  GetHexNum.next                             code  fffffffffffc0f36 18 3
+  GetUIFlag                                  code  80000000000001d4 32 2
+  Getch                                      code  fffffffffffc06c0 18 3
+  INBUF                                     const  000100 10 21
+  IRQCause                                  const  001098 14 1
+  IRQFlag                                   const  001090 14 2
+  IRQRout                                    code  fffffffffffc11c0 18 4
+  IRQRout.gcIrq                              code  8000000000000238 32 1
+  IRQRout.isIRQ                              code  fffffffffffc122e 18 1
+  IRQRout.noIRQ                              code  800000000000023a 32 1
+  IRQRout.soc                                code  fffffffffffc120b 18 1
+  IRQRout.softwareIrq                        code  8000000000000236 32 1
+  IRQRout.timerIrq                           code  8000000000000237 32 1
+  IdleTask                                   code  fffffffffffc05c6 18 1
+  IdleTask.IdleCode                          code  fffffffffffc0634 18 1
+  IdleTask.loop2                             code  fffffffffffc05df 18 1
+* IdleTask.nxtObj                            code  fffffffffffc067a 18 1
+  IdleTaskMbx                               const  000c10 13 2
+  IdleTaskMsgD1                             const  000c18 13 1
+  IdleTaskMsgD2                             const  000c20 13 1
+  IdleTaskMsgD3                             const  000c28 13 1
+  LEDS                                      const  ffffffffff910000 24 3
+  LNFD                                      const  00000a 5 7
+  LOG_PGSZ                                  const  00000c 5 1
+  LOG_TCBSZ                                 const  00000a 5 1
+  MBX_BLOCKPTR_BUFSZ                        const  000008 5 1
+  MEPC1                                     const  000358 11 1
+  MMUInit                                    code  80000000000001a0 32 1
+  MachineStart                               code  fffffffffffc0300 18 3
+  MachineStart.0001                          code  fffffffffffc0373 18 1
+  MbxBlockPtr                               const  0010a0 14 1
+* Monitor                                    code  fffffffffffc0e98 18 13
+* Monitor.0001                               code  fffffffffffc0e98 18 5
+* Monitor.0002                               code  fffffffffffc0cf0 18 1
+* Monitor.0003                               code  fffffffffffc0d34 18 1
+  Monitor.0005                               code  80000000000001e9 32 1
+  Monitor.found                              code  fffffffffffc0ee3 18 1
+  Monitor.loop                               code  fffffffffffc0cb9 18 3
+  Monitor.next                               code  fffffffffffc0ebb 18 1
+  Monitor.notFound                           code  fffffffffffc0ef5 18 1
+  Monitor.skip                               code  fffffffffffc0ab6 18 1
+  Monitor.userMem                            code  fffffffffffc0ceb 18 1
+  OBJMagic                                  const  000000 1 1
+  OSECALL                                    code  8000000000000235 32 1
+  OSExit                                     code  80000000000001ba 32 2
+  OSOCall                                    code  80000000000001a5 32 1
+  PAGESZ                                    const  001000 14 1
+  PutHexByte                                 code  fffffffffffc1021 18 3
+  PutHexNybble                               code  fffffffffffc1030 18 1
+  PutHexOcta                                 code  fffffffffffc0ff4 18 1
+  PutHexTetra                                code  fffffffffffc1003 18 2
+  PutHexWyde                                 code  fffffffffffc1012 18 1
+  PutInlineString                            code  fffffffffffc1071 18 5
+  PutInlineString.0001                       code  fffffffffffc108a 18 1
+  PutInlineString.done                       code  fffffffffffc10a3 18 1
+  PutString.0001                             code  fffffffffffc10c6 18 1
+  PutString.done                             code  fffffffffffc10df 18 1
+  Putch                                      code  fffffffffffc06e8 18 22
+  ROMBASE                                   const  fffffffffffc0000 20 10
+  SCRATCHMEM                                const  ffffffffff400000 25 2
+  SerialPutChar                              code  80000000000001d2 32 1
+  SkipSpaces                                 code  fffffffffffc0f0e 18 3
+  SkipSpaces.skip2                           code  fffffffffffc0f0e 18 1
+  StackTbl                                   code  fffffffffffc1140 18 3
+  SystemASR                                  code  fffffffffffc13b4 18 1
+  TCBPriority                               const  0002e1 11 1
+  TCBStatus                                 const  0002e0 11 3
+  TEXTSCR                                   const  ffffffffff800000 25 8
+  TS_READY                                  const  000001 2 1
+  TinyBasicASR                               code  fffffffffffc1440 18 1
+  UserStart                                  code  fffffffffffc04a4 18 1
+  UserStart2                                 code  fffffffffffc04ae 18 1
+  UserStart2.appBad                          code  fffffffffffc04c2 18 1
+  WaitForIOFocus                             code  80000000000001d6 32 2
+  _DBGAttr                                  const  ffffffffff400000 25 4
+  _Delay2s                                   code  fffffffffffc0698 18 1
+  _Delay2s.0001                              code  fffffffffffc06a2 18 1
+  _FMTKInit                                  code  80000000000001a1 32 1
+  _InitPIC                                   code  80000000000001a2 32 1
+  _cursorX                                  const  ffffffffff400008 25 9
+  _cursorY                                  const  ffffffffff400009 25 7
+  _pti_init                                  code  800000000000019e 32 1
+  _pti_read_block                            code  800000000000019f 32 1
+  calcScreenPos                              code  fffffffffffc071f 18 1
+  calcScreenPos.0002                         code  fffffffffffc072e 18 1
+  calcScreenPos.0004                         code  fffffffffffc0742 18 1
+  dbg_BlankLastLine                          code  fffffffffffc0891 18 1
+  dbg_BlankLastLine.0001                     code  fffffffffffc08aa 18 1
+  dbg_HomeCursor                             code  fffffffffffc08c3 18 1
+  dbg_Putch                                  code  fffffffffffc07dd 18 2
+  dbg_Putch.cr                               code  fffffffffffc0850 18 1
+  dbg_Putch.lf                               code  fffffffffffc081e 18 1
+  dbg_ScrollUp                               code  fffffffffffc085f 18 2
+  dbg_ScrollUp.0001                          code  fffffffffffc086e 18 1
+  fgetc                                      code  fffffffffffc0968 18 1
+  fgetc.0001                                 code  fffffffffffc09b3 18 1
+  fgetc.0002                                 code  fffffffffffc09cc 18 1
+  fgetc.checkOwner                           code  fffffffffffc099a 18 1
+  fgetc.notOwner                             code  fffffffffffc09e0 18 1
+  fputc                                      code  fffffffffffc08dc 18 1
+  fputc.0001                                 code  fffffffffffc0931 18 1
+  fputc.checkOwner                           code  fffffffffffc091d 18 1
+  fputc.notOwner                             code  fffffffffffc095e 18 1
+  fputc.xit                                  code  fffffffffffc094a 18 2
+  incScreenPos                               code  fffffffffffc0783 18 1
+
+Undefined Symbols
+  C                                          code  80000000000001cb 32 1
+  CSTART                                     code  80000000000001f7 32 2
+  CheckDevOwner                              code  80000000000001d8 32 2
+  Finalizer                                  code  80000000000001aa 32 1
+  GetUIFlag                                  code  80000000000001d4 32 2
+  IRQRout.gcIrq                              code  8000000000000238 32 1
+  IRQRout.noIRQ                              code  800000000000023a 32 1
+  IRQRout.softwareIrq                        code  8000000000000236 32 1
+  IRQRout.timerIrq                           code  8000000000000237 32 1
+  MMUInit                                    code  80000000000001a0 32 1
+  Monitor.0005                               code  80000000000001e9 32 1
+  OSECALL                                    code  8000000000000235 32 1
+  OSExit                                     code  80000000000001ba 32 2
+  OSOCall                                    code  80000000000001a5 32 1
+  SerialPutChar                              code  80000000000001d2 32 1
+  WaitForIOFocus                             code  80000000000001d6 32 2
+  _FMTKInit                                  code  80000000000001a1 32 1
+  _InitPIC                                   code  80000000000001a2 32 1
+  _pti_init                                  code  800000000000019e 32 1
+  _pti_read_block                            code  800000000000019f 32 1
+
+  Macro Name
+0 compressable instructions
+The top 1024 are:
+Comp  Opcode  Count
+
+Instruction Statistics
+Loads:         0 (0.000000%)
+Stores:        0 (0.000000%)
+  Indexed:     0 (0.000000%)
+Pushes:        0 (0.000000%)
+Compares:      1 (0.120482%)
+Branches:     33 (3.975904%)
+BEQZ/NEZ:	     0 (0.000000%)
+  BEQI:		     0 (0.000000%)
+  BNEI:		     0 (0.000000%)
+  BBc:		     0 (0.000000%)
+  BLcc:		     0 (0.000000%)
+Calls:		    23 (2.771084%)
+Returns:	     4 (0.481928%)
+Adds:	       207 (24.939759%)
+Subs:	         0 (0.000000%)
+Ands:	        28 (3.373494%)
+Ors:	        10 (1.204819%)
+Xors:	         3 (0.361446%)
+Bits:	         0 (0.000000%)
+Tsts:	         0 (0.000000%)
+Lshifts:       0 (0.000000%)
+shifts:	       0 (0.000000%)
+Luis:	         0 (0.000000%)
+Moves:	       0 (0.000000%)
+CMoves:	       0 (0.000000%)
+Sets:	        27 (3.253012%)
+  Mops:        1 (0.120482%)
+Ptrdif:        0 (0.000000%)
+Bitfield:      0 (0.000000%)
+Csr:		      25 (3.012048%)
+Floatops:      0 (0.000000%)
+others:      495 (59.638554%)
+Total:       830
+
+number of bytes: 4150.000000
+number of instructions: 830
+number of compressed instructions: 0
+5.000000 bytes (40 bits) per instruction
+Compression ratio: 0.000000%
+Number of long branches: 0
