@@ -1,11 +1,11 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2014  Robert Finch, Stratford
+//   \\__/ o\    (C) 2014-2021  Robert Finch, Stratford
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
 //
-// A64 - Assembler
+// AS64 - Assembler
 //  - 64 bit CPU
 //
 // This source file is free software: you can redistribute it and/or modify 
@@ -213,29 +213,71 @@ public:
     int64_t end;
     uint8_t bytes[10000000];
     uint8_t storebyte;
+    int64_t bt_ndx;
+    int64_t temp;
 public:
     clsElf64Section() {
         length = 0;
         index = 0;
+        bt_ndx = 0;
         start = 0;
         end = 0;
         address = 0;
+        bt_ndx = 0;
         memset(bytes,0,sizeof(bytes));
         storebyte = 1;
     };
     void Clear() {
         length = 0;
         index = 0;
+        bt_ndx = 0;
         start = 0;
         end = 0;
         address = 0;
         memset(bytes,0,sizeof(bytes));
+    };
+    void AddBitPair(int64_t bp) {
+      if (storebyte) {
+        if (bt_ndx == 0)
+          bytes[index] = bp & 3LL;
+        else
+         bytes[index] = bytes[index] | ((bp & 3LL) << bt_ndx);
+      }
+        if (index == 0)
+          start = address;
+        bt_ndx += 2;
+        if (bt_ndx == 8) {
+          bt_ndx = 0;
+          index++;
+          address++;
+        }
+        if (address > end)
+          end = address;
+    };
+    void AddNybble(int64_t bp) {
+      if (storebyte) {
+        if (bt_ndx == 0)
+          bytes[index] = bp & 15LL;
+        else
+          bytes[index] = bytes[index] | ((bp & 15LL) << bt_ndx);
+      }
+      if (index == 0)
+        start = address;
+      bt_ndx += 4;
+      if (bt_ndx == 8) {
+        bt_ndx = 0;
+        index++;
+        address++;
+      }
+      if (address > end)
+        end = address;
     };
     void AddByte(int64_t byt) {
     	if (storebyte)
         	bytes[index] = byt & 255LL;
         if (index==0)
             start = address;
+        bt_ndx = 0;
         index++;
         address++;
         if (address > end)

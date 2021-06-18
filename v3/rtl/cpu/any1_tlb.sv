@@ -46,12 +46,12 @@ input [7:0] asid_i;
 input umode_i;
 input xlaten_i;
 input we_i;
-input [AWID-1:0] ladr_i;
+input Address ladr_i;
 input next_i;
 input iacc_i;
 input dacc_i;
-input [AWID-1:0] iadr_i;
-output reg [AWID-1:0] padr_o;
+input Address iadr_i;
+output Address padr_o;
 output reg [3:0] acr_o;
 input tlben_i;
 input wrtlb_i;
@@ -183,8 +183,8 @@ TLBRam u4 (
 
 always @(posedge clk_g)
 if (rst_i) begin
-  padr_o[13:0] <= rstip[13:0];
-  padr_o[AWID-1:14] <= rstip[AWID-1:14];
+  padr_o[13:-1] <= rstip[14:0];
+  padr_o[AWID-1:14] <= rstip[AWID:15];
 end
 else begin
   if (pe_xlat) begin
@@ -194,11 +194,11 @@ else begin
     hit3 <= 1'b0;
   end
 	if (next_i)
-		padr_o <= padr_o + 5'd16;
+		padr_o <= padr_o + 6'd32;
   else if (iacc_i)
     padr_o <= iadr_i;
   else if (dacc_i) begin
-    padr_o[13:0] <= ladr_i[13:0];
+    padr_o[13:-1] <= ladr_i[13:-1];
 	  if (!umode_i || ladr_i[AWID-1:24]=={AWID-24{1'b1}}) begin
 	    tlbmiss_o <= FALSE;
 	    padr_o[AWID-1:14] <= ladr_i[AWID-1:14];

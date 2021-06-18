@@ -7,7 +7,7 @@ package any1_pkg;
 //`define CPU_B32			1'b1
 
 `define AMSB		31
-`define ABITS		31:0
+`define ABITS		31:-1
 
 //`ifdef CPU_B128
 `define SELL		15:0
@@ -41,8 +41,8 @@ parameter VALUE_SIZE = 64;
 
 parameter ROB_ENTRIES = 8;
 // Architectural integer registers
-parameter NUM_AIREGS = 64;
-parameter NUM_AVREGS = 64;
+parameter NUM_AIREGS = 32;
+parameter NUM_AVREGS = 32;
 
 parameter TRUE  = 1'b1;
 parameter FALSE = 1'b0;
@@ -264,6 +264,7 @@ parameter FSLT	= 6'h12;
 parameter FSLE	= 6'h13;
 parameter FSNE	= 6'h14;
 parameter FCMPB	= 6'h15;
+parameter FSETM = 6'h16;
 
 // FLT3
 parameter FMA		= 6'h00;
@@ -475,9 +476,9 @@ parameter FU_GR = 3'd5;
 parameter pL1CacheLines = 64;
 parameter pL1LineSize = 512;
 parameter pL1ICacheLines = 512;
-parameter pL1ICacheLineSize = 544;
+parameter pL1ICacheLineSize = 548;
 localparam pL1Imsb = $clog2(pL1ICacheLines-1)-1+6;
-parameter RSTIP = 32'hFFFC0300;
+parameter RSTIP = {32'hFFFC0300,1'b0};
 parameter RIBO = 1;
 
 typedef logic [`ABITS] Address;
@@ -491,97 +492,95 @@ typedef logic [NUM_AIREGS-1:0] RegBitList;
 typedef struct packed
 {
 	logic [3:0] func;
-	logic [11:0] disp;
+	logic [9:0] disp;
 	logic [1:0] Ta;
-	logic [5:0] Ra;
+	logic [4:0] Ra;
 	logic [1:0] Tt;
-	logic [5:0] Rt;
+	logic [4:0] Rt;
 	logic [7:0] opcode;
 } LoadInst;
 
 typedef struct packed
 {
 	logic [3:0] func;
-	logic A;
 	logic [2:0] Sc;
 	logic [1:0] Tb;
-	logic [5:0] Rb;
+	logic [4:0] Rb;
 	logic [1:0] Ta;
-	logic [5:0] Ra;
+	logic [4:0] Ra;
 	logic [1:0] Tt;
-	logic [5:0] Rt;
+	logic [4:0] Rt;
 	logic [7:0] opcode;
 } NdxLoadInst;
 
 typedef struct packed
 {
 	logic [3:0] func;
-	logic [3:0] disphi;
+	logic [2:0] disphi;
 	logic [1:0] Tb;
-	logic [5:0] Rb;
+	logic [4:0] Rb;
 	logic [1:0] Ta;
-	logic [5:0] Ra;
-	logic [7:0] displo;
+	logic [4:0] Ra;
+	logic [6:0] displo;
 	logic [7:0] opcode;
 } StoreInst;
 
 typedef struct packed
 {
 	logic [3:0] func;
-	logic pad1;
 	logic [2:0] Sc;
 	logic [1:0] Tb;
-	logic [5:0] Rb;
+	logic [4:0] Rb;
 	logic [1:0] Ta;
-	logic [5:0] Ra;
+	logic [4:0] Ra;
 	logic [1:0] Ts;
-	logic [5:0] empty;
+	logic [4:0] empty;
 	logic [7:0] opcode;
 } NdxStoreInst;
 
 typedef struct packed
 {
-	logic [15:0] imm;
+	logic [13:0] imm;
 	logic [1:0] Ta;
-	logic [5:0] Ra;
+	logic [4:0] Ra;
 	logic [1:0] Tt;
-	logic [5:0] Rt;
+	logic [4:0] Rt;
 	logic [7:0] opcode;
 } RIInst;
 
 typedef struct packed
 {
-	logic [7:0] func;
+	logic [6:0] func;
 	logic [1:0] Tb;
-	logic [5:0] Rb;
+	logic [4:0] Rb;
 	logic [1:0] Ta;
-	logic [5:0] Ra;
+	logic [4:0] Ra;
 	logic [1:0] Tt;
-	logic [5:0] Rt;
+	logic [4:0] Rt;
 	logic [7:0] opcode;
 } R2Inst;
 
 typedef struct packed
 {
-	logic [7:0] disphi;
+	logic [6:0] disphi;
 	logic [1:0] Tb;
-	logic [5:0] Rb;
+	logic [4:0] Rb;
 	logic [1:0] Ta;
-	logic [5:0] Ra;
+	logic [4:0] Ra;
 	logic [1:0] Ty;
-	logic [5:0] displo;
+	logic [4:0] displo;
 	logic [7:0] opcode;
 } BrInst;
 
 typedef struct packed
 {
-	logic [4:0] pad5;
+	logic [3:0] pad2;
 	logic [2:0] Rm3;
 	logic [1:0] Td;
-	logic [5:0] Rd;
+	logic [4:0] Rd;
 	logic [1:0] Tc;
-	logic [5:0] Rc;
-	logic [1:0] pad2;
+	logic [4:0] Rc;
+	logic pad1;
 	logic [1:0] a;
 	logic [2:0] m3;
 	logic z;
@@ -674,12 +673,13 @@ typedef struct packed
 	logic [5:0] step;
 	logic [5:0] RaStep;
 	logic [5:0] RbStep;
-	logic [7:0] Ra;
-	logic [7:0] Rb;
-	logic [7:0] Rc;				// Sometimes Rt is transferred here
-	logic [7:0] Rt;
+	logic [6:0] Ra;
+	logic [6:0] Rb;
+	logic [6:0] Rc;				// Sometimes Rt is transferred here
+	logic [6:0] Rt;
 	logic Ravec;
 	logic Rbvec;
+	logic Rcvec;
 	logic Rtvec;
 	logic Ramask;
 	logic Rbmask;
@@ -720,7 +720,7 @@ typedef struct packed
 	Instruction ir;
 	Value ia;
 	logic rfwr;
-	logic [7:0] Rt;
+	logic [6:0] Rt;
 	Value res;
 } sExecuteOut;
 
@@ -736,7 +736,7 @@ typedef struct packed
 	Value dato;
 	Value imm;
 	logic rfwr;
-	logic [7:0] Rt;
+	logic [6:0] Rt;
 } sMemoryIO;
 
 typedef struct packed
@@ -748,7 +748,7 @@ typedef struct packed
 	Value ib;
 	Value ic;
 	logic rfwr;
-	logic [7:0] Rt;	
+	logic [6:0] Rt;	
 } sGraphicsOp;
 
 typedef struct packed
@@ -790,16 +790,16 @@ typedef struct packed
 	logic rfwr;
 	logic vrfwr;					// write vector register file
 	logic vmrfwr;
-	logic [7:0] Rt;
-	logic [7:0] Ra;
-	logic [7:0] Rb;				// for VEX
-	logic [7:0] Rc;
-	logic [7:0] Rd;
+	logic [6:0] Rt;
+	logic [6:0] Ra;
+	logic [6:0] Rb;				// for VEX
+	logic [6:0] Rc;
+	logic [6:0] Rd;
 	logic Ravec;
 	logic Rbvec;
 	logic Rcvec;
 	logic Rdvec;
-	logic [7:0] pRt;			// physical Rt
+	logic [6:0] pRt;			// physical Rt
 	logic [5:0] step;			// vector step
 	logic step_v;
 	Value ia;

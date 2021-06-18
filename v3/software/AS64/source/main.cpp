@@ -91,9 +91,9 @@ char rodatabuf[10000000];
 char databuf[10000000];
 char bssbuf[10000000];
 char tlsbuf[10000000];
-uint8_t binfile[10000000];
-uint64_t binfilex36[10000000];
+uint8_t binfile[4000000];
 int binndx;
+int bt_ndx;
 int64_t binstart;
 int mfndx;
 int codendx;
@@ -554,6 +554,7 @@ void searchenv(char* filename, char* envname, char** pathname)
 
 void emitByte(int64_t cd)
 {
+  bt_ndx = 0;
 	if (segment < 5) {
 		if (gCpu == GAMBIT || gCpu==GAMBIT_V5)
 			sections[segment].AddChar(cd & 0x1fffLL);
@@ -628,12 +629,62 @@ void emitByte(int64_t cd)
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
+void emitBitPairToBinfile(int64_t cd)
+{
+  if (bt_ndx == 0)
+    binfile[binndx] = cd;
+  else
+    binfile[binndx] = binfile[binndx] | ((int)cd << bt_ndx);
+  bt_ndx = bt_ndx + 2;
+  if (bt_ndx == 8) {
+    code_address++;
+    binndx++;
+    bt_ndx = 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+void emitNybbleToBinfile(int64_t cd)
+{
+  if (bt_ndx == 0)
+    binfile[binndx] = cd;
+  else
+    binfile[binndx] = binfile[binndx] | ((int)cd << bt_ndx);
+  bt_ndx = bt_ndx + 4;
+  if (bt_ndx == 8) {
+    code_address++;
+    binndx++;
+    bt_ndx = 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
+void emitBitPair(int64_t cd)
+{
+  sections[segment].AddBitPair(cd);
+//  if (((sections[segment].address & 63LL)==63LL) && sections[segment].bt_ndx==6LL)
+//    sections[segment].AddBitPair(0LL);
+  emitBitPairToBinfile(cd);
+//  if (((binndx & 63LL) == 63LL) && bt_ndx == 6LL)
+//    emitBitPairToBinfile(0LL);
+}
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+
 void emitNybble(int64_t cd)
 {
 	static int64_t ln;
 	static bool evn = false;
 	static int byt = 0;
 
+  sections[segment].AddNybble(cd);
+  emitNybbleToBinfile(cd);
+/*
 	if (cd > 15)
 		evn = cd >> 4;
 	if (!evn) {
@@ -642,6 +693,7 @@ void emitNybble(int64_t cd)
 	else
 		ln = cd;
 	evn = !evn;
+*/
 }
 
 // ---------------------------------------------------------------------------
@@ -969,8 +1021,11 @@ void process_org()
             else {
 							// Ignore the org directive in initialized data area of rodata
 							if (!isInitializationData) {
-									while (sections[0].address < new_address*mul)
-										emitByte(0x00);
+                while (sections[0].address < new_address * mul)
+                  if (gCpu == ANY1V3 && segment==codeseg)
+                    emitBitPair(0x00);
+                  else
+                    emitByte(0x00);
 							}
             }
         }
@@ -1015,6 +1070,16 @@ void process_align()
 					emitByte(0x00);
 			}
 		}
+    else if (gCpu == ANY1V3) {
+      if (segment == codeseg) {
+        while (sections[segment].address % v)
+          emitBitPair(0);
+      }
+      else {
+        while (sections[segment].address % v)
+          emitByte(0);
+      }
+    }
 		else {
 			while (sections[segment].address % v)
 				emitByte(0x00);
@@ -1109,13 +1174,15 @@ void process_db()
     int64_t val;
 
     SkipSpaces();
+    while (token != tk_eol) NextToken();
+    return;
     //NextToken();
     while(token!=tk_eol) {
         SkipSpaces();
         if (*inptr=='\n') break;
         if (*inptr=='"') {
             inptr++;
-            while (*inptr!='"') {
+            while (*inptr!='"' && *inptr) {
                 if (*inptr=='\\') {
                     inptr++;
                     switch(*inptr) {
@@ -1355,7 +1422,7 @@ void process_dw()
         SkipSpaces();
         if (*inptr=='"') {
             inptr++;
-            while (*inptr!='"') {
+            while (*inptr!='"' && *inptr) {
                 if (*inptr=='\\') {
                     inptr++;
                     switch(*inptr) {

@@ -153,7 +153,7 @@ reg zero_data;
 
 Address ea;
 always_comb
- 	ea = {memreq.adr[AWID-1:AWID-4],memreq.adr[AWID-5:0] >> shr_ma};	// Keep same segment
+ 	ea = {memreq.adr[AWID-1:AWID-4],memreq.adr[AWID-5:-1] >> shr_ma};	// Keep same segment
 
 reg [7:0] ealow;
 wire [3:0] segsel = ea[AWID-1:AWID-4];
@@ -327,7 +327,7 @@ icache_blkmem uicm (
   .wea(icache_wr),      // input wire [0 : 0] wea
   .addra({waycnt,ip[12:6]}),  // input wire [8 : 0] addra
   .dina(ici[pL1ICacheLineSize-1:0]),    // input wire [511 : 0] dina
-  .clkb(clk),    // input wire clkb
+  .clkb(~clk),    // input wire clkb
   .enb(!ifStall),      // input wire enb
   .addrb({ic_rway,ip[12:6]}),  // input wire [8 : 0] addrb
   .doutb(ic_line)  // output wire [511 : 0] doutb
@@ -640,7 +640,7 @@ else begin
 			end
 			else begin
 				// On a miss goto load I$ process unless a hit in the victim cache.
-		    iadr <= {ip[AWID-1:6],6'h0};
+		    iadr <= {ip[AWID-1:6],7'h0};
 				gosub (IFETCH1);
 				for (n = 0; n < 5; n = n + 1) begin
 					if (ivtag[n]==ip[AWID-1:6] && ivvalid[n]) begin
@@ -661,7 +661,7 @@ else begin
   		case(memreq.func)
 			TLB:
 				begin
-		    	tlb_ia <= memreq.adr;
+		    	tlb_ia <= memreq.adr[AWID-1:0];
     			tlb_ib <= memreq.dat;
     			tlbwr <= TRUE;
 					goto (TLB1);
@@ -771,7 +771,7 @@ else begin
 	    dwait <= 3'd0;
 	    goto (MEMORY6);
 			if (tlbmiss) 
-				tTLBMiss(ea);
+				tTLBMiss({ea,2'b00});
 	    else if (memreq.func2 != CACHE) begin
 	    	vda_o <= HIGH;
 	      cyc_o <= HIGH;
@@ -884,7 +884,7 @@ else begin
 	  begin
 	    goto (MEMORY9);
 	    xlaten <= TRUE;
-	    tEA({ea[AWID-1:4] + 2'd1,4'd0});
+	    tEA({ea[AWID-1:4] + 2'd1,5'd0});
 	  end
   
 	// Wait a couple of clocks for TLB lookup
@@ -923,7 +923,7 @@ else begin
 	//    dadr <= adr_o;
 	    goto (MEMORY12);
 			if (tlbmiss)
-				tTLBMiss(ea);
+				tTLBMiss({ea,1'b0});
 			else begin
 				if (dhit & memreq.func==LOAD & dce)
 		 			tDeactivateBus();
@@ -1133,7 +1133,7 @@ else begin
 	  		if (tlbmiss)
 	  			tTLBMiss(adr_o);
 			  // First time in, set to miss address, after that increment
-	      dadr <= {adr_o[AWID-1:6],6'h0};
+	      dadr <= {adr_o[AWID-1:6],7'h0};
 		  end
 	  end
 
@@ -1219,7 +1219,7 @@ else begin
 				else
 				  // First time in, set to miss address, after that increment
 				  daccess <= TRUE;
-	      dadr <= {adr_o[AWID-1:5],5'h0};
+	      dadr <= {adr_o[AWID-1:5],6'h0};
 		  end
 	  end
 
@@ -1297,7 +1297,7 @@ begin
 	if (!MUserMode || iea[AWID-1:24]=={AWID-24{1'b1}})
 		dadr <= iea;
 	else
-		dadr <= iea[AWID-5:0] + {sregfile[segsel][AWID-1:4],14'd0};
+		dadr <= iea[AWID-5:-1] + {sregfile[segsel][AWID-1:4],15'd0};
 end
 endtask
 

@@ -80,8 +80,15 @@ input [63:0] trace_dout;
 
 integer n;
 
-wire d_vsllv = (robi.ir.r2.opcode==VR2||robi.ir.r2.opcode==VR2S) && robi.ir.r2.func==VSLLV;
-wire d_vsrlv = (robi.ir.r2.opcode==VR2||robi.ir.r2.opcode==VR2S) && robi.ir.r2.func==VSRLV;
+function Address fnIncIP;
+input Address ptr;
+begin
+	fnIncIP = ptr + 4'd9;
+end
+endfunction
+
+wire d_vsllv = (robi.ir.r2.opcode==VR2) && robi.ir.r2.func==VSLLV;
+wire d_vsrlv = (robi.ir.r2.opcode==VR2) && robi.ir.r2.func==VSRLV;
 
 wire [127:0] sll_out = {robi.ib.val,robi.ia.val} << robi.ic.val[5:0];
 wire [127:0] sll_out2 = {64'd0,robi.ia.val} << robi.ib.val[5:0];
@@ -288,9 +295,9 @@ else begin
 				OR:		begin	robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
 				XOR:	begin	robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
 				SLL:	begin robo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
-				SLLI:	begin robo.res.val <= robi.ia.val << robi.ir.r2.Rb[5:0]; tMod(); end
+				SLLI:	begin robo.res.val <= robi.ia.val << {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]}; tMod(); end
 				SRL:	begin robo.res.val <= robi.ia.val >> robi.ib.val[5:0]; tMod(); end
-				SRLI:	begin robo.res.val <= robi.ia.val >> robi.ir.r2.Rb[5:0]; tMod(); end
+				SRLI:	begin robo.res.val <= robi.ia.val >> {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]}; tMod(); end
 				DIF:
 					begin
 						robo.res <= $signed(robi.ia.val) < $signed(robi.ib.val) ?
@@ -719,13 +726,13 @@ else begin
 		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:
 			begin
 				robo.takb <= ex_takb;
-				robo.res.val <= robi.ip + 4'd5;
+				robo.res.val <= fnIncIP(robi.ip);
 				tMod();
 				if (brMispredict) begin
 					f2a_rst <= TRUE;
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : robi.ip + 4'd5;
+					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : fnIncIP(robi.ip);
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.step <= 6'd0;
 					ex_redirect.xrid <= rob_exec;
@@ -738,7 +745,7 @@ else begin
 					f2a_rst <= TRUE;
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : robi.ip + 4'd5;
+					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : fnIncIP(robi.ip);
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.step <= 6'd0;
 					ex_redirect.xrid <= rob_exec;
@@ -752,7 +759,7 @@ else begin
 			begin
 				robo.jump <= TRUE;
 				robo.jump_tgt <= robi.ia.val + robi.imm.val;
-				robo.res <= robi.ip + {robi.ir[13:10],2'b0};
+				robo.res <= fnIncIP(robi.ip);
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
@@ -768,12 +775,12 @@ else begin
 		JAL:
 			begin
 				robo.jump <= TRUE;
-				robo.jump_tgt <= {{34{robi.ir[39]}},robi.ir[39:10]};
-				robo.res.val <= robi.ip + 4'd5;
+				robo.jump_tgt <= {{38{robi.ir[35]}},robi.ir[35:10]};
+				robo.res.val <= fnIncIP(robi.ip);
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
-				ex_redirect.redirect_ip <= {{34{robi.ir[39]}},robi.ir[39:10]};
+				ex_redirect.redirect_ip <= {{38{robi.ir[35]}},robi.ir[35:10]};
 				ex_redirect.current_ip <= robi.ip;
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.step <= 6'd0;
@@ -785,12 +792,12 @@ else begin
 		BAL:
 			begin
 				robo.jump <= TRUE;
-				robo.jump_tgt <= robi.ip + {{34{robi.ir[39]}},robi.ir[39:10]};
-				robo.res.val <= robi.ip + 4'd5;
+				robo.jump_tgt <= robi.ip + {{38{robi.ir[35]}},robi.ir[35:10]};
+				robo.res.val <= fnIncIP(robi.ip);
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
-				ex_redirect.redirect_ip <= robi.ip + {{34{robi.ir[39]}},robi.ir[39:10]};
+				ex_redirect.redirect_ip <= robi.ip + {{38{robi.ir[35]}},robi.ir[35:10]};
 				ex_redirect.current_ip <= robi.ip;
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.step <= 6'd0;
@@ -962,7 +969,7 @@ else begin
 		CSR:
 			begin
 				robo.ia <= robi.ia;
-				case(robi.imm[18:16])
+				case(robi.imm[10:8])
 				CSRR:	robo.res <= csrro;
 				CSRW,CSRS,CSRC:	;
 				CSRRW:	robo.res <= csrro;
@@ -1026,7 +1033,7 @@ else begin
 		  	end
 		  WFI:	begin set_wfi <= TRUE; tMod(); end
 			TLBRW:
-				if (robi.iav && robi.ibv) begin
+				begin
 					membufi.rid <= rob_exec;
 					membufi.step <= robi.step;
 					membufi.ir <= robi.ir;

@@ -47,7 +47,7 @@ always_comb
 begin
 	o.v <= i.v;
 	o.predict_taken <= i.predict_taken;
-	o.ir <= i.cacheline >> {i.ip[5:0],3'b0};
+	o.ir <= i.cacheline >> {i.ip[5:-1],2'b0};
 	o.ip <= i.ip;
 	o.pip <= i.pip;
 end

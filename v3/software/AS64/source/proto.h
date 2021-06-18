@@ -37,5 +37,7 @@ int rtf64_NextToken();
 void any1_processMaster();
 void any1v3_processMaster();
 int any1_NextToken();
+void emitBitPair(int64_t oc);
+void emitNybble(int64_t oc);
 
 int64_t expr_def(int64_t* def);
