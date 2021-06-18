@@ -187,7 +187,7 @@ else begin
 	ex_redirect.wr <= FALSE;
 	restore_rfsrc <= FALSE;
 	set_wfi <= FALSE;
-	robo.update_rob <= FALSE;
+	//robo.update_rob <= FALSE;
 	rd_trace <= FALSE;
 
 	$display("Execute");
@@ -220,7 +220,9 @@ else begin
 		robo.vmask <= -64'd1;
 		robo.jump_tgt <= 32'd0;
 		robo.wr_fu <= TRUE;
-		robo.update_rob <= FALSE;
+		robo.update_rob <= !robi.mc;
+		robo.cmt <= !robi.mc;
+		robo.cmt2 <= !robi.mc;
 		robo.res_ele <= robi.step;
 		case(robi.ir.r2.opcode)
 		BRK:	begin robo.cause <= robi.ir[21:14]; tMod(); end

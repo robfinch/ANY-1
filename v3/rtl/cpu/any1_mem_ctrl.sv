@@ -316,6 +316,7 @@ wire icache_wr;
 assign icache_wr = state==IFETCH3;
 reg ic_invline,ic_invall;
 reg [1:0] prev_ic_rway = 0;
+Address ipo;
 
 reg [639:0] ici;		// Must be a multiple of 128 bits wide for shifting.
 reg [AWID-7:0] ic_tag;
@@ -325,7 +326,7 @@ icache_blkmem uicm (
   .clka(clk),    // input wire clka
   .ena(1'b1),      // input wire ena
   .wea(icache_wr),      // input wire [0 : 0] wea
-  .addra({waycnt,ip[12:6]}),  // input wire [8 : 0] addra
+  .addra({waycnt,ipo[12:6]}),  // input wire [8 : 0] addra
   .dina(ici[pL1ICacheLineSize-1:0]),    // input wire [511 : 0] dina
   .clkb(~clk),    // input wire clkb
   .enb(!ifStall),      // input wire enb
@@ -401,8 +402,8 @@ if (rst) begin
 end
 else begin
 	if (icache_wr) begin
-		icvalid[waycnt][ip[12:6]] <= 1'b1;
-		ictag[waycnt][ip[12:6]] <= ip[AWID-1:6];
+		icvalid[waycnt][ipo[12:6]] <= 1'b1;
+		ictag[waycnt][ipo[12:6]] <= ipo[AWID-1:6];
 	end
 	// Cache line invalidate
 	// Use physical address
@@ -640,6 +641,11 @@ else begin
 			end
 			else begin
 				// On a miss goto load I$ process unless a hit in the victim cache.
+				// Use ipo to hold onto the original ip value. The ip value might
+				// change during a cache load due to a branch. We also want the start
+				// of the cache line identified as the access will span into the next
+				// cache line.
+				ipo <= ip;
 		    iadr <= {ip[AWID-1:6],7'h0};
 				gosub (IFETCH1);
 				for (n = 0; n < 5; n = n + 1) begin

@@ -66,7 +66,7 @@ end
 function fnAlreadyChosen;
 input [5:0] nn;
 begin
-	fnAlreadyChosen = (nn==already_chosen[1]) || (nn==already_chosen[2]) || (nn==already_chosen[3]);
+	fnAlreadyChosen = (nn==already_chosen[0]) || (nn==already_chosen[1]) || (nn==already_chosen[2]) || (nn==already_chosen[3]);
 end
 endfunction
 

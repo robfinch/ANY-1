@@ -1835,7 +1835,7 @@ else begin
 	else if (!dc2if_redirect_empty)
 		dc2if_redirect_rd <= 1'b1;
 
-	if (!ihit) begin
+	if (ihit) begin
 	if (wb2if_redirect_rd3) begin
 		wb2if_redirect_rd3 <= FALSE;
 		ex2if_redirect_rd3 <= FALSE;
@@ -2269,6 +2269,7 @@ else begin
 		rob[rob_que].branch <= decbuf.branch;
 		rob[rob_que].jump <= decbuf.jump;
 		rob[rob_que].mem_op <= decbuf.mem_op;
+		rob[rob_que].mc <= decbuf.mc;
 		rob[rob_que].dec <= TRUE;
 		rob[rob_que].cmt <= FALSE;
 		rob[rob_que].cmt2 <= FALSE;
@@ -2317,21 +2318,20 @@ else begin
 				rob[rob_que].cmt <= TRUE;
 				rob[rob_que].cmt2 <= TRUE;
 				exilo <= TRUE;
-				exi <= {{30{exbufi.ir[33]}},exbufi.ir[33:8],8'd0};
+				exi <= {{26{exbufi.ir[35]}},exbufi.ir[35:8],10'd0};
 			end
 		EXI1:
 			begin
 				rob[rob_que].cmt <= TRUE;
 				rob[rob_que].cmt2 <= TRUE;
 				eximid <= TRUE;
-				exi[63:34] <= {{4{exbufi.ir[33]}},exbufi.ir[33:8]};
+				exi[63:38] <= exbufi.ir[33:8];
 			end
 		EXI2:
 			begin
 				rob[rob_que].cmt <= TRUE;
 				rob[rob_que].cmt2 <= TRUE;
 				exihi <= TRUE;
-				exi[63:60] <= exbufi.ir[11:8];
 			end
 		IMOD:
 			begin
@@ -2541,18 +2541,18 @@ else begin
 				exihi <= FALSE;
 				eximid <= FALSE;
 				exilo <= FALSE;
-				rob[rob_que].imm.val[63:12] <= exi[63:12];
+				rob[rob_que].imm.val[63:10] <= exi[63:10];
 			end
 			else if (eximid) begin
 				has_exi <= TRUE;
 				eximid <= FALSE;
 				exilo <= FALSE;
-				rob[rob_que].imm.val[63:12] <= exi[63:12];
+				rob[rob_que].imm.val[63:10] <= exi[63:10];
 			end
 			else if (exilo) begin
 				has_exi <= TRUE;
 				exilo <= FALSE;
-				rob[rob_que].imm.val[63:12] <= exi[63:12];
+				rob[rob_que].imm.val[63:10] <= exi[63:10];
 			end
 			if (imod) begin
 				imod <= FALSE;
@@ -2612,7 +2612,7 @@ else begin
 				rob[rob_que].ics <= regcsrc;
 				rob[rob_que].imm.val[63:14] <= exi[63:14];
 				rob[rob_que].Rt <= imod_inst.r2.Rt;
-				if (imod_inst.r2.Rt[5:0] != 6'd0) begin
+				if (imod_inst.r2.Rt[4:0] != 5'd0) begin
 	//				tAllocReg(imod_inst.r2.Rt,rob[rob_que].pRt);
 					rob[rob_que].rfwr <= TRUE;
 					regfilesrc[imod_inst.r2.Rt[5:0]].rf <= 1'b1;
