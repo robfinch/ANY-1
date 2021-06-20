@@ -90,6 +90,7 @@ sGraphicsOp graphi,grapho;
 sFuncUnit memfu;
 reg [2:0] mod_cnt;
 sInstAlignOut [7:0] mod_list;
+wire ihit;
 
 reg x2mul_wr,x2mul_rd;
 wire x2mul_full,x2mul_empty;
@@ -99,9 +100,11 @@ reg mul_sign;
 reg [63:0] mul_a;
 reg [63:0] mul_b;
 reg [127:0] mul_p;
-reg [5:0] rob_que;
+reg [5:0] rob_que, prev_rob_que;
 reg [5:0] rob_deq;
-reg [5:0] rob_exec;
+reg [5:0] rob_exec, rob_pexec, safe_rob_exec;
+always_comb
+	safe_rob_exec = rob_exec==6'd63 ? rob_pexec : rob_exec;
 reg [5:0] mstate, mstk_state;			// memory state
 reg [2:0] mul_state;	// multipler state
 reg [2:0] div_state;
@@ -111,21 +114,6 @@ reg [63:0] csrro;
 reg [47:0] rob_q, rob_d;
 wire [47:0] rob_x;
 wire [pL1ICacheLineSize-1:0] ic_line;
-
-reg [63:0] regalloc;
-reg [63:0] regalloc_hist[0:15];
-
-function [6:0] fnNextAllocReg;
-input [5:0] Rt;
-begin
-	fnNextAllocReg = 7'd0;
-	for (n = 0; n < 64; n = n + 1) begin
-		if (regalloc[n]==1'b0) begin
-			fnNextAllocReg = {1'b1,n[5:0]};
-		end
-	end
-end
-endfunction
 
 function [7:0] fnBackupCnt;
 input [5:0] qp;
@@ -402,6 +390,24 @@ end
 endfunction
 
 always_comb
+if (memresp_v) begin
+	memfu.rid <= memresp.tid[5:0];
+	memfu.cmt <= memresp.cmt;
+	memfu.ele <= memresp.step;
+	memfu.res <= memresp.res;
+	memfu.cause <= memresp.cause;
+	memfu.badAddr <= memresp.badAddr;
+end
+else begin
+	memfu.rid <= 6'd63;
+	memfu.cmt <= FALSE;
+	memfu.ele <= 6'd0;
+	memfu.res <= 128'd0;
+	memfu.cause <= 16'h0000;
+	memfu.badAddr <= 33'd0;
+end
+
+always_comb
 	funcUnit[FU_MEM] <= memfu;
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -410,9 +416,9 @@ always_comb
 wire ex_takb;
 any1_eval_branch ubev1
 (
-	.inst(rob[rob_exec].ir),
-	.a(rob[rob_exec].ia),
-	.b(rob[rob_exec].ib),
+	.inst(rob[safe_rob_exec].ir),
+	.a(rob[safe_rob_exec].ia),
+	.b(rob[safe_rob_exec].ib),
 	.takb(ex_takb)
 );
 
@@ -596,7 +602,7 @@ gselectPredictor ubprd1
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 wire ifStall;
-reg ifStall1,ifStall2,ifStall3,ifStall4;
+reg ifStall1,ifStall2,ifStall3;
 wire f2a_full, f2a_v;
 wire a2d_full, a2d_v;
 wire d2r_full, d2r_v;
@@ -681,8 +687,6 @@ if (rst_i)
 	ifStall3 <= 1'b0;
 else
 	ifStall3 <= ifStall2;
-always @(posedge clk_g)
-	ifStall4 <= ifStall3;
 
 always @(posedge clk_g)
 	dcStall1 <= dcStall;
@@ -697,9 +701,11 @@ Address ip1;
 Address btb_predicted_ip1;
 reg predict_taken1;
 
-// 	else begin
-// 		f2a_in.cacheline <= {16{NOP_INSN}};
-// 	end
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+// The following two decodes must be extremely fast as there is only 1/2 clock 
+// available.
 
 reg [127:0] is_vector;
 generate begin : gIsVec
@@ -725,7 +731,7 @@ endgenerate
 
 wire [ROB_ENTRIES-1:0] newer_than_robo = fnNewerInst(robo.rid,rob_que);
 wire [ROB_ENTRIES-1:0] newer_than_wb = fnNewerInst(wb_redirecto.xrid,rob_que);
-wire [ROB_ENTRIES-1:0] newer_than_ex = fnNewerInst(ex_redirecto.xrid,rob_que);
+wire [ROB_ENTRIES-1:0] newer_than_ex = fnNewerInst(ex_redirecti.xrid,rob_que);
 
 /*
 f2a_fifo uf2a
@@ -858,7 +864,7 @@ begin
 	exbufi.ir <= decbuf.ir;
 	exbufi.rfwr <= decbuf.rfwr;
 	exbufi.iav <= decbuf.Ra[6] || (decbuf.Ravec ? (vregfilesrc[decbuf.Ra[4:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Ra[2:0]].rf==1'b0 : regValid(decbuf.Ra));
-	exbufi.ibv <= decbuf.Rb[6] || (decbuf.Rbvec ? (vregfilesrc[decbuf.Rb[4:0]].rf==1'b0) : decbuf.Rbmask ? vm_regfilesrc[decbuf.Rb[2:0]].rf==1'b0 : regValid(decbuf.Rb));
+	exbufi.ibv <= decbuf.Rb[6] || !decbuf.needRb || (decbuf.Rbvec ? (vregfilesrc[decbuf.Rb[4:0]].rf==1'b0) : decbuf.Rbmask ? vm_regfilesrc[decbuf.Rb[2:0]].rf==1'b0 : regValid(decbuf.Rb));
 	exbufi.icv <= regValid(decbuf.Rc) || !decbuf.needRc;
 	// To detect WAW hazard for vector instructions
 	exbufi.itv <= decbuf.Rtvec ? (vregfilesrc[decbuf.Rt[4:0]].rf==1'b0) : !decbuf.is_vec;
@@ -960,6 +966,12 @@ if_redirect_fifo udc2if
   .valid()  // output wire valid
 );
 
+wire ex2if_redirect_v, wb2if_redirect_v;
+wire pe_ex2if_redirect_v, pe_wb2if_redirect_v;
+wire ne_ex2if_redirect_v, ne_wb2if_redirect_v;
+edge_det uedwb2if (.rst(rst_i), .clk(clk_g), .i(wb2if_redirect_v), .pe(pe_wb2if_redirect_v), .ne(ne_wb2if_redirect_v), .ee());
+edge_det uedex2if (.rst(rst_i), .clk(clk_g), .i(ex2if_redirect_v), .pe(pe_ex2if_redirect_v), .ne(ne_ex2if_redirect_v), .ee());
+
 if_redirect_fifo uex2if
 (
   .clk(clk_g),      // input wire clk
@@ -970,7 +982,7 @@ if_redirect_fifo uex2if
   .dout(ex_redirecto),    // output wire [31 : 0] dout
   .full(),    	// output wire full
   .empty(ex2if_redirect_empty),  		// output wire empty
-  .valid()  // output wire valid
+  .valid(ex2if_redirect_v)  // output wire valid
 );
 
 if_redirect_fifo uwb2if
@@ -983,7 +995,7 @@ if_redirect_fifo uwb2if
   .dout(wb_redirecto),    // output wire [31 : 0] dout
   .full(),    	// output wire full
   .empty(wb2if_redirect_empty),  		// output wire empty
-  .valid()  // output wire valid
+  .valid(wb2if_redirect_v)  // output wire valid
 );
 
 sReorderEntry robo,robo1;
@@ -1172,43 +1184,17 @@ any1_point_transform uptt1
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-wire rst_robx = 1'b0;//!ifStall && (wb2if_redirect_rd3 || ex2if_redirect_rd3 || dc2if_redirect_rd3);
-wire [47:0] new_robx = wb2if_redirect_rd3 ? rob[wb_redirecto.xrid].rob_q+2'd1 : ex2if_redirect_rd3 ? rob[ex_redirecto.xrid].rob_q+2'd1 : rob[dc_redirecto.xrid].rob_q + 2'd1;
-reg [5:0] new_rob_exec;
-always_comb
-begin
-	if (wb2if_redirect_rd3) begin
-		if (wb_redirecto.xrid >= ROB_ENTRIES-1)
-			new_rob_exec <= 6'd0;
-		else
-			new_rob_exec <= wb_redirecto.xrid + 2'd1;
-	end
-	else if (ex2if_redirect_rd3) begin
-		if (ex_redirecto.xrid >= ROB_ENTRIES-1)
-			new_rob_exec <= 6'd0;
-		else
-			new_rob_exec <= ex_redirecto.xrid + 2'd1;
-	end
-	else if (dc2if_redirect_rd3) begin
-		if (dc_redirecto.xrid >= ROB_ENTRIES-1)
-			new_rob_exec <= 6'd0;
-		else
-			new_rob_exec <= dc_redirecto.xrid + 2'd1;
-	end
-	else begin
-		new_rob_exec <= rob_exec;
-	end
-end
-
 reg ld_vtmp;
 reg [63:0] new_vtmp;
 wire [63:0] vtmp;
 reg [5:0] tid;
+sReorderEntry robi;
+always_comb robi = rob[safe_rob_exec];
 
 any1_execute uex1(
 	.rst(rst_i),
 	.clk(clk_g),
-	.robi(rob[rob_exec]),
+	.robi(robi),
 	.robo(robo),
 	.mulreci(mulreci),
 	.divreci(divreci),
@@ -1228,9 +1214,6 @@ any1_execute uex1(
 	.vl(vl),
 	.rob_x(rob_x),
 	.rob_q(rob_q),
-	.rst_robx(rst_robx),
-	.new_robx(new_robx),
-	.new_rob_exec(new_rob_exec),
 	.ld_vtmp(ld_vtmp),
 	.new_vtmp(new_vtmp),
 	.vtmp(vtmp),
@@ -1242,7 +1225,7 @@ any1_execute uex1(
 
 reg zero_data;
 MemoryRequest memreq;
-MemoryResponse memresp,memresp2;
+MemoryResponse memresp;
 wire memreq_full;
 reg memresp_rd;
 reg membufi_wr,membufi_wr1;
@@ -1276,20 +1259,11 @@ else begin
 	memreq.fifo_wr = membufi_wr;
 end
 
-reg memresp_rd2,memresp_rd3;
-reg memresp_rdx;
 wire [5:0] tidx = memresp.tid[5:0];
 wire memresp_empty;
-always_ff @(posedge clk_g)
-begin
-	memresp_rd2 <= memresp_rd;
-	memresp_rd3 <= memresp_rd2;
-	memresp_rd <= FALSE;
-	if (!memresp_empty)
-		memresp_rd <= TRUE;
-end
-always_comb
-	memresp_rdx <= memresp_rd && !memresp_rd2 && !memresp_rd3;
+wire memresp_v;
+always_comb memresp_rd <= !memresp_empty;
+edge_det uedmemresp1 (.rst(rst_i), .clk(clk_g), .i(memresp_v), .pe(pe_memresp_v), .ne(), .ee());
 
 wire xx;
 any1_mem_ctrl umc1
@@ -1309,7 +1283,8 @@ any1_mem_ctrl umc1
 	.fifoToCtrl_full(memreq_full),
 	.fifoFromCtrl_o(memresp),
 	.fifoFromCtrl_empty(memresp_empty),
-	.fifoFromCtrl_rd(memresp_rdx),
+	.fifoFromCtrl_rd(memresp_rd),
+	.fifoFromCtrl_v(memresp_v),
 	.bok_i(bok_i),
 	.bte_o(bte_o),
 	.cti_o(cti_o),
@@ -1409,7 +1384,7 @@ wire RegBitList [ROB_ENTRIES-1:0] ex_latestID = fnLatestID(ex_redirecto.xrid,~ne
 wire RegBitList [ROB_ENTRIES-1:0] wb_latestID = fnLatestID(wb_redirecto.xrid,~newer_than_wb);
 
 always_comb
-	tReadCSR(csrro,rob[rob_exec].imm[15:0]);
+	tReadCSR(csrro,rob[safe_rob_exec].imm[15:0]);
 
 reg [47:0] exec_misses;
 
@@ -1442,9 +1417,10 @@ bc_fifo16X #(.WID($bits(sReorderEntry))) ubcf1
 reg ifetch_v;
 reg [5:0] last_rid;
 reg cycle_after;
-sReorderEntry robi = rob[rob_exec];
 reg [5:0] rob_que_m1;
+reg branch_invalidating;
 always_comb rob_que_m1 = rob_que==6'd0 ? ROB_ENTRIES -1 : rob_que - 2'd1;
+always_comb branch_invalidating = ihit && (pe_wb2if_redirect_v || pe_ex2if_redirect_v);
 Address mod_ip;
 Instruction tir;
  
@@ -1462,6 +1438,7 @@ if (rst_i) begin
 	pmStack <= 12'b001001001000;
 	rob_deq <= 6'd0;
 	rob_que <= 6'd0;
+	prev_rob_que <= 6'd0;
 	rob_d <= 48'd0;
 	rob_q <= 48'd0;
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
@@ -1558,7 +1535,6 @@ if (rst_i) begin
 		vregfilesrc[n] <= 7'd0;
 	for (n = 0; n < 8; n = n + 1)
 		vm_regfilesrc[n] <= 7'd0;
-	memfu.cmt <= FALSE;
 	vrf_update <= FALSE;
 	ip_cnt <= 8'h00;
 	a2di <= 7'd0;
@@ -1587,11 +1563,6 @@ if (rst_i) begin
 	a2d_out.predict_taken <= FALSE;
 	
 	last_rid <= 6'd63;
-	memfu.ele <= 6'd0;
-  memfu.cause <= 16'h8000;
-  memfu.badAddr <= RSTIP;
-  memfu.cmt <= FALSE;
-	memfu.rid <= 6'd63;
 end
 else begin
 	ex2if_redirect_rd <= FALSE;
@@ -1738,8 +1709,8 @@ else begin
 	end
 
 	// Need to set this a cycle sooner
-	if (rob_exec < ROB_ENTRIES)
-		rob[rob_exec].out <= TRUE;
+//	if (rob_exec < ROB_ENTRIES)
+//		rob[rob_exec].out <= TRUE;
 
 	
 	// Execute
@@ -1750,6 +1721,8 @@ else begin
 	// Search for ready-to execute instructions and move execute pointer there.
 //	if (next_exec[5:0] != 6'd63)
 		rob_exec <= next_exec[5:0];
+	if (rob_exec != 6'd63)
+		rob_pexec <= rob_exec;
 	if (next_exec[6])
 		exec_misses <= exec_misses + 2'd1;
 
@@ -1759,17 +1732,7 @@ else begin
 	/*
 	if (last_rid!=robo.rid) 
 	begin
-		if (TRUE) begin
-		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, rob[rob_exec].ip, rob[rob_exec].ir,
-			rob[rob_exec].ia.val,rob[rob_exec].iav?"v":" ",rob[rob_exec].ib.val,rob[rob_exec].ibv?"v":" ",
-			rob[rob_exec].ic.val,rob[rob_exec].icv?"v":" ",rob[rob_exec].id.val,rob[rob_exec].idv?"v":" ",
-			rob[rob_exec].imm.val);
-			// The execute sequential logic will have updated the rob_exec,
-			// incrementing it to the next entry. We actually want to update
-			// the entry that was processed by exec, so i'ts one less.
 			if (robo.update_rob) begin
-				//rob[rob_pexec] <= robo;		// takes a lot more hardware
-				
 				rob[robo.rid].wr_fu <= robo.wr_fu;
 				rob[robo.rid].takb <= robo.takb;
 				rob[robo.rid].cause <= robo.cause;
@@ -1779,8 +1742,6 @@ else begin
 				rob[robo.rid].vcmt <= robo.vcmt;
 				rob[robo.rid].out <= TRUE;
 				last_rid <= robo.rid;
-
-			end
 		end
 		if (restore_rfsrc) begin
 //			tRestoreRegfileSrc(rob[robo.rid].btag);
@@ -1792,123 +1753,48 @@ else begin
 		end
 	end
 	*/
-//	tExecuteSimple(rob[rob_exec],rob[rob_exec],xs);
 
-	if (memresp_rd2 && !memresp_rd3) begin
+	if (memresp_v && !rob[tidx].cmt && rob[tidx].v) begin
 		rob[tidx].cause <= memresp.cause;
 		rob[tidx].badAddr <= memresp.badAddr;
 		rob[tidx].res <= memresp.res;
-		rob[tidx].cmt <= memresp.cmt;
-		rob[tidx].cmt2 <= memresp.cmt;
+		if (memresp.cmt)
+			rob[tidx].cmt <= TRUE;
+		if (memresp.cmt)
+			rob[tidx].cmt2 <= TRUE;
 	end
 
-	if (robo.update_rob) begin
+	// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
+	if (robo.wr_fu) begin
+		funcUnit[FU_EXEC].cmt <= robo.cmt;
+		funcUnit[FU_EXEC].ele <= robo.step;
+		funcUnit[FU_EXEC].rid <= robo.rid;
+		funcUnit[FU_EXEC].res <= robo.res;
+		funcUnit[FU_EXEC].cause <= robo.cause;
+		funcUnit[FU_EXEC].badAddr <= robo.ip;
+	end
+	else begin
+		funcUnit[FU_EXEC].cmt <= FALSE;
+		funcUnit[FU_EXEC].rid <= 6'd63;
+	end
+
+	if (robo.update_rob && !rob[robo.rid].cmt && rob[robo.rid].v) begin
 		rob[robo.rid].wr_fu <= robo.wr_fu;
 		rob[robo.rid].takb <= robo.takb;
 		rob[robo.rid].cause <= robo.cause;
 		rob[robo.rid].res <= robo.res;
-		rob[robo.rid].cmt <= robo.cmt;
-		rob[robo.rid].cmt2 <= robo.cmt2;
+//		if (robo.cmt)
+			rob[robo.rid].cmt <= robo.cmt;
+//		if (robo.cmt2)
+			rob[robo.rid].cmt2 <= robo.cmt2;
 		rob[robo.rid].vcmt <= robo.vcmt;
-		rob[robo.rid].out <= TRUE;
 	end
-	// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
-	if (robo1.wr_fu) begin
-		funcUnit[FU_EXEC].ele <= robo1.step;
-		funcUnit[FU_EXEC].rid <= robo1.rid;
-		funcUnit[FU_EXEC].res <= robo1.res;
-	end
-
-	if (memfu.cmt) begin
-		memfu.cmt <= FALSE;
-		rob[memfu.rid].res <= memfu.res;
-		rob[memfu.rid].cmt <= TRUE;
-		rob[memfu.rid].cmt2 <= TRUE;
-		rob[memfu.rid].cause <= memfu.cause;
-		rob[memfu.rid].badAddr <= memfu.badAddr;
-	end
-
-	if (!wb2if_redirect_empty)
-		wb2if_redirect_rd <= 1'b1;
-	else if (!ex2if_redirect_empty)
-		ex2if_redirect_rd <= 1'b1;
-	else if (!dc2if_redirect_empty)
-		dc2if_redirect_rd <= 1'b1;
-
-	if (ihit) begin
-	if (wb2if_redirect_rd3) begin
-		wb2if_redirect_rd3 <= FALSE;
-		ex2if_redirect_rd3 <= FALSE;
-		dc2if_redirect_rd3 <= FALSE;
-		if (rob[wb_redirecto.xrid].v && !rob[wb_redirecto.xrid].cmt) begin
-			rob[wb_redirecto.xrid].cmt <= TRUE;
-			rob[wb_redirecto.xrid].cmt2 <= TRUE;
-			ip <= wb_redirecto.redirect_ip;
-			decven <= wb_redirecto.step;
-			ifetch_v <= INV;
-			f2a_in.v <= INV;
-			a2d_out.v <= INV;
-			for (n = 0; n < ROB_ENTRIES; n = n + 1)
-				if (newer_than_wb[n])
-					rob[n].v <= INV;
-			tRestoreRegfileSrc(rob[wb_redirecto.xrid].btag);
-		end
-		else if (!ifStall)
-			ip <= fnIPInc(ip);
-	end
-	else if (ex2if_redirect_rd3) begin
-		ex2if_redirect_rd3 <= FALSE;
-		dc2if_redirect_rd3 <= FALSE;
-		if (rob[ex_redirecto.xrid].v && !rob[ex_redirecto.xrid].cmt) begin
-			cycle_after <= TRUE;
-			rob[ex_redirecto.xrid].cmt <= TRUE;
-			rob[ex_redirecto.xrid].cmt2 <= TRUE;
-			ip <= ex_redirecto.redirect_ip;
-			decven <= ex_redirecto.step;
-			ifetch_v <= INV;
-			f2a_in.v <= INV;
-			a2d_out.v <= INV;
-			for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-				if (newer_than_ex[n])
-					rob[n].v <= INV;
-			end
-			for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-				regfilesrc[rob[n].Rt[4:0]].rf <= 1'b0;
-				regfilesrc[rob[n].Rt[4:0]].rid <= 6'd0;
-			end
-			for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-	    	if (|ex_latestID[n] && ~newer_than_ex[n]) begin
-	    		regfilesrc[rob[n].Rt[4:0]].rf <= 1'b1;
-	    		regfilesrc[rob[n].Rt[4:0]].rid <= n[5:0];
-	    		SetSource(rob[n].Rt[4:0],1'b1,n[5:0]);
-	    	end
-	    end
-			tRestoreRegfileSrc(rob[ex_redirecto.xrid].btag);
-		end
-		else if (!ifStall)
-			ip <= fnIPInc(ip);
-	end
-	else if (dc2if_redirect_rd3) begin
-		dc2if_redirect_rd3 <= FALSE;
-		if (rob[dc_redirecto.xrid].v && !rob[dc_redirecto.xrid].cmt) begin
-			rob[dc_redirecto.xrid].cmt <= TRUE;
-			rob[dc_redirecto.xrid].cmt2 <= TRUE;
-			ip <= dc_redirecto.redirect_ip;
-			decven <= dc_redirecto.step;
-		end
-		else if (!ifStall)
-			ip <= fnIPInc(ip);
-	end
-	end
-
-//	if (cycle_after)
-//		arg_vs();
-
+	rob[robo.rid].out <= robo.out;
 
   $display ("----------------------------------------------------------------- Reorder Buffer -----------------------------------------------------------------");
   $display ("head: %d  tail: %d", rob_deq, rob_que);
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		$display("%c%c%c%d: %c%c%c%c%c ip=%h.%h.%d ir=%h Rt=%d res=%h imm=%h q:%d",
+		$display("%c%c%c%d: %c%c%c%c%c ip=%h.%h.%d ir=%h Rt=%d res=%h imm=%h a=%h b=%h q:%d",
 			n[5:0]==rob_deq ? "D" : " ", n==rob_que ? "Q" : " ", n==rob_exec ? "X" : " ",
 			n[5:0],rob[n].cmt ? "C" : " ",rob[n].v ? "V" : " ",
 			rob[n].rfwr ? "W" : " ",
@@ -1916,7 +1802,7 @@ else begin
 			rob[n].out ? "O" : " ",
 			rob[n].ip[AWID-1:0],{3'b0,rob[n].ip[0:-1]}<<3,rob[n].step,rob[n].ir,
 			rob[n].Rt,rob[n].res.val,
-			rob[n].imm.val,
+			rob[n].imm.val,rob[n].ia.val,rob[n].ib.val,
 			rob[n].rob_q[15:0]);
 	end
 
@@ -2141,11 +2027,16 @@ else begin
 		end
 	end
 	
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+	// Argument capture
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		for (m = 0; m < 6; m = m + 1) begin
 			if (!rob[n].iav && rob[n].ias.rid==funcUnit[m].rid && rob[n].ia_ele==funcUnit[m].ele && funcUnit[m].cmt) begin
 				rob[n].iav <= TRUE;
 				rob[n].ia <= funcUnit[m].res;
+				if (rob[n].veins)
+					rob[n].step <= funcUnit[m].res[5:0];
 			end
 			if (!rob[n].ibv && rob[n].ibs.rid==funcUnit[m].rid && rob[n].ib_ele==funcUnit[m].ele && funcUnit[m].cmt) begin
 				rob[n].ibv <= TRUE;
@@ -2166,23 +2057,25 @@ else begin
 	end
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		for (m = 0; m < ROB_ENTRIES; m = m + 1) begin
-			if (!rob[n].iav && rob[n].ias.rid==m && rob[n].ia_ele==rob[m].step && rob[m].cmt2) begin
+			if (!rob[n].iav && rob[n].ias.rid==m && rob[n].ia_ele==rob[m].step && rob[m].cmt) begin
 				rob[n].iav <= TRUE;
 				rob[n].ia <= rob[m].res;
+				if (rob[n].veins)
+					rob[n].step <= rob[m].res[5:0];
 			end
-			if (!rob[n].ibv && rob[n].ibs.rid==m && rob[n].ib_ele==rob[m].step && rob[m].cmt2) begin
+			if (!rob[n].ibv && rob[n].ibs.rid==m && rob[n].ib_ele==rob[m].step && rob[m].cmt) begin
 				rob[n].ibv <= TRUE;
 				rob[n].ib <= rob[m].res;
 			end
-			if (!rob[n].icv && rob[n].ics.rid==m && rob[n].ic_ele==rob[m].step && rob[m].cmt2) begin
+			if (!rob[n].icv && rob[n].ics.rid==m && rob[n].ic_ele==rob[m].step && rob[m].cmt) begin
 				rob[n].icv <= TRUE;
 				rob[n].ic <= rob[m].res;
 			end
-			if (!rob[n].idv && rob[n].ids.rid==m && rob[n].id_ele==rob[m].step && rob[m].cmt2) begin
+			if (!rob[n].idv && rob[n].ids.rid==m && rob[n].id_ele==rob[m].step && rob[m].cmt) begin
 				rob[n].idv <= TRUE;
 				rob[n].id <= rob[m].res;
 			end
-			if (!rob[n].itv && rob[n].its.rid==m && rob[n].it_ele==rob[m].step && rob[m].cmt2) begin
+			if (!rob[n].itv && rob[n].its.rid==m && rob[n].it_ele==rob[m].step && rob[m].cmt) begin
 				rob[n].itv <= TRUE;
 			end
 		end
@@ -2195,20 +2088,21 @@ else begin
 	if (push_d2x) begin
 //		if (decbuf.rfwr)
 //			tAllocReg(decbuf.Rt,rob[rob_que].pRt);
+		prev_rob_que <= rob_que;
 		rob[rob_que].rob_q <= rob_q;
-		rob[rob_que].v <= decbuf.v;
+		rob[rob_que].v <= decbuf.v && !branch_invalidating;
 		rob[rob_que].update_rob <= FALSE;
 		rob[rob_que].predict_taken <= exbufi.predict_taken;
 		rob[rob_que].ui <= decbuf.ui;
 		rob[rob_que].ip <= decbuf.ip;
 		rob[rob_que].ir <= decbuf.ir;
-		rob[rob_que].irmod <= 32'd0;
+		rob[rob_que].irmod <= {$bits(Instruction){1'b0}};
 		rob[rob_que].mod_cnt <= mod_cnt;
 		rob[rob_que].is_vec <= decbuf.is_vec;
 		rob[rob_que].Ra <= decbuf.Ra;
 		rob[rob_que].Rb <= decbuf.Rb;
-		rob[rob_que].Rc <= 8'h00;
-		rob[rob_que].Rd <= 8'h00;
+		rob[rob_que].Rc <= 7'h00;
+		rob[rob_que].Rd <= 7'h00;
 		rob[rob_que].Ravec <= decbuf.Ravec;
 		rob[rob_que].Rbvec <= decbuf.Rbvec;
 		rob[rob_que].Rcvec <= FALSE;
@@ -2233,7 +2127,7 @@ else begin
 		else
 			rob[rob_que].ic <= 64'd0;
 		rob[rob_que].id <= 64'd0;
-		rob[rob_que].imm <= exbufi.imm;
+		rob[rob_que].imm <= decbuf.imm;
 		rob[rob_que].vmask <= exbufi.vmask;
 		rob[rob_que].iav <= exbufi.iav;
 		rob[rob_que].ibv <= exbufi.ibv;
@@ -2274,6 +2168,7 @@ else begin
 		rob[rob_que].cmt <= FALSE;
 		rob[rob_que].cmt2 <= FALSE;
 		rob[rob_que].out <= FALSE;
+		rob[rob_que].veins <= decbuf.veins;
 		if (decbuf.veins) begin
 			rob[rob_que].step_v <= FALSE;
 			rob[rob_que].step <= exbufi.ia.val[5:0];
@@ -2389,7 +2284,7 @@ else begin
 				Rdvec <= decbuf.Rbvec;
 				btmod <= TRUE;
 				if (exbufi.ir[29]) begin
-					regc <= exbufi.ir[19:14];
+					regc <= exbufi.ir[19:15];
 					regcv <= TRUE;
 				end
 				else begin
@@ -2397,7 +2292,7 @@ else begin
 					regcv <= exbufi.iav;
 				end
 				if (exbufi.ir[30]) begin
-					regd <= exbufi.ir[25:20];
+					regd <= exbufi.ir[24:20];
 					regdv <= TRUE;
 				end
 				else begin
@@ -2423,7 +2318,7 @@ else begin
 				Rdvec <= decbuf.Rbvec;
 				btmod <= TRUE;
 				if (exbufi.ir[29]) begin
-					regc <= exbufi.ir[19:14];
+					regc <= exbufi.ir[19:15];
 					regcv <= TRUE;
 				end
 				else begin
@@ -2431,7 +2326,7 @@ else begin
 					regcv <= exbufi.iav;
 				end
 				if (exbufi.ir[30]) begin
-					regd <= exbufi.ir[25:20];
+					regd <= exbufi.ir[24:20];
 					regdv <= TRUE;
 				end
 				else begin
@@ -2470,11 +2365,11 @@ else begin
 				RegspecD <= decbuf.Rb;
 				Rcvec <= decbuf.Ravec;
 				Rdvec <= decbuf.Rbvec;
-				if (exbufi.ir[20]) begin
+				if (exbufi.ir[21]) begin
 					rob[rob_que].cmt <= TRUE;
 					rob[rob_que].cmt2 <= TRUE;
 					stride <= TRUE;
-					regc <= {58'd0,exbufi.ir[19:14]};
+					regc <= {58'd0,exbufi.ir[20:15]};
 					regcv <= TRUE;
 					regcsrc <= regfilesrc[decbuf.Ra];
 					imod_inst <= exbufi.ir;
@@ -2489,7 +2384,7 @@ else begin
 					imod_inst <= exbufi.ir;
 				end
 				if (!(exihi||eximid||exilo))
-					exi <= {{45{exbufi.ir[31]}},exbufi.ir[31:21],8'd0};
+					exi <= {{40{exbufi.ir[35]}},exbufi.ir[35:22],10'd0};
 			end
 		VSTRIDE:
 			begin
@@ -2499,11 +2394,11 @@ else begin
 				RegspecD <= decbuf.Rb;
 				Rcvec <= decbuf.Ravec;
 				Rdvec <= decbuf.Rbvec;
-				if (exbufi.ir[20]) begin
+				if (exbufi.ir[21]) begin
 					rob[rob_que].cmt <= TRUE;
 					rob[rob_que].cmt2 <= TRUE;
 					stride <= TRUE;
-					regc <= {58'd0,exbufi.ir[19:14]};
+					regc <= {58'd0,exbufi.ir[20:15]};
 					regcv <= TRUE;
 					regcsrc <= vregfilesrc[decbuf.Ra];
 					imod_inst <= exbufi.ir;
@@ -2518,10 +2413,17 @@ else begin
 					imod_inst <= exbufi.ir;
 				end
 				if (!(exihi||eximid||exilo))
-					exi <= {{45{exbufi.ir[31]}},exbufi.ir[31:21],8'd0};
+					exi <= {{40{exbufi.ir[35]}},exbufi.ir[35:22],10'd0};
 			end
 		default:	
 			begin
+				exilo <= FALSE;
+				exihi <= FALSE;
+				eximid <= FALSE;
+				imod <= FALSE;
+				brmod <= FALSE;
+				btmod <= FALSE;
+				stride <= FALSE;
 				if (decbuf.is_vec) begin
 					if (decven < vl)
 						decven <= decven + 2'd1;
@@ -2531,11 +2433,20 @@ else begin
 				end
 			end
 		endcase
+		// If we queue the same instruction twise, ensure we are using the same
+		// immediate constant.
+		/*
+		if (rob[prev_rob_que].ip==decbuf.ip) begin
+			rob[rob_que].imm <= rob[rob_que].imm;
+			rob[rob_que].Rc <= rob[rob_que].Rc;
+			rob[rob_que].Rd <= rob[rob_que].Rd;
+		end
+		*/
 		// Check make sure the modifier applies the next instruction in program
 		// order. It's possible for a modifier to fall under the branch shadow
 		// and the instruction fetched from the target is likely not the next
 		// one in program order.
-		if (fnIPInc(rob[rob_que_m1].ip)==decbuf.ip) begin
+		if (fnIPInc(rob[prev_rob_que].ip)==decbuf.ip) begin
 			if (exihi) begin
 				has_exi <= TRUE;
 				exihi <= FALSE;
@@ -2574,7 +2485,7 @@ else begin
 				end
 				if (has_exi) begin
 					has_exi <= FALSE;
-					rob[rob_que].imm.val[63:8] <= exi[63:8];
+					rob[rob_que].imm.val[63:10] <= exi[63:10];
 				end
 			end
 			if (btmod) begin
@@ -2597,7 +2508,7 @@ else begin
 				end
 				if (has_exi) begin
 					has_exi <= FALSE;
-					rob[rob_que].imm.val[63:8] <= exi[63:8];
+					rob[rob_que].imm.val[63:10] <= exi[63:10];
 				end
 			end
 			if (brmod) begin
@@ -2615,8 +2526,8 @@ else begin
 				if (imod_inst.r2.Rt[4:0] != 5'd0) begin
 	//				tAllocReg(imod_inst.r2.Rt,rob[rob_que].pRt);
 					rob[rob_que].rfwr <= TRUE;
-					regfilesrc[imod_inst.r2.Rt[5:0]].rf <= 1'b1;
-					regfilesrc[imod_inst.r2.Rt[5:0]].rid <= rob_que;
+					regfilesrc[imod_inst.r2.Rt[4:0]].rf <= 1'b1;
+					regfilesrc[imod_inst.r2.Rt[4:0]].rid <= rob_que;
 				end
 			end
 			if (stride) begin
@@ -2628,19 +2539,10 @@ else begin
 				rob[rob_que].ic <= regc;
 				rob[rob_que].icv <= regcv;
 				rob[rob_que].ics <= regcsrc;
-				rob[rob_que].imm.val[63:8] <= exi[63:8];
+				rob[rob_que].imm.val[63:10] <= exi[63:10];
 			end
 			if (!(exihi||eximid||exilo||imod||stride))
 				has_exi <= FALSE;
-		end
-		else begin
-			exilo <= FALSE;
-			exihi <= FALSE;
-			eximid <= FALSE;
-			imod <= FALSE;
-			brmod <= FALSE;
-			btmod <= FALSE;
-			stride <= FALSE;
 		end
 	end
 
@@ -2658,6 +2560,40 @@ else begin
 			vm_regfilesrc[decbuf.Rt[4:0]].rid <= rob_que;
 		end
 	end
+
+
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+	// Instruction Fetch
+	// The order of these LOC is important, they must be after the queue
+	// so that branch invalidation takes precedence when setting the valid
+	// bit.
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+	if (!wb2if_redirect_empty)
+		wb2if_redirect_rd <= 1'b1;
+//	else if (!ex2if_redirect_empty)
+//		ex2if_redirect_rd <= 1'b1;
+
+	// Note the use of ihit and not ifStall here. We want the branch to work even
+	// during a stall cycle os it is fast. Other instructions will continue to
+	// execute during a stall as well.
+	if (pe_wb2if_redirect_v) begin
+		ex2if_redirect_rd <= FALSE;
+		if (rob[wb_redirecto.xrid].v && !rob[wb_redirecto.xrid].cmt && rob[wb_redirecto.xrid].out)
+			tBranch(wb_redirecto,newer_than_wb,wb_latestID);
+		else if (!ifStall)
+			ip <= fnIPInc(ip);
+	end
+	else if (ex_redirecti.wr) begin
+		if (rob[ex_redirecti.xrid].v && !rob[ex_redirecti.xrid].cmt)
+			tBranch(ex_redirecti,newer_than_ex,ex_latestID);
+		else if (!ifStall)
+			ip <= fnIPInc(ip);
+	end
+	if (ne_wb2if_redirect_v)
+		wb2if_redirect_rd <= FALSE;
+//	if (ne_ex2if_redirect_v)
+//		ex2if_redirect_rd <= FALSE;
 
 
 // -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  
@@ -3029,6 +2965,40 @@ end	// clock domain
 // Support tasks
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
+task tBranch;
+input sRedirect redi;
+input [ROB_ENTRIES-1:0] newer_than;
+input RegBitList [ROB_ENTRIES-1:0] latestID;
+begin
+	begin
+		rob[redi.xrid].cmt <= TRUE;
+		rob[redi.xrid].cmt2 <= TRUE;
+		rob[redi.xrid].v <= FALSE;
+		ip <= redi.redirect_ip;
+		decven <= redi.step;
+		ifetch_v <= INV;
+		f2a_in.v <= INV;
+		a2d_out.v <= INV;
+		for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+			if (newer_than[n] && n!=redi.xrid)
+				rob[n].v <= INV;
+		end
+		for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+			regfilesrc[rob[n].Rt[4:0]].rf <= 1'b0;
+			regfilesrc[rob[n].Rt[4:0]].rid <= 6'd0;
+		end
+		for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+	  	if (|latestID[n] && ~newer_than[n]) begin
+	  		regfilesrc[rob[n].Rt[4:0]].rf <= 1'b1;
+	  		regfilesrc[rob[n].Rt[4:0]].rid <= n[5:0];
+	  		SetSource(rob[n].Rt[4:0],1'b1,n[5:0]);
+	  	end
+	  end
+	end
+//		tRestoreRegfileSrc(rob[redi.xrid].btag);
+end
+endtask
+
 task arg_vs;
 begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
@@ -3041,15 +3011,15 @@ end
 endtask
 
 task SetSource;
-input [5:0] rg;
+input [4:0] rg;
 input rf;
 input [5:0] rid;
 begin
 	for (m = 0; m < ROB_ENTRIES; m = m + 1) begin
-		if (rob[m].Ra[5:0]==rg) rob[m].ias <= {rf,rid};
-		if (rob[m].Rb[5:0]==rg) rob[m].ibs <= {rf,rid};
-		if (rob[m].Rc[5:0]==rg) rob[m].ics <= {rf,rid};
-		if (rob[m].Rd[5:0]==rg) rob[m].ids <= {rf,rid};
+		if (rob[m].Ra[4:0]==rg) rob[m].ias <= {rf,rid};
+		if (rob[m].Rb[4:0]==rg) rob[m].ibs <= {rf,rid};
+		if (rob[m].Rc[4:0]==rg) rob[m].ics <= {rf,rid};
+		if (rob[m].Rd[4:0]==rg) rob[m].ids <= {rf,rid};
 	end
 end
 endtask
@@ -3228,19 +3198,6 @@ begin
 end
 endtask
 */
-task tAllocReg;
-input [5:0] Rt;
-output reg [6:0] mreg;
-begin
-	mreg <= 7'd0;
-	for (n = 0; n < 64; n = n + 1) begin
-		if (regalloc[n]==1'b0) begin
-			regalloc[n] <= 1'b1;
-			mreg <= {1'b1,n[5:0]};
-		end
-	end
-end
-endtask
 
 endmodule
 

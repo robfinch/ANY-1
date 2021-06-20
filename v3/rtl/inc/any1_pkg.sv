@@ -666,10 +666,12 @@ typedef struct packed
 	logic jump;
 	logic branch;
 	logic needRc;					// STx/CHK
+	logic needRb;					// R2, LDxX
 	logic veins;
 	logic vex;
 	logic vsrlv;
 	logic mem_op;
+	logic mc;							// multi-cycle op
 	logic [5:0] step;
 	logic [5:0] RaStep;
 	logic [5:0] RbStep;
@@ -783,8 +785,10 @@ typedef struct packed
 	Address jump_tgt;
 	logic [2:0] mod_cnt;
 	logic [3:0] btag;			// Branch tag
+	logic veins;
 	logic branch;
 	logic mem_op;
+	logic mc;							// multi-cycle op
 	logic takb;
 	logic predict_taken;
 	logic rfwr;

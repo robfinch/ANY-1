@@ -43,7 +43,7 @@ output sDecode decbuf;
 input Address predicted_ip;
 input [5:0] ven;
 
-always @*//(a2d_out, predicted_ip, ven)
+always_comb // @*//(a2d_out, predicted_ip, ven)
 	begin
 //		decbuf.rid <= dc_rid;
 		decbuf.v <= a2d_out.v;
@@ -54,12 +54,12 @@ always @*//(a2d_out, predicted_ip, ven)
 		decbuf.predict_taken <= a2d_out.predict_taken;
 		decbuf.rfwr <= FALSE;
 		decbuf.vrfwr <= FALSE;
-		decbuf.Ra <= a2d_out.ir.r2.Ra;
-		decbuf.Rb <= a2d_out.ir.r2.Rb;
+		decbuf.Ra <= {a2d_out.ir.r2.Ta,a2d_out.ir.r2.Ra};
+		decbuf.Rb <= {a2d_out.ir.r2.Tb,a2d_out.ir.r2.Rb};
 		decbuf.Vm <= 3'd0;
 		decbuf.z <= 1'b0;
-		decbuf.Rc <= 6'd0;
-		decbuf.Rt <= 6'd0;
+		decbuf.Rc <= 7'd0;
+		decbuf.Rt <= 7'd0;
 		decbuf.Ravec <= a2d_out.ir.r2.Ta==2'b01;
 		decbuf.Rbvec <= a2d_out.ir.r2.Tb==2'b01;
 		decbuf.Rcvec <= FALSE;
@@ -183,6 +183,7 @@ always @*//(a2d_out, predicted_ip, ven)
 				decbuf.Rt <= {5'h0,a2d_out.ir[9:8]};
 				decbuf.imm.val <= {{38{a2d_out.ir[35]}},a2d_out.ir[35:10]};
 				decbuf.rfwr <= TRUE;
+				decbuf.mc <= TRUE;
 			end
 		JALR:
 			begin
@@ -190,8 +191,9 @@ always @*//(a2d_out, predicted_ip, ven)
 				decbuf.Rt <= {5'h0,a2d_out.ir[9:8]};
 				decbuf.imm.val <= {{50{a2d_out.ir[35]}},a2d_out.ir[35:22]};
 				decbuf.rfwr <= TRUE;
+				decbuf.mc <= TRUE; 
 			end
-		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{52{a2d_out.ir[35]}},a2d_out.ir[35:29],a2d_out.ir[12:8]}; decbuf.branch <= TRUE; decbuf.needRb <= TRUE; end
+		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{52{a2d_out.ir[35]}},a2d_out.ir[35:29],a2d_out.ir[12:8]}; decbuf.branch <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		LEA:	begin decbuf.Rt <= a2d_out.ir[14:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{54{a2d_out.ir.ld.disp[9]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
 		LDx:	begin decbuf.Rt <= a2d_out.ir[14:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{54{a2d_out.ir.ld.disp[9]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
 		LDxX: begin decbuf.Rt <= a2d_out.ir.ld.Rt; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end

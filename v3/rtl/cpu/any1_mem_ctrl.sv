@@ -38,7 +38,7 @@
 import any1_pkg::*;
 
 module any1_mem_ctrl(rst,clk,UserMode,MUserMode,omode,ASID,sregfile,ip,ihit,ifStall,ic_line,
-	fifoToCtrl_i,fifoToCtrl_full,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,
+	fifoToCtrl_i,fifoToCtrl_full,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
 	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
 	dat_i, dat_o, sr_o, cr_o, rb_i, dce);
 parameter AWID=32;
@@ -59,6 +59,7 @@ output fifoToCtrl_full;
 output MemoryResponse fifoFromCtrl_o;
 input fifoFromCtrl_rd;
 output fifoFromCtrl_empty;
+output fifoFromCtrl_v;
 // Bus controls
 input bok_i;
 output reg [1:0] bte_o;
@@ -115,6 +116,8 @@ parameter IFETCH3 = 6'd33;
 parameter IFETCH4 = 6'd34;
 parameter IFETCH5 = 6'd35;
 parameter IFETCH6 = 6'd36;
+parameter IFETCH1a = 6'd37;
+parameter IFETCH1b = 6'd38;
 parameter DFETCH2 = 6'd42;
 parameter DFETCH3 = 6'd43;
 parameter DFETCH4 = 6'd44;
@@ -288,7 +291,7 @@ MemoryResponseFifo uofifo1
   .dout(fifoFromCtrl_o),    // output wire [197 : 0] dout
   .full(),    // output wire full
   .empty(fifoFromCtrl_empty),  // output wire empty
-  .valid()  // output wire valid
+  .valid(fifoFromCtrl_v)  // output wire valid
 );
 
 /*
@@ -596,14 +599,7 @@ if (rst) begin
 	tlben <= TRUE;
 	iadr <= RSTIP;
 	dadr <= RSTIP;	// prevents TLB miss at startup
-	sel <= 32'h0;
-	vpa_o <= LOW;
-	vda_o <= LOW;
-	cyc_o <= LOW;
-	stb_o <= LOW;
-	sel_o <= 16'h0;
-	we_o <= LOW;
-	dat_o <= 128'd0;
+	tDeactivateBus();
 	dat <= 256'd0;
 	sr_o <= LOW;
 	cr_o <= LOW;
@@ -616,6 +612,7 @@ if (rst) begin
 	dci <= 640'd0;
 	memreq_rd <= FALSE;
 	memresp.fifo_wr <= FALSE;
+	memresp.res <= 128'd0;
 end
 else begin
 	inext <= FALSE;
@@ -633,13 +630,7 @@ else begin
 		  icnt <= 5'd0;
 		  dcnt <= 5'd0;
 		  shr_ma <= 6'd0;
-			if (ihit) begin
-				if (!fifoToCtrl_empty) begin
-					memreq_rd <= TRUE;
-					gosub (MEMORY1a);
-				end
-			end
-			else begin
+			if (!ihit & fifoToCtrl_empty) begin
 				// On a miss goto load I$ process unless a hit in the victim cache.
 				// Use ipo to hold onto the original ip value. The ip value might
 				// change during a cache load due to a branch. We also want the start
@@ -647,6 +638,7 @@ else begin
 				// cache line.
 				ipo <= ip;
 		    iadr <= {ip[AWID-1:6],7'h0};
+		    iaccess <= TRUE;
 				gosub (IFETCH1);
 				for (n = 0; n < 5; n = n + 1) begin
 					if (ivtag[n]==ip[AWID-1:6] && ivvalid[n]) begin
@@ -654,6 +646,10 @@ else begin
 			    	gosub (IFETCH4);
 		    	end
 				end
+			end
+			if (!fifoToCtrl_empty) begin
+				memreq_rd <= TRUE;
+				gosub (MEMORY1a);
 			end
 		end
 	MEMORY1a:
@@ -663,6 +659,7 @@ else begin
 		end
 	MEMORY2:
 		begin
+			ealow <= ea[7:0];
 			// Detect cache controller commands
   		case(memreq.func)
 			TLB:
@@ -688,6 +685,7 @@ else begin
 				    memresp.cmt <= TRUE;
 						memresp.tid <= memreq.tid;
 						memresp.fifo_wr <= TRUE;
+						memresp.res <= 128'd0;
 						ret();
 					end
 				LEA2:
@@ -697,6 +695,7 @@ else begin
 						memresp.res <= memreq.adr;
 				    memresp.cmt <= TRUE;
 						memresp.fifo_wr <= TRUE;
+						memresp.res <= 128'd0;
 					end
 				default:
 					begin
@@ -705,7 +704,6 @@ else begin
 	      		xlaten <= TRUE;
 	      		// Setup proper select lines
 			      sel <= {16'h0,memreq.sel} << ea[3:0];
-	    		  dadr <= memreq.adr;
 			  		goto (MEMORY3);
 					end
 				endcase
@@ -718,7 +716,6 @@ else begin
 		      sel <= zero_data ? 16'h0001 << ea[3:0] : {16'h0,memreq.sel} << ea[3:0];
 		      // Shift output data into position
     		  dat <= zero_data ? 256'd0 : {128'd0,memreq.dat} << {ea[3:0],3'b0};
-    		  dadr <= memreq.adr;
 		  		goto (MEMORY3);
 				end
 			default:	ret();	// unknown operation
@@ -767,6 +764,7 @@ else begin
 			memresp.tid <= memreq.tid;
 		  memresp.badAddr <= ea;
 		  memresp.fifo_wr <= TRUE;
+			memresp.res <= 128'd0;
 		  ret();
 		end
 `endif
@@ -777,8 +775,8 @@ else begin
 	    dwait <= 3'd0;
 	    goto (MEMORY6);
 			if (tlbmiss) 
-				tTLBMiss({ea,2'b00});
-	    else if (memreq.func2 != CACHE) begin
+				tTLBMiss({ea,1'b0});
+	    else if (memreq.func != CACHE) begin
 	    	vda_o <= HIGH;
 	      cyc_o <= HIGH;
 	      stb_o <= HIGH;
@@ -863,6 +861,7 @@ else begin
 					    	 	memresp.cmt <= TRUE;
 		  						memresp.tid <= memreq.tid;
 		  						memresp.fifo_wr <= TRUE;
+									memresp.res <= {127'd0,rb_i};
 						    	ret();
 					    	end
 					    	else begin
@@ -876,6 +875,7 @@ else begin
 					    	memresp.cmt <= TRUE;
 				  			memresp.tid <= memreq.tid;
 				  			memresp.fifo_wr <= TRUE;
+								memresp.res <= {127'd0,rb_i};
 					    	ret();
 				      end
 			    	end
@@ -985,6 +985,7 @@ else begin
 				    	 	memresp.cmt <= TRUE;
 				  			memresp.tid <= memreq.tid;
 				  			memresp.fifo_wr <= TRUE;
+								memresp.res <= {127'd0,rb_i};
 					    	ret();
 				    	end
 				    	else begin
@@ -998,7 +999,8 @@ else begin
 			    	 	memresp.cmt <= TRUE;
 			  			memresp.tid <= memreq.tid;
 			  			memresp.fifo_wr <= TRUE;
-				    	ret();
+							memresp.res <= {127'd0,rb_i};
+			    	ret();
 			      end
 		    	end
 	      default:
@@ -1030,7 +1032,7 @@ else begin
 		    	LDBU:	begin memresp.res <= {56'd0,datis[7:0]}; end
 		    	LDWU:	begin memresp.res <= {48'd0,datis[15:0]}; end
 		    	LDTU:	begin memresp.res <= {32'd0,datis[31:0]}; end
-		    	default:	;
+		    	default:	memresp.res <= 128'h0;
 		    	endcase
 	    	end
 	    default:  ;
@@ -1063,7 +1065,6 @@ else begin
 			ivcache[ivcnt] <= ic_line;
 			ivtag[ivcnt] <= ic_tag;
 			ivvalid[ivcnt] <= TRUE;
-		  iaccess <= TRUE;
 	  	vpa_o <= HIGH;
 	  	bte_o <= 2'b00;
 	  	cti_o <= 3'b001;	// constant address burst cycle
@@ -1289,6 +1290,7 @@ begin
 	memresp.tid <= memreq.tid;
   memresp.badAddr <= ba;
   memresp.fifo_wr <= TRUE;
+	memresp.res <= 128'd0;
 	goto (MEMORY1);
 end
 endtask

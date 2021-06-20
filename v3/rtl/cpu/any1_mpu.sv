@@ -85,8 +85,8 @@ input i25;
 input i26;
 input i27;
 input i28;
-output [2:0] cti_o;
-output [1:0] bte_o;
+output reg [2:0] cti_o;
+output reg [1:0] bte_o;
 input bok_i;
 output reg cyc_o;
 output reg stb_o;
@@ -129,6 +129,10 @@ wire pulse60;
 wire sptr_o;
 wire [127:0] pkeys;
 
+always @(posedge clk_i)
+	bte_o <= bte;
+always @(posedge clk_i)
+	cti_o <= cti;
 always @(posedge clk_i)
 	cyc_o <= cyc;
 always @(posedge clk_i)

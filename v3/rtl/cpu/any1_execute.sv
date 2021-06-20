@@ -39,7 +39,7 @@ import any1_pkg::*;
 
 module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,fpreci,rob_exec,ex_redirect,
 	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,out,tid,
-	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q, rst_robx, new_robx, new_rob_exec,
+	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q,
 	ld_vtmp, vtmp, new_vtmp, graphi, rd_trace, trace_dout);
 input rst;
 input clk;
@@ -67,9 +67,6 @@ input Rid vregfilesrc [0:63];
 output reg restore_rfsrc;
 output reg set_wfi= 1'b0;
 input [7:0] vl;
-input rst_robx;
-input [47:0] new_robx;
-input [5:0] new_rob_exec;
 input ld_vtmp;
 output reg [63:0] vtmp;			// temporary register for vector operations
 input [63:0] new_vtmp;
@@ -187,17 +184,13 @@ else begin
 	ex_redirect.wr <= FALSE;
 	restore_rfsrc <= FALSE;
 	set_wfi <= FALSE;
-	//robo.update_rob <= FALSE;
+	robo.update_rob <= FALSE;
+	robo.wr_fu <= FALSE;
 	rd_trace <= FALSE;
 
 	$display("Execute");
-/*
-	if (rst_robx) begin
-		rob_x <= new_robx;
-		rob_exec <= new_rob_exec;
-	end
-*/
-	if (robi.v==VAL && !robi.cmt) begin
+
+	if (robi.v==VAL && !robi.cmt && rob_exec != 6'd63) begin
 		last_tid <= tid;
 		if (robi.dec) begin
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, robi.ip, robi.ir,
@@ -213,6 +206,7 @@ else begin
 			robo.out <= TRUE;
 		end
 		else if (!robi.out) begin
+		robo.out <= TRUE;
 		//robi.res.tag <= robi.ir.tag;
 		robo.rid <= robi.rid;
 		robo.btag <= 4'd0;
@@ -224,6 +218,7 @@ else begin
 		robo.cmt <= !robi.mc;
 		robo.cmt2 <= !robi.mc;
 		robo.res_ele <= robi.step;
+		robo.rob_q <= robi.rob_q;
 		case(robi.ir.r2.opcode)
 		BRK:	begin robo.cause <= robi.ir[21:14]; tMod(); end
 		NOP:	tMod();
@@ -770,44 +765,43 @@ else begin
 				ex_redirect.step <= 6'd0;
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.wr <= TRUE;
-				tMod();
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
+				robo.update_rob <= TRUE;
 			end
 		JAL:
 			begin
 				robo.jump <= TRUE;
-				robo.jump_tgt <= {{38{robi.ir[35]}},robi.ir[35:10]};
+				robo.jump_tgt <= robi.imm.val;
 				robo.res.val <= fnIncIP(robi.ip);
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
-				ex_redirect.redirect_ip <= {{38{robi.ir[35]}},robi.ir[35:10]};
+				ex_redirect.redirect_ip <= robi.imm.val;
 				ex_redirect.current_ip <= robi.ip;
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.step <= 6'd0;
 				ex_redirect.wr <= TRUE;
-				tMod();
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
+				robo.update_rob <= TRUE;
 			end
 		BAL:
 			begin
 				robo.jump <= TRUE;
-				robo.jump_tgt <= robi.ip + {{38{robi.ir[35]}},robi.ir[35:10]};
+				robo.jump_tgt <= robi.ip + robi.imm.val;
 				robo.res.val <= fnIncIP(robi.ip);
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
-				ex_redirect.redirect_ip <= robi.ip + {{38{robi.ir[35]}},robi.ir[35:10]};
+				ex_redirect.redirect_ip <= robi.ip + robi.imm.val;
 				ex_redirect.current_ip <= robi.ip;
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.step <= 6'd0;
 				ex_redirect.wr <= TRUE;
-				tMod();
+				robo.update_rob <= TRUE;
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
-				robo.out <= TRUE;
 			end
 		LEA,LDx,LDxX:
 			// This does not wait for registers to be valid.
@@ -1699,6 +1693,5 @@ begin
 	end
 end
 endtask
-
 
 endmodule

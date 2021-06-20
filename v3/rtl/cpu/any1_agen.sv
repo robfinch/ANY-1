@@ -69,7 +69,7 @@ else begin
 	CVSTSx:	ea[AWID-1:0] <= imm + ia.val + ic.val * step;
 	default:	ea <= 33'd0;
 	endcase
-	ea[0:-1] <= 1'b0;
+	ea[-1:-1] <= 1'b0;
 end
 
 endmodule
