@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2014-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2014-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -258,14 +258,18 @@ void DumpSymbols()
     for (nn = 0; nn < ii; nn++) {
 //        qq = symorder[nn];
         dp = &pt[nn];
-        if (dp->name && !dp->isMacro)
-        fprintf(ofp, "%c %-40s %6s  %06llx %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low, dp->bits, dp->referenced);
+        if (dp->name && !dp->isMacro) {
+          if (gCpu==ANY1V3)
+            fprintf(ofp, "%c %-40s %6s  %06I64x.%1x %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low >> 1, dp->value.low & 1, dp->bits, dp->referenced);
+          else
+            fprintf(ofp, "%c %-40s %6s  %06I64x %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low, dp->bits, dp->referenced);
+        }
     }
 		fprintf(ofp, "\nUndefined Symbols\n");
 		for (nn = 0; nn < ii; nn++) {
 			dp = &pt[nn];
 			if (dp->name && !dp->isMacro && dp->defined == false)
-				fprintf(ofp, "%c %-40s %6s  %06llx %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low, dp->bits, dp->referenced);
+				fprintf(ofp, "%c %-40s %6s  %06I64x %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low, dp->bits, dp->referenced);
 		}
 		fprintf(ofp, "\n  Macro Name\n");
 		for (nn = 0; nn < ii; nn++) {

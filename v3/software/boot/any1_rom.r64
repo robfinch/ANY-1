@@ -298,18 +298,18 @@ IdleTask:
   mov   $a2,$t0
   brk   #240
   add   $t0,$t0,#PAGESZ
-  sne   $t0,#MEMSZ*PAGESZ
-  bt    .loop
+  sne   $t3,$t0,#MEMSZ*PAGESZ
+  bne   $t3,#0,.loop
 	jmp		.loop2
   ; This section of code runs as part of the OS
   ; Don't callany functions though as there's no stack available
 .IdleCode:
   ldt   $t0,OBJMagic[$a2]
-  sne   $t0,#TCB_MAGIC
-  bt    .nxtObj
+  sne   $t3,$t0,#TCB_MAGIC
+  bne   $t3,#0,.nxtObj
   ldbu  $t3,TCBStatus[$t2]    ; get status
-  and.  $t3,$t3,#TS_READY
-  beq   $cr0,.nxtObj
+  and  	$t3,$t3,#TS_READY
+  bne   $t3,#0,.nxtObj
   ; The task was ready, but not found in the ready queue. So add it
   lsr   $a0,$a2,#LOG_PGSZ
   mDI
@@ -325,6 +325,7 @@ msgIdleAnnounce:
 ;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
 ;  align 	code
+	align	64
 _Delay2s:
 ifdef TEST
   ldi     $a1,#10
@@ -354,7 +355,7 @@ Getch:
 	ldi   $a1,#5  ;CURIN
 	call  fgetc
 	ldo		$a1,8[$sp]
-	add   $sp,$sp,$16
+	add   $sp,$sp,#16
 	ret
 
 ;------------------------------------------------------------------------------
@@ -381,21 +382,22 @@ Putch:
   ; align cache
 calcScreenPos:
   ldbu  $t0,_cursorY
-  slt   $t0,#29
-  bf    .0001
+  bgeu  $t3,#29,.0001
 .0002:
   mulf  $t1,$t0,#56
   ldbu  $t0,_cursorX
-  slt   $t0,#56
-  bf    .0003
+  bgeu  $t0,#56,.0003
 .0004:
   add   $t1,$t1,$t0
-  asl   $t1,$t1,#3
+  sll   $t1,$t1,#3
   add   $t2,$t1,#TEXTSCR
   ret
+; This is cool in ANY1. Storing a smalll constant to memory does not require
+; the use of a source register. This allows the LDI and the STB to proceed
+; in parallel. The store does not need to wait for a register.
 .0001:
   ldi   $t0,#28
-  stb   $t0,_cursorY
+  stb   #28,_cursorY
   bra   .0002
 .0003:
   ldi   $t0,#55
@@ -406,13 +408,11 @@ calcScreenPos:
 incScreenPos:
   ldbu  $t0,_cursorX
   add   $t0,$t0,#1
-  slt   $t0,#56
-  bt    .0001
-  stb   $x0,_cursorX
+  bltu  $t0,#56,.0001
+  stb   #0,_cursorX
   ldbu  $t0,_cursorY
   add   $t0,$t0,#1
-  slt   $t0,#29
-  bt    .0002
+  bltu  $t0,#29,.0002
   call  dbg_ScrollUp
   ret
 .0002:
@@ -424,26 +424,22 @@ incScreenPos:
   
   ; align cache
 dbg_Putch:
-	ldi		$t3,#C$
-  beq  	$a0,$t3,.cr
-  ldi		$t3,#LNFD
-  beq  	$a0,$t3,.lf
+  beq  	$a0,#CR,.cr
+  beq  	$a0,#LNFD,.lf
   ldo   $t3,_DBGAttr
   or    $t3,$a0,$t3
   call  calcScreenPos
   sto   $t3,[$t2]
-  call  incScreenPos
-  ret
+  bra   incScreenPos
  .lf:
-  stb   $x0,_cursorX
+  stb   #0,_cursorX
   ldbu  $a0,_cursorY
   add   $a0,$a0,#1
-  slt   $t3,$a0,#29
-  beq   $t3,$x0,dbg_ScrollUp
+  bgeu  $a0,#29,dbg_ScrollUp
   stb   $a0,_cursorY
   ret
 .cr:
-  stb   $x0,_cursorX
+  stb   #0,_cursorX
   ret
 
   ; align cache
@@ -459,9 +455,7 @@ endif
   sub  	$t1,$t1,#1      ; placed here eliminates pipeline bubble
   sto   $t2,[$t0]
   add   $t0,$t0,#8
-  bne   $t1,$x0,.0001
-  call  dbg_BlankLastLine
-  ret
+  bne   $t1,#0,.0001
 
   ; align cache
 dbg_BlankLastLine:
@@ -472,13 +466,13 @@ dbg_BlankLastLine:
 .0001:
   sto   $t2,[$t0+$t1*8]
   sub  	$t1,$t1,#1
-  bgtu  $t1,$X0,.0001
+  bgtu  $t1,#0,.0001
   ret
 
   ; align cache
 dbg_HomeCursor:
-  stb   $x0,_cursorX
-  stb   $x0,_cursorY
+  stb   #0,_cursorX
+  stb   #0,_cursorY
   ret
   
 ;------------------------------------------------------------------------------

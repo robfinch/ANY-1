@@ -654,10 +654,10 @@ void emitNybbleToBinfile(int64_t cd)
     binfile[binndx] = binfile[binndx] | ((int)cd << bt_ndx);
   bt_ndx = bt_ndx + 4;
   if (bt_ndx == 8) {
-    code_address++;
     binndx++;
     bt_ndx = 0;
   }
+  code_address++;
 }
 
 // ---------------------------------------------------------------------------
@@ -997,7 +997,7 @@ void process_org()
     int64_t new_address;
 	int mul = 1;
 
-	if (gCpu==7 || gCpu==GAMBIT || gCpu==GAMBIT_V5)
+	if (gCpu==7 || gCpu==GAMBIT || gCpu==GAMBIT_V5 || gCpu==ANY1V3)
 		mul = 2;
     NextToken();
     new_address = expr();
@@ -1013,7 +1013,7 @@ void process_org()
         else {
             if (first_org && segment==codeseg) {
 							program_address = new_address;
-              code_address = new_address;
+              code_address = new_address*mul;
               start_address = new_address*mul;
               sections[0].address = new_address*mul;
               first_org = 0;
@@ -1023,7 +1023,7 @@ void process_org()
 							if (!isInitializationData) {
                 while (sections[0].address < new_address * mul)
                   if (gCpu == ANY1V3 && segment==codeseg)
-                    emitBitPair(0x00);
+                    emitNybble(0x00);
                   else
                     emitByte(0x00);
 							}
@@ -1072,11 +1072,11 @@ void process_align()
 		}
     else if (gCpu == ANY1V3) {
       if (segment == codeseg) {
-        while (sections[segment].address % v)
-          emitBitPair(0);
+        while (sections[segment].address % (v*2))
+          emitNybble(0);
       }
       else {
-        while (sections[segment].address % v)
+        while (sections[segment].address % (v*2))
           emitByte(0);
       }
     }

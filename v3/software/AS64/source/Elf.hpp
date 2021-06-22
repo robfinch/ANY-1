@@ -267,8 +267,8 @@ public:
       if (bt_ndx == 8) {
         bt_ndx = 0;
         index++;
-        address++;
       }
+      address++;
       if (address > end)
         end = address;
     };

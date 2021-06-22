@@ -108,6 +108,10 @@ parameter SLT		= 6'h2C;
 parameter SGE		= 6'h2D;
 parameter SLTU	= 6'h2E;
 parameter SGEU	= 6'h2F;
+parameter BMMOR	= 6'h30;
+parameter BMMXOR= 6'h31;
+parameter BMMTOR =6'h32;
+parameter BMMTXOR=6'h33;
 parameter SETM	= 6'h36;
 parameter VSLLV	= 6'h38;
 parameter VSRLV	= 6'h39;
@@ -338,6 +342,8 @@ parameter CSR_CAUSE	= 16'h?006;
 parameter CSR_SEMA	= 16'h?00C;
 parameter CSR_FSTAT	= 16'h?014;
 parameter CSR_ASID	= 16'h101F;
+parameter CSR_KEYS	= 16'b0001_0000_0010_00??;
+parameter CSR_KEYTBL= 16'h1024;
 parameter CSR_MCR0	= 16'h3000;
 parameter CSR_MHARTID = 16'h3001;
 parameter CSR_TICK	= 16'h3002;
@@ -492,10 +498,10 @@ typedef logic [NUM_AIREGS-1:0] RegBitList;
 typedef struct packed
 {
 	logic [3:0] func;
-	logic [9:0] disp;
-	logic [1:0] Ta;
+	logic [11:0] disp;
+	logic Ta;
 	logic [4:0] Ra;
-	logic [1:0] Tt;
+	logic Tt;
 	logic [4:0] Rt;
 	logic [7:0] opcode;
 } LoadInst;
@@ -503,12 +509,13 @@ typedef struct packed
 typedef struct packed
 {
 	logic [3:0] func;
+	logic [1:0] pad2;
 	logic [2:0] Sc;
 	logic [1:0] Tb;
 	logic [4:0] Rb;
-	logic [1:0] Ta;
+	logic Ta;
 	logic [4:0] Ra;
-	logic [1:0] Tt;
+	logic Tt;
 	logic [4:0] Rt;
 	logic [7:0] opcode;
 } NdxLoadInst;
@@ -516,34 +523,34 @@ typedef struct packed
 typedef struct packed
 {
 	logic [3:0] func;
-	logic [2:0] disphi;
+	logic [4:0] disphi;
 	logic [1:0] Tb;
 	logic [4:0] Rb;
-	logic [1:0] Ta;
+	logic Ta;
 	logic [4:0] Ra;
-	logic [6:0] displo;
+	logic [5:0] displo;
 	logic [7:0] opcode;
 } StoreInst;
 
 typedef struct packed
 {
 	logic [3:0] func;
+	logic [1:0] pad2;
 	logic [2:0] Sc;
 	logic [1:0] Tb;
 	logic [4:0] Rb;
-	logic [1:0] Ta;
+	logic Ta;
 	logic [4:0] Ra;
-	logic [1:0] Ts;
-	logic [4:0] empty;
+	logic [5:0] empty;
 	logic [7:0] opcode;
 } NdxStoreInst;
 
 typedef struct packed
 {
-	logic [13:0] imm;
-	logic [1:0] Ta;
+	logic [15:0] imm;
+	logic Ta;
 	logic [4:0] Ra;
-	logic [1:0] Tt;
+	logic Tt;
 	logic [4:0] Rt;
 	logic [7:0] opcode;
 } RIInst;
@@ -551,36 +558,36 @@ typedef struct packed
 typedef struct packed
 {
 	logic [6:0] func;
+	logic [1:0] pad2;
 	logic [1:0] Tb;
 	logic [4:0] Rb;
-	logic [1:0] Ta;
+	logic Ta;
 	logic [4:0] Ra;
-	logic [1:0] Tt;
+	logic Tt;
 	logic [4:0] Rt;
 	logic [7:0] opcode;
 } R2Inst;
 
 typedef struct packed
 {
-	logic [6:0] disphi;
+	logic [8:0] disphi;
 	logic [1:0] Tb;
 	logic [4:0] Rb;
-	logic [1:0] Ta;
+	logic Ta;
 	logic [4:0] Ra;
-	logic [1:0] Ty;
-	logic [4:0] displo;
+	logic [5:0] displo;
 	logic [7:0] opcode;
 } BrInst;
 
 typedef struct packed
 {
-	logic [3:0] pad2;
+	logic [4:0] pad2;
 	logic [2:0] Rm3;
+	logic Tc2;
 	logic [1:0] Td;
 	logic [4:0] Rd;
-	logic [1:0] Tc;
+	logic Tc1;
 	logic [4:0] Rc;
-	logic pad1;
 	logic [1:0] a;
 	logic [2:0] m3;
 	logic z;
@@ -663,6 +670,7 @@ typedef struct packed
 	logic vmrfwr;
 	logic is_vec;					// is a vector instruction
 	logic is_mod;					// is an instruction modifier
+	logic is_signed;			// is a signed operation
 	logic jump;
 	logic branch;
 	logic needRc;					// STx/CHK
@@ -675,10 +683,10 @@ typedef struct packed
 	logic [5:0] step;
 	logic [5:0] RaStep;
 	logic [5:0] RbStep;
-	logic [6:0] Ra;
+	logic [5:0] Ra;
 	logic [6:0] Rb;
 	logic [6:0] Rc;				// Sometimes Rt is transferred here
-	logic [6:0] Rt;
+	logic [5:0] Rt;
 	logic Ravec;
 	logic Rbvec;
 	logic Rcvec;
@@ -712,7 +720,7 @@ typedef struct packed
 	logic idv;
 	logic itv;
 	logic vmv;
-	logic [7:0] Rt;
+	logic [5:0] Rt;
 	Value imm;
 } sExecute;
 
@@ -722,7 +730,7 @@ typedef struct packed
 	Instruction ir;
 	Value ia;
 	logic rfwr;
-	logic [6:0] Rt;
+	logic [5:0] Rt;
 	Value res;
 } sExecuteOut;
 
@@ -738,7 +746,7 @@ typedef struct packed
 	Value dato;
 	Value imm;
 	logic rfwr;
-	logic [6:0] Rt;
+	logic [5:0] Rt;
 } sMemoryIO;
 
 typedef struct packed
@@ -750,7 +758,7 @@ typedef struct packed
 	Value ib;
 	Value ic;
 	logic rfwr;
-	logic [6:0] Rt;	
+	logic [5:0] Rt;	
 } sGraphicsOp;
 
 typedef struct packed
@@ -794,8 +802,8 @@ typedef struct packed
 	logic rfwr;
 	logic vrfwr;					// write vector register file
 	logic vmrfwr;
-	logic [6:0] Rt;
-	logic [6:0] Ra;
+	logic [5:0] Rt;
+	logic [5:0] Ra;
 	logic [6:0] Rb;				// for VEX
 	logic [6:0] Rc;
 	logic [6:0] Rd;
@@ -803,7 +811,7 @@ typedef struct packed
 	logic Rbvec;
 	logic Rcvec;
 	logic Rdvec;
-	logic [6:0] pRt;			// physical Rt
+	logic [5:0] pRt;			// physical Rt
 	logic [5:0] step;			// vector step
 	logic step_v;
 	Value ia;

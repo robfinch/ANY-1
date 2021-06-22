@@ -47,7 +47,7 @@ input rst_i;
 input clk_i;
 input wc_clk_i;
 input nmi_i;
-input irq_i;
+input [3:0] irq_i;
 input [7:0] cause_i;
 output vpa_o;
 output vda_o;
@@ -163,7 +163,7 @@ wire [63:0] dcBranchInvalidateMask = fnBranchInvalidateMask(dc_redirecto.xrid);
 function Address fnIPInc;
 input Address pc;
 begin
-	fnIPInc = pc + 4'd9;
+	fnIPInc = {pc[AWID-1:24],pc[23:-1] + 4'd9};
 end
 endfunction
 
@@ -336,7 +336,19 @@ wire die = status[4][4];
 reg [7:0] ASID;
 reg [63:0] sema;
 Address keytbl;
+reg [63:0] keys2 [0:3];
 reg [19:0] keys [0:7];
+always_comb
+begin
+	keys[0] = keys2[0][19:0];
+	keys[1] = keys2[0][39:20];
+	keys[2] = keys2[0][59:40];
+	keys[3] = keys2[1][19:0];
+	keys[4] = keys2[1][39:20];
+	keys[5] = keys2[1][59:40];
+	keys[6] = keys2[2][19:0];
+	keys[7] = keys2[2][39:20];
+end
 reg [7:0] vl;
 reg [47:0] ifStalls;
 reg [47:0] insnCommitted;
@@ -389,6 +401,8 @@ begin
 end
 endfunction
 
+wire memresp_empty;
+wire memresp_v;
 always_comb
 if (memresp_v) begin
 	memfu.rid <= memresp.tid[5:0];
@@ -819,8 +833,8 @@ end
 endfunction
 
 always_comb
-	if (decbuf.Ra[6])
-		exbufi.ia.val <= decbuf.Ra[5:0];
+	if (decbuf.Ra[4:0]==5'd0)
+		exbufi.ia.val <= 64'd0;
 	else if (decbuf.Ravec)
 		exbufi.ia.val <= vregfilesrc[decbuf.Ra[4:0]].rf==1'b0 ? vrfoA : 64'hDEADEADDEADDEAD;
 	else if (decbuf.Ramask)
@@ -834,7 +848,9 @@ always_comb
 
 always_comb
 	if (decbuf.Rc[6])
-		exbufi.ic.val <= decbuf.Rc[5:0];
+		exbufi.ic.val <= decbuf.is_signed ? {{58{decbuf.Rc[5]}},decbuf.Rc[5:0]} : decbuf.Rc[5:0];
+	else if (decbuf.Rc[4:0]==5'd0)
+		exbufi.ic.val <= 64'd0;
 	else if (!decbuf.needRc)
 		exbufi.ic.val <= 64'd0;
 	else if (decbuf.Rc[4:0]==5'd31)
@@ -846,7 +862,9 @@ always_comb
 
 always_comb
 	if (decbuf.Rb[6])
-		exbufi.ib.val <= decbuf.Rb[5:0];
+		exbufi.ib.val <= decbuf.is_signed ? {{58{decbuf.Rb[5]}},decbuf.Rb[5:0]} : decbuf.Rb[5:0];
+	else if (decbuf.Rb[4:0]==5'd0)
+		exbufi.ib.val <= 64'd0;
 	else if (decbuf.Rbvec)
 		exbufi.ib.val <= vregfilesrc[decbuf.Rb[4:0]].rf==1'b0 ? vrfoB : 64'hDEADEADDEADDEAD;
 	else if (decbuf.Rbmask)
@@ -863,7 +881,7 @@ begin
 	exbufi.branch <= decbuf.branch;
 	exbufi.ir <= decbuf.ir;
 	exbufi.rfwr <= decbuf.rfwr;
-	exbufi.iav <= decbuf.Ra[6] || (decbuf.Ravec ? (vregfilesrc[decbuf.Ra[4:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Ra[2:0]].rf==1'b0 : regValid(decbuf.Ra));
+	exbufi.iav <= (decbuf.Ravec ? (vregfilesrc[decbuf.Ra[4:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Ra[2:0]].rf==1'b0 : regValid({1'b0,decbuf.Ra}));
 	exbufi.ibv <= decbuf.Rb[6] || !decbuf.needRb || (decbuf.Rbvec ? (vregfilesrc[decbuf.Rb[4:0]].rf==1'b0) : decbuf.Rbmask ? vm_regfilesrc[decbuf.Rb[2:0]].rf==1'b0 : regValid(decbuf.Rb));
 	exbufi.icv <= regValid(decbuf.Rc) || !decbuf.needRc;
 	// To detect WAW hazard for vector instructions
@@ -1003,11 +1021,13 @@ wire brAddrMispredict = exbufi.pip != ex_redirecti.redirect_ip;//exRedirectIp;
 
 reg [NUM_AIREGS-1:1] rob_livetarget [0:ROB_ENTRIES-1];
 reg [NUM_AIREGS-1:1] livetarget;
-wire [63:0] reg_out [0:ROB_ENTRIES-1];
+wire [31:0] reg_out [0:ROB_ENTRIES-1];
 
 generate begin : gRegout
-	for (g = 0; g < ROB_ENTRIES; g = g + 1)
-decoder5 udc1 (rob[g].Rt[4:0], reg_out[g]);
+for (g = 0; g < ROB_ENTRIES; g = g + 1) begin
+decoder5 udc1 (rob[g].Rt[4:0], reg_out[g][31:1]);
+assign reg_out[g][0] = 1'b0;
+end
 end
 endgenerate
 
@@ -1206,7 +1226,7 @@ any1_execute uex1(
 	.d2x_rst(d2x_rst),
 	.ex_takb(ex_takb),
 	.csrro(csrro),
-	.irq_i(irq_i),		// For PFI instruction
+	.irq_i(|irq_i),		// For PFI instruction
 	.cause_i(cause_i),
 	.brAddrMispredict(brAddrMispredict),
 	.restore_rfsrc(restore_rfsrc),
@@ -1255,13 +1275,12 @@ else begin
 		memreq.func = STORE;
 	CACHE:
 		memreq.func = CACHE2;
+	default:	memreq.func = LOAD;
 	endcase
 	memreq.fifo_wr = membufi_wr;
 end
 
 wire [5:0] tidx = memresp.tid[5:0];
-wire memresp_empty;
-wire memresp_v;
 always_comb memresp_rd <= !memresp_empty;
 edge_det uedmemresp1 (.rst(rst_i), .clk(clk_g), .i(memresp_v), .pe(pe_memresp_v), .ne(), .ee());
 
@@ -1301,7 +1320,8 @@ any1_mem_ctrl umc1
 	.sr_o(sr_o),
 	.cr_o(cr_o),
 	.rb_i(rb_i),
-	.dce(dce)
+	.dce(dce),
+	.keys(keys)
 );
 
 
@@ -1352,7 +1372,7 @@ always @(posedge wc_clk_i)
 if (rst_i)
 	wfi <= 1'b0;
 else begin
-	if (irq_i|pe_nmi)
+	if (|irq_i|pe_nmi)
 		wfi <= 1'b0;
 	else if (set_wfi)
 		wfi <= 1'b1;
@@ -1493,7 +1513,7 @@ if (rst_i) begin
 	status[2] <= 64'd0;
 	status[1] <= 64'd0;
 	status[0] <= 64'd0;
-	for (n = 0; n < 64; n = n + 1)
+	for (n = 0; n < NUM_AIREGS; n = n + 1)
 		regfile[n] <= 64'd0;
 	for (n = 0; n < 16; n = n + 1)
 		sregfile[n] <= 64'd0;
@@ -1513,8 +1533,8 @@ if (rst_i) begin
 	wb2if_redirect_rd3 <= FALSE;
 	cr0 <= 64'h940000000;		// enable branch predictor, data cache
 	keytbl <= 32'h00020000;
-	for (n = 0; n < 8; n = n + 1)
-		keys[n] <= 20'd0;
+	for (n = 0; n < 4; n = n + 1)
+		keys2[n] <= 64'd0;
 	vl <= 8'd4;
 	exihi <= FALSE;
 	eximid <= FALSE;
@@ -2179,7 +2199,7 @@ else begin
 			nmif <= 1'b0;
 			rob[rob_que].cause <= 16'h8000|FLT_NMI;
 		end
-		else if (irq_i && die && decbuf.ir[6:4]!=4'h5)	// not prefix inst.
+		else if (|irq_i && die && decbuf.ir[6:4]!=4'h5)	// not prefix inst.
 			rob[rob_que].cause <= 16'h8000|cause_i;
 		else
 			rob[rob_que].cause <= FLT_NONE;
@@ -2213,14 +2233,14 @@ else begin
 				rob[rob_que].cmt <= TRUE;
 				rob[rob_que].cmt2 <= TRUE;
 				exilo <= TRUE;
-				exi <= {{26{exbufi.ir[35]}},exbufi.ir[35:8],10'd0};
+				exi <= {{25{exbufi.ir[35]}},exbufi.ir[35:8],11'd0};
 			end
 		EXI1:
 			begin
 				rob[rob_que].cmt <= TRUE;
 				rob[rob_que].cmt2 <= TRUE;
 				eximid <= TRUE;
-				exi[63:38] <= exbufi.ir[33:8];
+				exi[63:39] <= exbufi.ir[32:8];
 			end
 		EXI2:
 			begin
@@ -2284,7 +2304,7 @@ else begin
 				Rdvec <= decbuf.Rbvec;
 				btmod <= TRUE;
 				if (exbufi.ir[29]) begin
-					regc <= exbufi.ir[19:15];
+					regc <= exbufi.ir[18:14];
 					regcv <= TRUE;
 				end
 				else begin
@@ -2317,15 +2337,15 @@ else begin
 				Rcvec <= decbuf.Ravec;
 				Rdvec <= decbuf.Rbvec;
 				btmod <= TRUE;
-				if (exbufi.ir[29]) begin
-					regc <= exbufi.ir[19:15];
+				if (exbufi.ir[27]) begin
+					regc <= exbufi.ir[18:14];
 					regcv <= TRUE;
 				end
 				else begin
 					regc <= exbufi.ia;
 					regcv <= exbufi.iav;
 				end
-				if (exbufi.ir[30]) begin
+				if (exbufi.ir[26]) begin
 					regd <= exbufi.ir[24:20];
 					regdv <= TRUE;
 				end
@@ -2354,7 +2374,7 @@ else begin
 				regc <= exbufi.ia;
 				regcv <= exbufi.iav;
 				regcsrc <= regfilesrc[decbuf.Ra];
-				exi <= {{41{exbufi.ir[28]}},exbufi.ir[28:20],14'h0};
+				exi <= {{34{exbufi.ir[35]}},exbufi.ir[35:21],15'h0};
 				imod_inst <= exbufi.ir;
 			end
 		STRIDE:
@@ -2365,11 +2385,11 @@ else begin
 				RegspecD <= decbuf.Rb;
 				Rcvec <= decbuf.Ravec;
 				Rdvec <= decbuf.Rbvec;
-				if (exbufi.ir[21]) begin
+				if (exbufi.ir[20]) begin
 					rob[rob_que].cmt <= TRUE;
 					rob[rob_que].cmt2 <= TRUE;
 					stride <= TRUE;
-					regc <= {58'd0,exbufi.ir[20:15]};
+					regc <= {58'd0,exbufi.ir[18:14]};
 					regcv <= TRUE;
 					regcsrc <= regfilesrc[decbuf.Ra];
 					imod_inst <= exbufi.ir;
@@ -2384,7 +2404,7 @@ else begin
 					imod_inst <= exbufi.ir;
 				end
 				if (!(exihi||eximid||exilo))
-					exi <= {{40{exbufi.ir[35]}},exbufi.ir[35:22],10'd0};
+					exi <= {{37{exbufi.ir[35]}},exbufi.ir[35:20],11'd0};
 			end
 		VSTRIDE:
 			begin
@@ -2394,11 +2414,11 @@ else begin
 				RegspecD <= decbuf.Rb;
 				Rcvec <= decbuf.Ravec;
 				Rdvec <= decbuf.Rbvec;
-				if (exbufi.ir[21]) begin
+				if (exbufi.ir[20]) begin
 					rob[rob_que].cmt <= TRUE;
 					rob[rob_que].cmt2 <= TRUE;
 					stride <= TRUE;
-					regc <= {58'd0,exbufi.ir[20:15]};
+					regc <= {58'd0,exbufi.ir[18:14]};
 					regcv <= TRUE;
 					regcsrc <= vregfilesrc[decbuf.Ra];
 					imod_inst <= exbufi.ir;
@@ -2413,7 +2433,7 @@ else begin
 					imod_inst <= exbufi.ir;
 				end
 				if (!(exihi||eximid||exilo))
-					exi <= {{40{exbufi.ir[35]}},exbufi.ir[35:22],10'd0};
+					exi <= {{39{exbufi.ir[35]}},exbufi.ir[35:20],11'd0};
 			end
 		default:	
 			begin
@@ -2452,18 +2472,18 @@ else begin
 				exihi <= FALSE;
 				eximid <= FALSE;
 				exilo <= FALSE;
-				rob[rob_que].imm.val[63:10] <= exi[63:10];
+				rob[rob_que].imm.val[63:11] <= exi[63:11];
 			end
 			else if (eximid) begin
 				has_exi <= TRUE;
 				eximid <= FALSE;
 				exilo <= FALSE;
-				rob[rob_que].imm.val[63:10] <= exi[63:10];
+				rob[rob_que].imm.val[63:11] <= exi[63:11];
 			end
 			else if (exilo) begin
 				has_exi <= TRUE;
 				exilo <= FALSE;
-				rob[rob_que].imm.val[63:10] <= exi[63:10];
+				rob[rob_que].imm.val[63:11] <= exi[63:11];
 			end
 			if (imod) begin
 				imod <= FALSE;
@@ -2485,7 +2505,7 @@ else begin
 				end
 				if (has_exi) begin
 					has_exi <= FALSE;
-					rob[rob_que].imm.val[63:10] <= exi[63:10];
+					rob[rob_que].imm.val[63:11] <= exi[63:11];
 				end
 			end
 			if (btmod) begin
@@ -2508,7 +2528,7 @@ else begin
 				end
 				if (has_exi) begin
 					has_exi <= FALSE;
-					rob[rob_que].imm.val[63:10] <= exi[63:10];
+					rob[rob_que].imm.val[63:11] <= exi[63:11];
 				end
 			end
 			if (brmod) begin
@@ -2521,7 +2541,7 @@ else begin
 				rob[rob_que].ic <= regc;
 				rob[rob_que].icv <= regcv;
 				rob[rob_que].ics <= regcsrc;
-				rob[rob_que].imm.val[63:14] <= exi[63:14];
+				rob[rob_que].imm.val[63:15] <= exi[63:15];
 				rob[rob_que].Rt <= imod_inst.r2.Rt;
 				if (imod_inst.r2.Rt[4:0] != 5'd0) begin
 	//				tAllocReg(imod_inst.r2.Rt,rob[rob_que].pRt);
@@ -2539,7 +2559,7 @@ else begin
 				rob[rob_que].ic <= regc;
 				rob[rob_que].icv <= regcv;
 				rob[rob_que].ics <= regcsrc;
-				rob[rob_que].imm.val[63:10] <= exi[63:10];
+				rob[rob_que].imm.val[63:11] <= exi[63:11];
 			end
 			if (!(exihi||eximid||exilo||imod||stride))
 				has_exi <= FALSE;
@@ -3061,7 +3081,7 @@ task tCopyRegfileSrc;
 input [3:0] dst;
 input [3:0] src;
 begin
-	for (n = 0; n < 64; n = n + 1)
+	for (n = 0; n < NUM_AIREGS; n = n + 1)
 		regfilesrc_hist[dst][n] <= regfilesrc_hist[src][n];
 end
 endtask
@@ -3069,7 +3089,7 @@ endtask
 task tZeroRegfileSrc;
 input [3:0] dst;
 begin
-	for (n = 0; n < 128; n = n + 1) begin
+	for (n = 0; n < NUM_AIREGS; n = n + 1) begin
 		regfilesrc[n].rf <= 1'b0;
 		regfilesrc[n].rid <= 6'h0;
 		regfilesrc_hist[dst][n].rf <= 1'b0;
@@ -3088,6 +3108,8 @@ begin
 		CSR_DHARTID: res.val <= hartid_i;
 		CSR_MHARTID: res.val <= hartid_i;
 		CSR_MCR0:	res.val <= cr0|(dce << 5'd30);
+		CSR_KEYTBL:	res.val <= keytbl;
+		CSR_KEYS:	res.val <= keys2[regno[1:0]];
 		CSR_SEMA: res.val <= sema;
 		CSR_FSTAT:	res.val <= fpscr;
 		CSR_ASID:	res.val <= ASID;
@@ -3124,6 +3146,8 @@ begin
 		CSR_DCR0:		cr0 <= val.val;
 		CSR_MCR0:		cr0 <= val.val;
 		CSR_SEMA:		sema <= val.val;
+		CSR_KEYTBL:	keytbl <= val.val;
+		CSR_KEYS:		keys2[regno[1:0]] <= val.val;
 		CSR_FSTAT:	fpscr <= val.val;
 		CSR_ASID: 	ASID <= val.val;
 		CSR_MBADADDR:	badaddr[regno[14:12]] <= val.val;

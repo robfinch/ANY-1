@@ -29,9 +29,9 @@ input rst;
 input clk;
 input en;
 input xisBranch;
-input [31:0] xip;
+input Address xip;
 input takb;
-input [31:0] ip;
+input Address ip;
 output reg predict_taken;
 
 integer n;
@@ -39,23 +39,22 @@ integer n;
 reg wrhist;
 reg [2:0] gbl_branch_hist;
 reg [1:0] branch_history_table [511:0];
-always @*
+always_comb
 	wrhist <= xisBranch;
 
 // For simulation only, initialize the history table to zeros.
 // In the real world we don't care.
 initial begin
-    gbl_branch_hist = 3'b000;
 	for (n = 0; n < 512; n = n + 1)
 		branch_history_table[n] = 3;
 end
-wire [8:0] bht_wa = {xip[9:3],gbl_branch_hist[2:1]};		// write address
+wire [8:0] bht_wa = {xip[8:2],gbl_branch_hist[2:1]};		// write address
 wire [1:0] bht_xbits = branch_history_table[bht_wa];
 reg [8:0] bht_ra;
 reg [1:0] bht_ibits;
-always @*
+always_comb
 begin
-	bht_ra = {ip[9:3],gbl_branch_hist[2:1]};	// read address (IF stage)
+	bht_ra = {ip[8:2],gbl_branch_hist[2:1]};	// read address (IF stage)
 	bht_ibits = branch_history_table[bht_ra];
 	predict_taken = (bht_ibits==2'd0 || bht_ibits==2'd1) && en;
 end
@@ -65,7 +64,7 @@ end
 // in commit1 is never encountered. So only update for
 // commit1 if commit0 is not taken.
 reg [1:0] xbits_new;
-always @*
+always_comb
 if (wrhist) begin
 	if (takb) begin
 		if (bht_xbits != 2'd1)
@@ -83,7 +82,7 @@ end
 else
 	xbits_new <= bht_xbits;
 
-always @(posedge clk)
+always_ff @(posedge clk)
 if (rst)
 	gbl_branch_hist <= 3'b000;
 else begin

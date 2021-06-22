@@ -40,7 +40,7 @@ import any1_pkg::*;
 module any1_mem_ctrl(rst,clk,UserMode,MUserMode,omode,ASID,sregfile,ip,ihit,ifStall,ic_line,
 	fifoToCtrl_i,fifoToCtrl_full,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
 	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
-	dat_i, dat_o, sr_o, cr_o, rb_i, dce);
+	dat_i, dat_o, sr_o, cr_o, rb_i, dce, keys);
 parameter AWID=32;
 input rst;
 input clk;
@@ -50,7 +50,7 @@ input [2:0] omode;
 input [7:0] ASID;
 input [63:0] sregfile [0:15];
 input Address ip;
-output ihit;
+output reg ihit;
 input ifStall;
 output [pL1ICacheLineSize-1:0] ic_line;
 // Fifo controls
@@ -78,6 +78,7 @@ output reg sr_o;
 output reg cr_o;
 input rb_i;
 output reg dce;							// data cache enable
+input [19:0] keys [0:7];
 
 parameter TRUE = 1'b1;
 parameter FALSE = 1'b0;
@@ -118,6 +119,7 @@ parameter IFETCH5 = 6'd35;
 parameter IFETCH6 = 6'd36;
 parameter IFETCH1a = 6'd37;
 parameter IFETCH1b = 6'd38;
+parameter IFETCH3a = 6'd39;
 parameter DFETCH2 = 6'd42;
 parameter DFETCH3 = 6'd43;
 parameter DFETCH4 = 6'd44;
@@ -249,11 +251,11 @@ lfsr ulfsr1
 	.o(lfsr_o)
 );
 
-wire pev;
-edge_det ued1 (.rst(rst), .clk(clk), .ce(1'b1), .i(fifoToCtrl_v), .pe(pev), .ne(), .ee());
-
 wire fifoToCtrl_empty;
 wire fifoToCtrl_v;
+
+wire pev;
+edge_det ued1 (.rst(rst), .clk(clk), .ce(1'b1), .i(fifoToCtrl_v), .pe(pev), .ne(), .ee());
 
 MemoryRequestFifo uififo1
 (
@@ -315,8 +317,8 @@ assign fifoFromCtrl_empty = ofifo_cnt==4'd0;
 
 reg ic_update;
 reg [1:0] ic_rway,ic_wway;
-wire icache_wr;
-assign icache_wr = state==IFETCH3;
+reg icache_wr;
+always_comb icache_wr = state==IFETCH3;
 reg ic_invline,ic_invall;
 reg [1:0] prev_ic_rway = 0;
 Address ipo;
@@ -337,9 +339,8 @@ icache_blkmem uicm (
   .doutb(ic_line)  // output wire [511 : 0] doutb
 );
 
-reg [AWID-7:0] ictag [0:3] [0:512/4-1];
+reg [AWID-1:6] ictag [0:3] [0:512/4-1];
 reg [512/4-1:0] icvalid [0:3];
-reg ihit;
 reg ihit1a;
 reg ihit1b;
 reg ihit1c;
@@ -354,13 +355,7 @@ begin
 end
 
 initial begin
-	for (n = 0; n < 512; n = n + 1) begin
-		icvalid[0][n] = 1'b1;
-		icvalid[1][n] = 1'b1;
-		icvalid[2][n] = 1'b1;
-		icvalid[3][n] = 1'b1;
-	end
-  for (n = 0; n < 512; n = n + 1) begin
+  for (n = 0; n < 512/4; n = n + 1) begin
     ictag[0][n] = 32'd1;
     ictag[1][n] = 32'd1;
     ictag[2][n] = 32'd1;
@@ -630,7 +625,8 @@ else begin
 		  icnt <= 5'd0;
 		  dcnt <= 5'd0;
 		  shr_ma <= 6'd0;
-			if (!ihit & fifoToCtrl_empty) begin
+			if (!ihit && fifoToCtrl_empty) begin
+				waycnt <= waycnt + 2'd1;
 				// On a miss goto load I$ process unless a hit in the victim cache.
 				// Use ipo to hold onto the original ip value. The ip value might
 				// change during a cache load due to a branch. We also want the start
@@ -1104,7 +1100,6 @@ else begin
 	IFETCH3:
 		begin
 		  ic_wway <= waycnt;
-			waycnt <= waycnt + 2'd1;
 			ret();
 		end
 

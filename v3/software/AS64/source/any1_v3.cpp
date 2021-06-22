@@ -341,13 +341,13 @@ static int regCnst;
 #define S_OCTA	3
 #define S_HEXI	4
 
-#define RT(x)		(((x) & 0x7fLL) << 8LL)
-#define RD(x)		(((x) & 0x7fLL) << 8LL)
-#define RA(x)		(((x) & 0x7FLL) << 15LL)
-#define RB(x)		(((x) & 0x7fLL) << 22LL)
-#define FUNC4(x)	(((x) & 15LL) << 30LL)
-#define FUNC6(x)	(((x) & 0xFFLL) << 28LL)
-#define IMM(x)	(((x) & 0xfffLL) << 22LL)
+#define RT(x)		(((x) & 0x3fLL) << 8LL)
+#define RD(x)		(((x) & 0x3fLL) << 8LL)
+#define RA(x)		(((x) & 0x3FLL) << 14LL)
+#define RB(x)		(((x) & 0x7fLL) << 20LL)
+#define FUNC4(x)	(((x) & 15LL) << 32LL)
+#define FUNC6(x)	(((x) & 0x7FLL) << 29LL)
+#define IMM(x)	(((x) & 0xffffLL) << 20LL)
 #define SHI7(x)	((((x) & 0x60LL) << 29LL) | RB(((x) & 0x3fLL)))
 #define STDISP(x)	((((x) & 0x1fLL) << 8LL) | (((x) & 0x1fE0LL) << 23LL))
 #define LDDISP(x)	(((x) & 0x3ffffLL) << 13LL)
@@ -522,7 +522,8 @@ static int getRegisterX()
 	if (*inptr == '#') {
 		inptr++;
 		reg = expr();
-		return (reg|0x80);
+		any1_NextToken();
+		return (reg|0x40);
 	}
   switch(*inptr) {
   case 'r': case 'R':
@@ -1758,28 +1759,28 @@ static void LoadConstant(int64_t val, int rg)
 {
 	int64_t val1, val2;
 
-	if (IsNBit(val, 12LL)) {
+	if (IsNBit(val, 16LL)) {
 		emit_insn(
-			((val & 0x3fffLL) << 22LL) |
-			RT(rg) |
+			((val & 0xffffLL) << 20LL) |
+			RA(0) | RT(rg) |
 			I_ADDI, true);	// ADDI (sign extends)
 		return;
 	}
-	if (IsNBit(val, 38LL)) {
-		emit_insn(((val >> 10LL) << 8LL) | I_EXI0);
-		emit_insn(((val & 0x3FFFLL) << 22LL) | RT(rg) | I_ADDI);
+	if (IsNBit(val, 39LL)) {
+		emit_insn(((val >> 11LL) << 8LL) | I_EXI0);
+		emit_insn(((val & 0xFFFFLL) << 20LL) | RA(0) | RT(rg) | I_ADDI);
 		return;
 	}
-	if (IsNBit(val, 66LL)) {
-		emit_insn(((val >> 10LL) << 8LL) | I_EXI0);
-		emit_insn(((val >> 38LL) << 8LL) | I_EXI1);
-		emit_insn(((val & 0x3FFFLL) << 22LL) | RT(rg) | I_ADDI);
+	if (IsNBit(val, 67LL)) {
+		emit_insn(((val >> 11LL) << 8LL) | I_EXI0);
+		emit_insn(((val >> 39LL) << 8LL) | I_EXI1);
+		emit_insn(((val & 0xFFFFLL) << 20LL) | RA(0) | RT(rg) | I_ADDI);
 		return;
 	}
-	emit_insn(((val >> 10LL) << 8LL) | I_EXI0);
-	emit_insn(((val >> 38LL) << 8LL) | I_EXI1);
-	emit_insn(((val >> 66LL) << 8LL) | I_EXI2);
-	emit_insn(((val & 0x3FFFLL) << 22LL) | RT(rg) | I_ADDI);
+	emit_insn(((val >> 11LL) << 8LL) | I_EXI0);
+	emit_insn(((val >> 39LL) << 8LL) | I_EXI1);
+	emit_insn(((val >> 67LL) << 8LL) | I_EXI2);
+	emit_insn(((val & 0xFFFFLL) << 20LL) | RA(0) | RT(rg) | I_ADDI);
 	return;
 }
 
@@ -1931,7 +1932,7 @@ static void process_permi(int64_t opcode6, int64_t func6, int64_t bit23)
 		I_BRMOD, false
 	);
 	emit_insn(
-		IMM(val & 0xfffLL) |
+		IMM(val & 0xffffLL) |
 		RT(Rt) |
 		RA(Ra) |
 		opcode6, false);
@@ -1939,41 +1940,41 @@ xit:
 	ScanToEOL();
 }
 
-static void ext10(int64_t val)
+static void ext11(int64_t val)
 {
-	if (!IsNBit(val, 12LL)) {
-		if (!IsNBit(val, 38LL)) {
-			// Fits into 66 bits?
-			if (!IsNBit(val, 66LL)) {
+	if (!IsNBit(val, 11LL)) {
+		if (!IsNBit(val, 39LL)) {
+			// Fits into 67 bits?
+			if (!IsNBit(val, 67LL)) {
 				emit_insn(
-					((val >> 66LL) << 8LL) |
+					((val >> 11LL) << 8LL) |
+					I_EXI0, false
+				);
+				emit_insn(
+					((val >> 39LL) << 8LL) |
+					I_EXI1, false
+				);
+				emit_insn(
+					((val >> 67LL) << 8LL) |
 					I_EXI2, false
 				);
-				emit_insn(
-					((val >> 38LL) << 8LL) |
-					I_EXI1, false
-				);
-				emit_insn(
-					((val >> 10LL) << 8LL) |
-					I_EXI0, false
-				);
 			}
-			// Fits into 66 bits
+			// Fits into 67 bits
 			else {
 				emit_insn(
-					((val >> 38LL) << 8LL) |
-					I_EXI1, false
+					((val >> 11LL) << 8LL) |
+					I_EXI0, false
 				);
 				emit_insn(
-					((val >> 10LL) << 8LL) |
-					I_EXI0, false
+					((val >> 39LL) << 8LL) |
+					I_EXI1, false
 				);
 			}
 		}
-		// Fits into 34 bits
+		// Fits into 39 bits
 		else {
 			emit_insn(
-				((val >> 10LL) << 8LL) |
+				((val >> 11LL) << 8LL) |
 				I_EXI0, false
 			);
 		}
@@ -2029,8 +2030,8 @@ static void process_riop(int64_t opcode6, int64_t func6, int64_t bit23)
 			opcode6, true);
 			goto xit;
 	}
-	if (!IsNBit(val, 12LL))
-		ext10(val);
+	if (!IsNBit(val, 16LL))
+		ext11(val);
 	emit_insn(
 		IMM(val) |
 		RT(Rt) |
@@ -2070,8 +2071,8 @@ static void process_setiop(int64_t opcode6, int64_t func6, int64_t bit23)
 	need(',');
 	any1_NextToken();
 	val = expr();
-	if (!IsNBit(val, 12LL))
-		ext10(val);
+	if (!IsNBit(val, 16LL))
+		ext11(val);
 	emit_insn(
 		IMM(val) |
 		RT(Rt) |
@@ -2945,6 +2946,7 @@ static void process_bcc()
 	q = inptr;
 	val = expr();
 	disp = val - code_address;
+	disp /= 9;
 	// Swap operands?
 	if (opcode6 < 0) {
 		opcode6 = -opcode6;
@@ -2952,9 +2954,9 @@ static void process_bcc()
 		Ra = Rb;
 		Rb = Rc;
 	}
-	if (!IsNBit(disp,9))
-		emit_insn((((disp) >> 10LL) << 22LL) | RA(31) | RT(0) | I_BRMOD);
-	emit_insn((((disp) >> 5LL) << 29LL) | RB(Rb) | RA(Ra) | (((disp)  & 31LL) << 8LL) | opcode6);
+	if (!IsNBit(disp,15))
+		emit_insn((((disp) >> 15LL) << 21LL) | RA(31) | RT(0) | I_BRMOD);
+	emit_insn((((disp) >> 6LL) << 27LL) | RB(Rb) | RA(Ra) | RT(disp) | opcode6);
 	prevToken();
 	return;
 }
@@ -2997,9 +2999,10 @@ static void process_bbc(int opcode6, int opcode3)
 		any1_NextToken();
 		val = expr();
 		disp = (val - code_address);
-		if (!IsNBit(disp, 9))
-			emit_insn((((disp) >> 10LL) << 22LL) | RA(31) | RT(0) | I_BRMOD);
-		emit_insn((((disp) >> 5LL) << 29LL) | RB(bitno) | RA(Ra) | (((disp) & 31LL) << 8LL) | opcode6);
+		disp /= 9;
+		if (!IsNBit(disp, 15))
+			emit_insn((((disp) >> 15LL) << 21LL) | RA(31) | RT(0) | I_BRMOD);
+		emit_insn((((disp) >> 6LL) << 27LL) | RB(bitno) | RA(Ra) | RT(disp) | opcode6);
 		return;
 	}
 	error("ibne: target must be a label");
@@ -3051,6 +3054,7 @@ static void process_beqi(int64_t opcode6, int64_t opcode3)
 	mask = 0xFFFFFFFFFFFFFFFFLL;
 	mask = mask >> (64LL - (int64_t)code_bits);
 	disp = ((val & mask) - (code_address & mask));
+	disp /= 9;
 	if (!IsNBit(disp, 11LL)) {
 		ins48 = !gpu;
 		if (!IsNBit(disp, 27LL) || gpu) {
@@ -3727,9 +3731,10 @@ static void process_store()
 	expect(',');
   mem_operand(&disp, &Ra, &Rc, &Sc, &seg);
 	if (Ra >= 0 && Rc >= 0) {
-		emit_insn((Sc << 24LL) | RA(Rc)|I_IMOD);
+		emit_insn(RA(Rc)|I_IMOD);
 		emit_insn(
 			FUNC4(opcode6) |
+			((Sc & 7LL) << 29LL) |
 			RT(0) |
 			RA(Ra) |
 			RB(Rs) |
@@ -3738,7 +3743,8 @@ static void process_store()
 		return;
 	}
 
-  if (Ra < 0) Ra = 0;
+  if (Ra <= 0) 
+		Ra = 0x40;
   val = disp;
 	if (Ra == 55)
 		val -= program_address;
@@ -3750,16 +3756,16 @@ static void process_store()
 		else
 			val -= data_base_address;
 	}
-	if (IsNBit(val, 8))
-		emit_insn(FUNC4(opcode6) | (((val >> 7LL) & 0x1LL) << 29LL) | RB(Rs) | RA(Ra) | RT(val) | I_STx);
-	else if (IsNBit(val, 34)) {
-		emit_insn((((val) >> 8LL) << 8LL) | I_EXI0);
-		emit_insn(FUNC4(opcode6) | (((val >> 7LL) & 0x1LL) << 29LL) | RB(Rs) | RA(Ra) | RT(val) | I_STx);
+	if (IsNBit(val, 11))
+		emit_insn(FUNC4(opcode6) | (((val >> 6LL) & 31LL) << 27LL) | RB(Rs) | RA(Ra) | RT(val) | I_STx);
+	else if (IsNBit(val, 39)) {
+		emit_insn((((val) >> 11LL) << 8LL) | I_EXI0);
+		emit_insn(FUNC4(opcode6) | (((val >> 6LL) & 31LL) << 27LL) | RB(Rs) | RA(Ra) | RT(val) | I_STx);
 	}
-	else if (IsNBit(val, 60)) {
-		emit_insn((((val) >> 8LL) << 8LL) | I_EXI0);
-		emit_insn((((val) >> 34LL) << 8LL) | I_EXI1);
-		emit_insn(FUNC4(opcode6) | (((val >> 7LL) & 1LL) << 29LL) | RB(Rs) | RA(Ra) | RT(val) | I_STx);
+	else if (IsNBit(val, 67)) {
+		emit_insn((((val) >> 11LL) << 8LL) | I_EXI0);
+		emit_insn((((val) >> 39LL) << 8LL) | I_EXI1);
+		emit_insn(FUNC4(opcode6) | (((val >> 6LL) & 31LL) << 27LL) | RB(Rs) | RA(Ra) | RT(val) | I_STx);
 	}
 	ScanToEOL();
 }
@@ -3940,7 +3946,7 @@ static void process_load()
   }
   expect(',');
   mem_operand(&disp, &Ra, &Rb, &Sc, &seg);
-  if (Ra < 0) Ra = 0;
+  if (Ra <= 0) Ra = 0x40;
     val = disp;
 
 	if (Ra == regGP) {
@@ -3954,22 +3960,22 @@ static void process_load()
 
 	// Check for indexed mode
 	if (Ra >= 0 && Rb >= 0) {
-		emit_insn(FUNC4(opcode6) | (Sc << 32LL) | RB(Rb)|RA(Ra)|RT(Rt)|(opcode6&0x80?I_LDxXZ:I_LDxX));
+		emit_insn(FUNC4(opcode6) | ((Sc & 7LL) << 29LL) | RB(Rb)|RA(Ra)|RT(Rt)|(opcode6&0x80?I_LDxXZ:I_LDxX));
 		ScanToEOL();
 		return;
 	}
 
-	if (IsNBit(val, 8)) {
-		emit_insn(FUNC4(opcode6) | ((val & 0xffLL) << 22LL) | RA(Ra) | RT(Rt) | (opcode6 & 0x80 ? I_LDxZ : I_LDx));
+	if (IsNBit(val, 12)) {
+		emit_insn(FUNC4(opcode6) | ((val & 0xfffLL) << 20LL) | RA(Ra) | RT(Rt) | (opcode6 & 0x80 ? I_LDxZ : I_LDx));
 	}
-	else if (IsNBit(val, 34)) {
-		emit_insn((((val) >> 8LL) << 8LL) | I_EXI0);
-		emit_insn(FUNC4(opcode6) | ((val & 0xffLL) << 22LL) | RA(Ra) | RT(Rt) | (opcode6 & 0x80 ? I_LDxZ : I_LDx));
+	else if (IsNBit(val, 39)) {
+		emit_insn((((val) >> 11LL) << 8LL) | I_EXI0);
+		emit_insn(FUNC4(opcode6) | ((val & 0xfffLL) << 20LL) | RA(Ra) | RT(Rt) | (opcode6 & 0x80 ? I_LDxZ : I_LDx));
 	}
-	else if (IsNBit(val, 60)) {
-		emit_insn((((val) >> 8LL) << 8LL) | I_EXI0);
-		emit_insn((((val) >> 34LL) << 8LL) | I_EXI1);
-		emit_insn(FUNC4(opcode6) | ((val & 0xffLL) << 22LL) | RA(Ra) | RT(Rt) | (opcode6 & 0x80 ? I_LDxZ : I_LDx));
+	else if (IsNBit(val, 67)) {
+		emit_insn((((val) >> 11LL) << 8LL) | I_EXI0);
+		emit_insn((((val) >> 39LL) << 8LL) | I_EXI1);
+		emit_insn(FUNC4(opcode6) | ((val & 0xfffLL) << 20LL) | RA(Ra) | RT(Rt) | (opcode6 & 0x80 ? I_LDxZ : I_LDx));
 	}
   ScanToEOL();
 }
@@ -3994,22 +4000,23 @@ static void process_cache(int opcode6)
 	// Check for indexed mode
 	if (Ra >= 0 && Rb >= 0) {
 		error("Indexed mode not supported for CACHE");
-		emit_insn(FUNC4(opcode6) | (Sc > 1 ? (1LL << 26LL) : 0LL) | RB(Rb) | RA(Ra) | RT(cmd) | ((opcode6 & 0x80) ? I_LDxXZ : I_LDxX));
+		emit_insn(FUNC4(opcode6) | ((Sc & 7LL) << 29LL) | RB(Rb) | RA(Ra) | RT(cmd) | ((opcode6 & 0x80) ? I_LDxXZ : I_LDxX));
 		ScanToEOL();
 		return;
 	}
 
-	if (IsNBit(val, 8)) {
-		emit_insn(FUNC4(opcode6) | ((val & 0xffLL) << 22LL) | RA(Ra) | RT(cmd) | opcode6);
+	if (Ra <= 0) Ra = 0x40;
+	if (IsNBit(val, 12)) {
+		emit_insn(FUNC4(opcode6) | ((val & 0xfffLL) << 20LL) | RA(Ra) | RT(cmd) | opcode6);
 	}
-	else if (IsNBit(val, 34)) {
-		emit_insn((((val) >> 8LL) << 8LL) | I_EXI0);
-		emit_insn(FUNC4(opcode6) | ((val & 0xffLL) << 22LL) | RA(Ra) | RT(cmd) | opcode6);
+	else if (IsNBit(val, 39)) {
+		emit_insn((((val) >> 11LL) << 8LL) | I_EXI0);
+		emit_insn(FUNC4(opcode6) | ((val & 0xfffLL) << 20LL) | RA(Ra) | RT(cmd) | opcode6);
 	}
-	else if (IsNBit(val, 60)) {
-		emit_insn((((val) >> 8LL) << 8LL) | I_EXI0);
-		emit_insn((((val) >> 34LL) << 8LL) | I_EXI1);
-		emit_insn(FUNC4(opcode6) | ((val & 0xffLL) << 22LL) | RA(Ra) | RT(cmd) | opcode6);
+	else if (IsNBit(val, 67)) {
+		emit_insn((((val) >> 11LL) << 8LL) | I_EXI0);
+		emit_insn((((val) >> 39LL) << 8LL) | I_EXI1);
+		emit_insn(FUNC4(opcode6) | ((val & 0xfffLL) << 20LL) | RA(Ra) | RT(cmd) | opcode6);
 	}
   ScanToEOL();
 }
@@ -4954,7 +4961,7 @@ static void process_vsrrop(int funct6)
 
 static void ProcessEOL(int opt)
 {
-	int64_t nn, mm, cai, caia, wd;
+	int64_t nn, mm, cai, caia, wd, nk;
 	int first;
 	int jj;
 	double cc;
@@ -4977,17 +4984,16 @@ static void ProcessEOL(int opt)
 	first = true;
 	if (bGen && (segment == codeseg || segment == dataseg || segment == rodataseg)) {
 		nn = binstart;
-		cc = 2;
+		nk = (nn << 1) + (bt_index ? 1 : 0);
+		cc = 4;
 		if (segment == codeseg) {
-			cc = 4.5;
+			cc = 9;
 		}
-		nf = nn + bt_index / 8.0;
 		while (nn < sections[segment].index) {
-			fprintf(ofp, "%08I64X.%01X ", ca, bt_index * 2);
-			evn = 0;
-			for (mm = nf; nf < mm + cc && nf < sections[segment].index; nf += 4.5) {
-				nn = (int)nf;
-				switch ((int)(nf / 4.5) & 1) {
+			fprintf(ofp, "%08I64X.%01X ", ca >> 1, bt_index * 2);
+			for (mm = nk; nk < mm + cc && nn < sections[segment].index; nk += 9) {
+				nn = nk >> 1;
+				switch (nk & 1) {
 				case 0:
 				case 4:
 				case 8:
@@ -4996,7 +5002,7 @@ static void ProcessEOL(int opt)
 						((int64_t)sections[segment].bytes[nn + 1] << 8) |
 						((int64_t)sections[segment].bytes[nn + 2] << 16) |
 						((int64_t)sections[segment].bytes[nn + 3] << 24) |
-						(((int64_t)sections[segment].bytes[nn + 4] & 3) << 32);
+						(((int64_t)sections[segment].bytes[nn + 4] & 15) << 32);
 					fprintf(ofp, "%09I64X ", wd);
 					break;
 				case 1:
@@ -5007,7 +5013,7 @@ static void ProcessEOL(int opt)
 						((int64_t)sections[segment].bytes[nn + 1] << 4) |
 						((int64_t)sections[segment].bytes[nn + 2] << 12) |
 						((int64_t)sections[segment].bytes[nn + 3] << 20) |
-						(((int64_t)sections[segment].bytes[nn + 4] & 63) << 28);
+						(((int64_t)sections[segment].bytes[nn + 4]) << 28);
 					fprintf(ofp, "%09I64X ", wd);
 					break;
 					/*
@@ -5043,7 +5049,8 @@ static void ProcessEOL(int opt)
 					break;
 				}
 			}
-			for (; nn < mm + cc; nn++)
+			nn = nk >> 1;
+			for (; nk < mm + cc; nk++)
 				fprintf(ofp, "   ");
 			if (first & opt) {
 				fprintf(ofp, "\t%.*s\n", inptr - stptr - 1, stptr);
@@ -5052,15 +5059,9 @@ static void ProcessEOL(int opt)
 			else
 				fprintf(ofp, opt ? "\n" : "; NOP Ramp\n");
 			bt_index += 36;
-			ca += bt_index / 8;
+			//ca += bt_index / 8;
+			ca = ca + 9;
 			bt_index &= 7;
-			/*
-			if (((int64_t)ca & 63) >= 60) {
-				ca += 4.0;
-				nf += 1.0;
-				nf = trunc(nf);
-			}
-			*/
 //			nn = (int)nf;
 		}	// while
 

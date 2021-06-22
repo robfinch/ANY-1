@@ -80,7 +80,7 @@ integer n;
 function Address fnIncIP;
 input Address ptr;
 begin
-	fnIncIP = ptr + 4'd9;
+	fnIncIP = {ptr[AWID-1:24],ptr[23:-1] + 4'd9};
 end
 endfunction
 
@@ -120,6 +120,20 @@ any1_bitfield ubf1
 	.d(robi.id),
 	.o(bf_out),
 	.masko()
+);
+
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Bit Matrix Multiply
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Value bmm_o;
+BMM ubmm1
+(
+	.op(robi.ir[1:0]),
+	.a(robi.ia),
+	.b(robi.ib),
+	.o(bmm_o)
 );
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -291,6 +305,7 @@ else begin
 				AND:	begin	robo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
 				OR:		begin	robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
 				XOR:	begin	robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+				BMMOR,BMMXOR,BMMTOR,BMMTXOR:	begin robo.res.val <= bmm_o; tMod(); end
 				SLL:	begin robo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
 				SLLI:	begin robo.res.val <= robi.ia.val << {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]}; tMod(); end
 				SRL:	begin robo.res.val <= robi.ia.val >> robi.ib.val[5:0]; tMod(); end
@@ -546,7 +561,7 @@ else begin
 		BTFLD:	begin robo.res.val <= bf_out.val; tMod(); robo.cmt <= TRUE; end
     BYTNDX:
 	    begin
-	    	if (robi.ir.r2.func!=4'd0) begin
+	    	if (robi.ir.r2.func[6:3]!=4'd0) begin
 	        if (robi.ia.val[7:0]==robi.imm.val[7:0])
 	          robo.res.val <= 64'd0;
 	        else if (robi.ia.val[15:8]==robi.imm.val[7:0])
@@ -628,7 +643,7 @@ else begin
 `endif
     U21NDX:
 			begin
-	    	if (robi.ir.r2.func!=4'd0) begin
+	    	if (robi.ir.r2.func[6:3]!=4'd0) begin
 	        if (robi.ia.val[20:0]==robi.imm.val[20:0])
 	          robo.res.val <= 64'd0;
 	        else if (robi.ia.val[41:21]==robi.imm.val[20:0])
@@ -729,7 +744,7 @@ else begin
 					f2a_rst <= TRUE;
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : fnIncIP(robi.ip);
+					ex_redirect.redirect_ip <= ex_takb ? robi.ic + {robi.imm.val,3'b0} + robi.imm.val : fnIncIP(robi.ip);
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.step <= 6'd0;
 					ex_redirect.xrid <= rob_exec;
@@ -742,7 +757,7 @@ else begin
 					f2a_rst <= TRUE;
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm.val : fnIncIP(robi.ip);
+					ex_redirect.redirect_ip <= ex_takb ? robi.ic + {robi.imm.val,3'b0} + robi.imm.val : fnIncIP(robi.ip);
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.step <= 6'd0;
 					ex_redirect.xrid <= rob_exec;
@@ -1189,7 +1204,9 @@ else begin
 				OR:		tDoOp(robi.ia.val | robi.ib.val);
 				XOR:	tDoOp(robi.ia.val ^ robi.ib.val);
 				SLL:	tDoOp(robi.ia.val << robi.ib.val[5:0]);
-				SLLI:	tDoOp(robi.ia.val << robi.ir.r2.Rb[5:0]);
+				SLLI:	tDoOp(robi.ia.val << {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]});
+				SRL:	tDoOp(robo.res.val <= robi.ia.val >> robi.ib.val[5:0]);
+				SRLI:	tDoOp(robo.res.val <= robi.ia.val >> {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]});
 				DIF:
 					begin
 						tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ?
@@ -1403,8 +1420,8 @@ else begin
 		VBTFLD:	tDoOp(bf_out.val);
     VBYTNDX:
 	    begin
-	   		if (vtmp==64'd0 | robi.Rtvec) begin
-		    	if (robi.ir.r2.func!=4'd0) begin
+	   		if (vtmp==64'd0 | robi.Rt[6]) begin
+		    	if (robi.ir.r2.func[6:3]!=4'd0) begin
 		        if (robi.ia.val[7:0]==robi.imm.val[7:0]) begin
 		        	vtmp <= {robi.step,3'b0};
 		        	vtmp[63] <= 1'b1;
