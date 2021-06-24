@@ -87,13 +87,6 @@
 #define I_ORUI	0x3C
 #define I_AUIIP	0x3E
 
-#define I_JAL		0x40
-#define I_BAL		0x41
-#define I_JALR	0x42
-#define I_JSR		0x42
-#define I_CALL	0x42
-#define I_RTS		0x43
-#define I_RTL		0x44
 #define I_RTE		0x45
 #define I_BEQ		0x4E
 #define I_BNE		0x4F
@@ -121,10 +114,15 @@
 #define I_STx		0x70
 #define I_STxX	0x71
 
-#define I_BRK		0x78
-#define I_NOP		0x79
-#define I_OSR2	0x7A
-#define I_CACHEI	0x7B
+#define I_BRK		0x00
+#define I_NOP		0x3F
+#define I_OSR2	0x07
+
+#define I_JAL		0x78
+#define I_BAL		0x79
+#define I_JALR	0x7A
+#define I_RET		0x7B
+#define I_CALL	0x7C
 
 #define I_LDBS	0x80
 #define I_LDBUS	0x81
@@ -318,6 +316,7 @@ static int recflag;
 
 extern int use_gp;
 
+static int regPC = 31;
 static int regSP = 30;
 static int regFP = 29;
 static int regGP = 28;
@@ -1652,12 +1651,10 @@ static void emit_insn(int64_t oc, bool can_compress = false)
 			break;
 		case I_CALL:
 		case I_JAL:
+		case I_BAL:
 			insnStats.calls++;
 			break;
-		case I_RTS:
-			insnStats.rets++;
-			break;
-		case I_RTL:
+		case I_RET:
 			insnStats.rets++;
 			break;
 		case I_RTE:
@@ -2465,7 +2462,7 @@ static void process_cmovf(int64_t funct6)
 // jal [r19]
 // ---------------------------------------------------------------------------
 
-static void process_jal(int64_t oc)
+static void process_jal(int64_t oc, int opt)
 {
 	int64_t addr, val;
 	int Ra;
@@ -2493,7 +2490,7 @@ static void process_jal(int64_t oc)
 		// Simple jmp [Rn]
 		if (token != ')' && token != ']')
 			printf("Missing close bracket %d\n", lineno);
-		emit_insn(RA(Ra) | RD(Rt) | I_JSR);
+		emit_insn(RA(Ra) | RD(Rt) | I_JAL);
 		goto xit;
 	}
 	else
@@ -2510,6 +2507,8 @@ static void process_jal(int64_t oc)
       Rt = 0;
 			noRt = true;
 		}
+		if (noRt && opt)
+			Rt = 1;
 		addr = expr();
     // d(Rn)? 
     //any1_NextToken();
@@ -2519,40 +2518,40 @@ static void process_jal(int64_t oc)
             printf("Illegal jump address mode.\r\n");
             Ra = 0;
         }
-		if (Ra==regSP)	// program counter relative ?
+		if (Ra==regPC)	// program counter relative ?
 			addr -= code_address;
 	}
 	val = addr;
 	if (Ra == 0) {
-		if (IsNBit(val, 24)) {
-			emit_insn(((val >> 2LL) << 10LL) | RT(Rt) |	I_JAL);
+		if (IsNBit(val, 26)) {
+			emit_insn(((val) << 10LL) | RT(Rt) |	I_JAL);
 			goto xit;
 		}
-		if (IsNBit(val, 32)) {
-			emit_insn(((val >> 8LL) << 8LL) | I_EXI0, false);
-			emit_insn(((val >> 2LL) << 10LL) | RT(Rt) | I_JAL);
+		if (IsNBit(val, 39)) {
+			emit_insn(((val >> 11LL) << 8LL) | I_EXI0, false);
+			emit_insn(((val) << 10LL) | RT(Rt) | I_JAL);
 			goto xit;
 		}
-		if (IsNBit(val, 56)) {
-			emit_insn(((val >> 8LL) << 8LL) | I_EXI0, false);
-			emit_insn(((val >> 32LL) << 8LL) | I_EXI1, false);
-			emit_insn(((val >> 2LL) << 10LL) | RT(Rt) | I_JAL);
+		if (IsNBit(val, 67)) {
+			emit_insn(((val >> 11LL) << 8LL) | I_EXI0, false);
+			emit_insn(((val >> 39LL) << 8LL) | I_EXI1, false);
+			emit_insn(((val) << 10LL) | RT(Rt) | I_JAL);
 			goto xit;
 		}
 	}
-	if (IsNBit(val, 14)) {
-		emit_insn(((val >> 2LL) << 20LL) | RA(Ra) | RT(Rt) | I_JAL);
+	if (IsNBit(val, 16)) {
+		emit_insn(((val) << 20LL) | RA(Ra) | RT(Rt) | I_JAL);
 		goto xit;
 	}
-	if (IsNBit(val, 32)) {
-		emit_insn(((val >> 8LL) << 8LL) | I_EXI0, false);
-		emit_insn(((val >> 2LL) << 20LL) | RA(Ra) | RT(Rt) | I_JAL);
+	if (IsNBit(val, 39)) {
+		emit_insn(((val >> 11LL) << 8LL) | I_EXI0, false);
+		emit_insn(((val) << 20LL) | RA(Ra) | RT(Rt) | I_JAL);
 		goto xit;
 	}
-	if (IsNBit(val, 56)) {
-		emit_insn(((val >> 8LL) << 8LL) | I_EXI0, false);
-		emit_insn(((val >> 32LL) << 8LL) | I_EXI1, false);
-		emit_insn(((val >> 2LL) << 20LL) | RA(Ra) | RT(Rt) | I_JAL);
+	if (IsNBit(val, 67)) {
+		emit_insn(((val >> 11LL) << 8LL) | I_EXI0, false);
+		emit_insn(((val >> 39LL) << 8LL) | I_EXI1, false);
+		emit_insn(((val) << 20LL) | RA(Ra) | RT(Rt) | I_JAL);
 		goto xit;
 	}
 xit:
@@ -3323,44 +3322,44 @@ static void process_call(int opcode, int opt)
 	disp = (val - code_address);
 	if (Ra == 0 && !rel) {
 		if (code_bits < 25) {
-			emit_insn(((val) << 10LL) | ((lk) << 8LL) | I_JAL);
+			emit_insn(((val) << 10LL) | ((1) << 8LL) | opcode);
 			return;
 		}
 		if (IsNBit(val, 30)) {
-			emit_insn(((val) << 10LL) | ((lk) << 8LL) | I_JAL);
+			emit_insn(((val) << 10LL) | ((1) << 8LL) | opcode);
 			return;
 		}
 		if (IsNBit(val,44)) {
 			emit_insn(((val >> 12LL) << 8LL) | I_EXI0);
-			emit_insn(((val) << 10LL) | ((lk) << 8LL) | I_JAL);
+			emit_insn(((val) << 10LL) | ((1) << 8LL) | opcode);
 			return;
 		}
 		if (IsNBit(val, 76)) {
 			emit_insn(((val >> 12LL) << 8LL) | I_EXI0);
 			emit_insn(((val >> 44LL) << 8LL) | I_EXI1);
-			emit_insn(((val) << 10LL) | ((lk) << 8LL) | I_JAL);
+			emit_insn(((val) << 10LL) | ((1) << 8LL) | opcode);
 			return;
 		}
 	}
 	if (Ra == 0 && rel) {
 		val = disp;
 		if (code_bits < 25) {
-			emit_insn(((val) << 10LL) | ((lk) << 8LL) | I_BAL);
+			emit_insn(((val) << 10LL) | ((0) << 8LL) | opcode);
 			return;
 		}
 		if (IsNBit(val, 30)) {
-			emit_insn(((val) << 10LL) | ((lk) << 8LL) | I_BAL);
+			emit_insn(((val) << 10LL) | ((0) << 8LL) | opcode);
 			return;
 		}
 		if (IsNBit(val, 34)) {
 			emit_insn(((val >> 8LL) << 8LL) | I_EXI0);
-			emit_insn(((val) << 10LL) | ((lk) << 8LL) | I_BAL);
+			emit_insn(((val) << 10LL) | ((0) << 8LL) | opcode);
 			return;
 		}
 		if (IsNBit(val, 60)) {
 			emit_insn(((val >> 8LL) << 8LL) | I_EXI0);
 			emit_insn(((val >> 34LL) << 8LL) | I_EXI1);
-			emit_insn(((val) << 10LL) | ((lk) << 8LL) | I_BAL);
+			emit_insn(((val) << 10LL) | ((0) << 8LL) | opcode);
 			return;
 		}
 	}
@@ -3398,6 +3397,7 @@ static void process_ret(int64_t opcode)
 	char* p;
 
 	p = inptr;
+/*
 	lk = getRegisterX();
 	if (lk < 0) {
 		lk = 1;
@@ -3407,10 +3407,14 @@ static void process_ret(int64_t opcode)
 		lk -= 96;
 	else
 		lk = 0;
+*/
   any1_NextToken();
 	if (token == '#') {
 		stkadj = expr();
 	}
+	else
+		stkadj = 8;
+	/*
 	else {
 		ro = expr();
 		if ((ro > 60LL) || (ro < 0LL) || (ro & 3LL))
@@ -3427,9 +3431,8 @@ static void process_ret(int64_t opcode)
 			stkadj = expr();
 		}
 	}
-	if (opcode == I_RTS) {
-		emit_insn(RA(1) | I_JALR);
-	}
+	*/
+	emit_insn(IMM(stkadj) | RA(30) | RT(30) | I_RET);
 }
 
 // ---------------------------------------------------------------------------
@@ -4334,9 +4337,11 @@ static void process_mov(int64_t oc, int64_t fn)
 	}
 	if (intreg)
 		emit_insn(
+			FUNC6(I_OR2) |
 			RT(Rt) |
+			RB(0) |
 			RA(Ra) |
-			I_ORR2, true
+			I_R2, true
 		);
 	else
 		emit_insn(
@@ -4988,7 +4993,6 @@ static void ProcessEOL(int opt)
 		cc = 4;
 		if (segment == codeseg) {
 			cc = 9;
-		}
 		while (nn < sections[segment].index) {
 			fprintf(ofp, "%08I64X.%01X ", ca >> 1, bt_index * 2);
 			for (mm = nk; nk < mm + cc && nn < sections[segment].index; nk += 9) {
@@ -5064,10 +5068,34 @@ static void ProcessEOL(int opt)
 			bt_index &= 7;
 //			nn = (int)nf;
 		}	// while
-
+		}
+		else {
+			caia = 0;
+			while (nn < sections[segment].index) {
+				fprintf(ofp, "%08I64X.%01X ", ca >> 1, bt_index * 2);
+				for (mm = nk; nk < mm + cc && nn < sections[segment].index;) {
+					nn = nk >> 1;
+					cai = sections[segment].index - nn;
+					if (cai > 10) cai = 10;
+					for (jj = 0; jj < (int)cai; jj++, nk += 2) {
+						fprintf(ofp, "%02X ", sections[segment].bytes[nn + jj]);
+						ca += 2;
+					}
+					fprintf(ofp, " ");
+					nn += cai;
+					caia += cai;
+				}
+				for (jj = 10 - (int)caia; jj >= 0; jj--)
+					fprintf(ofp, "   ");
+				if (first & opt) {
+					fprintf(ofp, "\t%.*s\n", inptr - stptr - 1, stptr);
+					first = 0;
+				}
+				else
+					fprintf(ofp, "\n");
+			}
+		}
 		first = 1;
-		//    while (nn < sections[segment].index) {
-		//        fprintf(ofp, "%06I64X ", ca);
 		caia = 0;
 		/*
 				for (mm = nn; nn < mm + cc && nn < sections[segment].index; ) {
@@ -5125,6 +5153,7 @@ static void process_default()
 	case tk_asl: process_shift(I_ASL); break;
 	case tk_aslx: process_shift(I_ASLX); break;
 	case tk_asr: process_shift(I_ASR); break;
+	//case tk_bal: process_call(I_BAL, 1); break;
 	case tk_bbc: process_bbc(I_BBS, -1); break;
 	case tk_bbs: process_bbc(I_BBS, 0); break;
 	case tk_begin_expand: expandedBlock = 1; break;
@@ -5140,8 +5169,8 @@ static void process_default()
 		//case tk_bsr: process_bra(0x56); break;
 	case tk_bss:
 		if (first_bss) {
-			while (sections[segment].address & (pagesize-1))
-				emitByte(0x00);
+			while (sections[segment].address & (pagesize-1)*2)
+				emitNybble(0x00);
 			sections[3].address = sections[segment].address;
 			bss_base_address = bss_address = sections[3].address;
 			first_bss = 0;
@@ -5152,7 +5181,7 @@ static void process_default()
 		break;
 	case tk_bytndx: process_rrop();
 	case tk_cache: process_cache(0x1E); break;
-	case tk_call: process_call(I_JAL, 1); break;
+	case tk_call: process_call(I_CALL, 1); break;
 	case tk_cli: emit_insn(0xC0000002); break;
 	case tk_chk:  process_chk(0x34); break;
 	case tk_cmovenz: process_cmove(6); break;
@@ -5169,8 +5198,8 @@ static void process_default()
 	case tk_csrrd: process_csrrw(0x0); break;
 	case tk_data:
 		if (first_data) {
-			while (sections[segment].address & (pagesize-1))
-				emitByte(0x00);
+			while (sections[segment].address & (pagesize-1)*2)
+				emitNybble(0x00);
 			if (rom_code)
 				sections[2].address = 0;
 			else
@@ -5240,8 +5269,8 @@ static void process_default()
 	case tk_iret:	process_iret(0xC8000002); break;
 	case tk_isptr:  process_ptrop(0x06,1); break;
 	//case tk_jal: process_jal(0x18); break;
-	case tk_jal: process_call(I_JAL, 1); break;
-	case tk_jmp: process_call(I_JAL,0); break;
+	case tk_jal: process_jal(I_JAL, 1); break;
+	case tk_jmp: process_jal(I_JAL, 0); break;
 	case tk_jsr: process_call(I_JAL,1); break;
 	case tk_ld:	process_ld(); break;
 	case tk_link: process_link(I_LINK); break;
@@ -5273,8 +5302,8 @@ static void process_default()
 	case tk_pushq: process_pushq(I_PUSHQ); break;
 	case tk_rodata:
 		if (first_rodata) {
-			while (sections[segment].address & (pagesize-1))
-				emitByte(0x00);
+			while (sections[segment].address & (pagesize-1)*2)
+				emitNybble(0x00);
 			sections[1].address = sections[segment].address;
 			rodata_base_address = rodata_address = sections[1].address;
 			first_rodata = 0;
@@ -5284,15 +5313,15 @@ static void process_default()
 		segment = rodataseg;
 		break;
 	//case tk_redor: process_rop(0x06); break;
-	case tk_ret: process_ret(I_RTS); break;
+	case tk_ret: process_ret(I_RET); break;
 	case tk_rex: process_rex(); break;
 	case tk_rol: process_shift(I_ROL); break;
 	case tk_roli: process_shifti(I_ROLI); break;
 	case tk_ror: process_shift(I_ROR); break;
 	case tk_rori: process_shifti(I_RORI); break;
 	case tk_rte: process_iret(I_RTE); break;
-	case tk_rtl: process_ret(I_RTL); break;
-	case tk_rts: process_ret(I_RTS); break;
+	//case tk_rtl: process_ret(I_RTL); break;
+	case tk_rts: process_ret(I_RET); break;
 	case tk_sei: process_sei(); break;
 	case tk_seq:	process_setop(I_SEQ, I_SEQ, 0x00); break;
 	
@@ -5383,6 +5412,7 @@ void any1v3_processMaster()
     int64_t bs1, bs2;
 		SYM* sym;
 
+		pagesize = 16384;
     lineno = 1;
     binndx = 0;
 		bt_ndx = 0;

@@ -85,10 +85,6 @@ parameter FALSE = 1'b0;
 parameter HIGH = 1'b1;
 parameter LOW = 1'b0;
 
-parameter LOAD = 3'd0;
-parameter STORE = 3'd1;
-parameter CACHE = 3'd3;
-
 parameter IO_KEY_ADR	= 16'hFF88;
 
 parameter MEMORY1 = 6'd1;
@@ -655,6 +651,9 @@ else begin
 		end
 	MEMORY2:
 		begin
+			memresp.cause <= 16'h0;
+			memresp.badAddr <= 33'd0;
+			memresp.ret <= FALSE;
 			ealow <= ea[7:0];
 			// Detect cache controller commands
   		case(memreq.func)
@@ -703,6 +702,16 @@ else begin
 			  		goto (MEMORY3);
 					end
 				endcase
+			RTS2:
+				begin
+					memresp.ret <= TRUE;
+		    	daccess <= TRUE;
+    		  tEA(ea);
+      		xlaten <= TRUE;
+      		// Setup proper select lines
+		      sel <= {16'h0,memreq.sel} << ea[3:0];
+		  		goto (MEMORY3);
+				end
 			STORE:
 				begin
 		    	daccess <= TRUE;
@@ -738,7 +747,7 @@ else begin
 					if (kyut == keys[n] || kyut==20'd0)
 						goto(MEMORY5);
 			end
-    	if (memreq.func==CACHE)
+    	if (memreq.func==CACHE2)
       	tPMAEA();
       if (adr_o[31:16]==IO_KEY_ADR) begin
       	memresp.step <= memreq.step;
@@ -779,7 +788,7 @@ else begin
 	      sel_o <= sel[15:0];
 	      dat_o <= dat[127:0];
 	      case(memreq.func)
-	      LOAD:
+	      LOAD,RTS2:
 	      	begin
 	     			sr_o <= memreq.func2==LDOR;
   	    		if (dhit) begin
@@ -843,7 +852,7 @@ else begin
 		      goto (MEMORY8);
 		    else begin
 		      case(memreq.func)
-		      LOAD:
+		      LOAD,RTS2:
 		      	begin
 		      		if (dce & dhit)
 		      			dati <= datil >> {adr_o[5:3],6'b0};
@@ -927,7 +936,7 @@ else begin
 			if (tlbmiss)
 				tTLBMiss({ea,1'b0});
 			else begin
-				if (dhit & memreq.func==LOAD & dce)
+				if (dhit && (memreq.func==LOAD || memreq.func==RTS2) && dce)
 		 			tDeactivateBus();
 				else begin
 	      	stb_o <= HIGH;
@@ -967,7 +976,7 @@ else begin
 	  if (~ack_i) begin
 	    begin
 	      case(memreq.func)
-	      LOAD:
+	      LOAD,RTS2:
 	      	begin
 	      		if (dhit & dce)
 	      			dati <= datil >> {adr_o[5:3],6'b0};
@@ -1007,7 +1016,7 @@ else begin
 
 	DATA_ALIGN:
 	  begin
-	  	if (memreq.func==LOAD & ~dhit & dcachable & dce)
+	  	if ((memreq.func==LOAD || memreq.func==RTS2) & ~dhit & dcachable & dce)
 	  		goto (DFETCH2);
 	  	else
 	    	ret();
@@ -1031,6 +1040,7 @@ else begin
 		    	default:	memresp.res <= 128'h0;
 		    	endcase
 	    	end
+    	RTS2:	begin memresp.res <= datis[63:0]; memresp.ret <= TRUE; end
 	    default:  ;
 	    endcase
 	  end
@@ -1295,7 +1305,7 @@ input Address iea;
 begin
   if (MUserMode && memreq.func==STORE && !ea_acr[1])
     memresp.cause <= 16'h8032;
-  else if (MUserMode && memreq.func==LOAD && !ea_acr[2])
+  else if (MUserMode && (memreq.func==LOAD || memreq.func==RTS2) && !ea_acr[2])
     memresp.cause <= 16'h8033;
 	if (!MUserMode || iea[AWID-1:24]=={AWID-24{1'b1}})
 		dadr <= iea;
@@ -1311,7 +1321,7 @@ begin
   // PMA Check
   for (n = 0; n < 8; n = n + 1)
     if (adr_o[31:4] >= PMA_LB[n] && adr_o[31:4] <= PMA_UB[n]) begin
-      if ((memreq.func==STORE && !PMA_AT[n][1]) || (memreq.func==LOAD && !PMA_AT[n][2]))
+      if ((memreq.func==STORE && !PMA_AT[n][1]) || ((memreq.func==LOAD || memreq.func==RTS2) && !PMA_AT[n][2]))
 		    memresp.cause <= 16'h803D;
 		  dcachable <= PMA_AT[n][3];
     end

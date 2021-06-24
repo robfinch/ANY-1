@@ -5,7 +5,7 @@
 .include "../fmtk/macro.r64"
 .include "../fmtk/globals.r64"
 
-;TEST  equ   1
+TEST  equ   1
 
 CTRLC				equ		$03
 CTRLT       equ   $14
@@ -430,7 +430,9 @@ dbg_Putch:
   or    $t3,$a0,$t3
   call  calcScreenPos
   sto   $t3,[$t2]
-  bra   incScreenPos
+  call  incScreenPos
+  ldo		$x1,[$sp]
+  ret
  .lf:
   stb   #0,_cursorX
   ldbu  $a0,_cursorY
@@ -466,7 +468,7 @@ dbg_BlankLastLine:
 .0001:
   sto   $t2,[$t0+$t1*8]
   sub  	$t1,$t1,#1
-  bgtu  $t1,#0,.0001
+  bgeu  $t1,#1,.0001
   ret
 
   ; align cache
@@ -494,10 +496,10 @@ dbg_HomeCursor:
 ;------------------------------------------------------------------------------
   ; align cache
 fputc:
-	sub	$sp,$sp,#32
+	sub		$sp,$sp,#32
 	sto		$a1,16[$sp]
 	sto		$a2,24[$sp]
-	seq   $a6,#'B'
+	seq   $t0,$a6,#'B'
 	bf    .noBypass
 	call  SerialPutChar
 	jmp   .xit
@@ -1358,6 +1360,8 @@ DBGRout:
 	nop
   nop
 
+	rodata
+	align	2
 ; Application startup record for system
 SystemASR:
   db    0     ; page size (can't change on this system)

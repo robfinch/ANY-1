@@ -67,6 +67,8 @@ else begin
 	STxVX:	ea[AWID-1:0] <= imm + ia.val + ic.val;
 	CVLDSx:	ea[AWID-1:0] <= imm + ia.val + ic.val * step;
 	CVSTSx:	ea[AWID-1:0] <= imm + ia.val + ic.val * step;
+	CALL:	  ea[AWID-1:0] <= ia.val;
+	RTS:		ea[AWID-1:0] <= ia.val;
 	default:	ea <= 33'd0;
 	endcase
 	ea[-1:-1] <= 1'b0;

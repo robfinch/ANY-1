@@ -818,6 +818,51 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 			end
+		CALL:
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia.val <= robi.ia.val - 4'd8;
+				membufi.ib.val <= fnIncIP(robi.ip);
+				membufi.ic <= robi.ic;
+				membufi.dato <= fnIncIP(robi.ip);
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				f2a_rst <= TRUE;
+				a2d_rst <= TRUE;
+				d2x_rst <= TRUE;
+				ex_redirect.redirect_ip <= robi.ir[8] ? robi.imm.val : robi.ip + robi.imm.val;
+				ex_redirect.current_ip <= robi.ip;
+				ex_redirect.xrid <= rob_exec;
+				ex_redirect.step <= 6'd0;
+				ex_redirect.wr <= TRUE;
+				robo.res.val <= robi.ia.val - 4'd8;	// decrement SP
+				robo.update_rob <= TRUE;
+				robo.cmt <= FALSE;
+				robo.cmt2 <= FALSE;
+				robo.wr_fu <= FALSE;
+				robo.out <= TRUE;
+			end
+		RTS:
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				robo.res.val <= robi.ia.val + {robi.imm.val[63:3],3'b0};	// increment SP
+				robo.update_rob <= TRUE;
+				robo.cmt <= FALSE;
+				robo.cmt2 <= FALSE;
+				robo.wr_fu <= TRUE;
+				robo.out <= TRUE;
+			end
 		LEA,LDx,LDxX:
 			// This does not wait for registers to be valid.
 			begin

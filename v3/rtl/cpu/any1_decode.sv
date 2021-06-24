@@ -76,6 +76,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 		decbuf.veins <= FALSE;
 		decbuf.vsrlv <= FALSE;
 		decbuf.is_mod <= a2d_out.ir.r2.opcode[7:4]==4'h5;
+		decbuf.needRa <= TRUE;
 		decbuf.needRb <= FALSE;
 		decbuf.needRc <= FALSE;
 		decbuf.imm.val <= 64'd0;
@@ -99,7 +100,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 			begin
 				decbuf.needRb <= TRUE;
 				case(a2d_out.ir.r2.func)
-				ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= {a2d_out.ir.r2.Tt,a2d_out.ir.r2.Rt}; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 				DIF:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 				MULF:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.is_signed <= FALSE; end
 				MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
@@ -183,8 +184,10 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 			end
 		JAL,BAL:
 			begin
+				decbuf.needRa <= FALSE;
 				decbuf.ui <= FALSE;
 				decbuf.Rt <= {4'h0,a2d_out.ir[9:8]};
+				decbuf.Rtvec <= FALSE;
 				decbuf.imm.val <= {{38{a2d_out.ir[35]}},a2d_out.ir[35:10]};
 				decbuf.rfwr <= TRUE;
 				decbuf.mc <= TRUE;
@@ -193,8 +196,32 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 			begin
 				decbuf.ui <= FALSE;
 				decbuf.Rt <= {4'h0,a2d_out.ir[9:8]};
+				decbuf.Rtvec <= FALSE;
 				decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]};
 				decbuf.rfwr <= TRUE;
+				decbuf.mc <= TRUE; 
+			end
+		CALL:
+			begin
+				decbuf.needRa <= FALSE;
+				decbuf.ui <= FALSE;
+				decbuf.rfwr <= TRUE;
+				decbuf.Rt <= 6'd30;	// SP
+				decbuf.Ra <= 6'd30;
+				decbuf.Rtvec <= FALSE;
+				decbuf.Ravec <= FALSE;
+				decbuf.imm.val <= {{38{a2d_out.ir[35]}},a2d_out.ir[35:10]};
+				decbuf.mc <= TRUE; 
+			end
+		RTS:
+			begin
+				decbuf.ui <= FALSE;
+				decbuf.rfwr <= TRUE;
+				decbuf.Rt <= 6'd30;	// SP
+				decbuf.Ra <= 6'd30;
+				decbuf.Rtvec <= FALSE;
+				decbuf.Ravec <= FALSE;
+				decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]};
 				decbuf.mc <= TRUE; 
 			end
 		BEQ,BNE,BLT,BGE:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:28],a2d_out.ir[13:8]}; decbuf.branch <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
@@ -204,10 +231,10 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 		LDxX: begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		LDSx: begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{52{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		LDxVX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{52{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
-		STx:	begin decbuf.Rt <= 6'd0; decbuf.rfwr <= FALSE; decbuf.imm.val <= {{52{a2d_out.ir.st.disphi[5]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		STx:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{53{a2d_out.ir.st.disphi[4]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		STxX: begin decbuf.Rt <= 6'd0; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
-		STSx: begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{52{a2d_out.ir.st.disphi[5]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
-		STxVX:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{52{a2d_out.ir.st.disphi[5]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		STSx: begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{53{a2d_out.ir.st.disphi[4]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		STxVX:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{53{a2d_out.ir.st.disphi[4]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		SYS:
 			begin
 				case(a2d_out.ir.r2.func)
@@ -215,13 +242,13 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				PEEKQ:	begin decbuf.ui <= FALSE; decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; end
 				POPQI:	begin decbuf.ui <= FALSE; decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; end
 				PEEKQI:	begin decbuf.ui <= FALSE; decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; end
-				PFI:		decbuf.ui <= FALSE;
+				PFI:		begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; end
 				TLBRW:	begin decbuf.ui <= FALSE; decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.mc <= TRUE; end
 				default:	;
 				endcase
 			end
 		CSR:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.ui <= FALSE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; end
-		EXI0,EXI1,EXI2:	decbuf.ui <= FALSE;
+		EXI0,EXI1,EXI2:	begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; end
 		BRMOD:	begin decbuf.ui <= FALSE; decbuf.Rc <= {1'b0,a2d_out.ir.im.Tc1,a2d_out.ir.im.Rc}; end
 		BTFLDX,IMOD,STRIDE:	begin decbuf.ui <= FALSE; decbuf.Rc <= {a2d_out.ir.im.Tc2,a2d_out.ir.im.Tc1,a2d_out.ir.im.Rc}; end
 		VIMOD,VSTRIDE:	begin decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.ui <= FALSE; decbuf.Rc <= {a2d_out.ir.im.Tc2,a2d_out.ir.im.Tc1,a2d_out.ir.im.Rc}; end

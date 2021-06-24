@@ -555,6 +555,11 @@ void searchenv(char* filename, char* envname, char** pathname)
 void emitByte(int64_t cd)
 {
   bt_ndx = 0;
+  if (gCpu == ANY1V3) {
+    emitNybble(cd >> 4LL);
+    emitNybble(cd);
+    return;
+  }
 	if (segment < 5) {
 		if (gCpu == GAMBIT || gCpu==GAMBIT_V5)
 			sections[segment].AddChar(cd & 0x1fffLL);
@@ -621,7 +626,7 @@ void emitByte(int64_t cd)
       }
       else
       */
-        code_address++;
+      code_address++;
       break;
     }
 }
@@ -1174,9 +1179,8 @@ void process_db()
     int64_t val;
 
     SkipSpaces();
-    while (token != tk_eol) NextToken();
-    return;
-    //NextToken();
+//    while (token != tk_eol) NextToken();
+//    return;
     while(token!=tk_eol) {
         SkipSpaces();
         if (*inptr=='\n') break;
@@ -1201,7 +1205,7 @@ void process_db()
             }
             inptr++;
         }
-/*
+
         else if (*inptr=='\'') {
             inptr++;
             emitByte(*inptr);
@@ -1210,7 +1214,7 @@ void process_db()
                 printf("Missing ' in character constant.\r\n");
             }
         }
-*/
+
         else {
             NextToken();
             val = expr();

@@ -79,12 +79,12 @@ parameter SLLPI		= 6'h11;
 parameter PTRDIF	= 6'h18;
 parameter CHK		= 6'h22;
 // R2 ops
+parameter AND		= 6'h00;
+parameter OR		= 6'h01;
+parameter XOR		= 6'h02;
 parameter ADD		= 6'h04;
 parameter SUB		= 6'h05;
 parameter MUL		= 6'h06;
-parameter AND		= 6'h08;
-parameter OR		= 6'h09;
-parameter XOR		= 6'h0A;
 parameter MULU	= 6'h0E;
 parameter MULH	= 6'h0F;
 parameter DIV		= 6'h10;
@@ -172,9 +172,6 @@ parameter F3		= 8'h36;
 parameter F4		= 8'h37;
 
 parameter NOP  	= 8'h3F;
-parameter JAL		= 8'h40;
-parameter BAL		= 8'h41;
-parameter JALR	= 8'h42;
 
 parameter CSR		= 8'h0F;
 parameter CSRR	= 3'd0;
@@ -224,6 +221,12 @@ parameter LDxX	= 8'h61;
 parameter STx		= 8'h70;
 parameter STxX	= 8'h71;
 
+parameter JAL		= 8'h78;
+parameter BAL		= 8'h79;
+parameter JALR	= 8'h7A;
+parameter RTS		= 8'h7B;
+parameter CALL  = 8'h7C;
+
 parameter LDB = 4'd0;
 parameter LDW = 4'd1;
 parameter LDT = 4'd2;
@@ -242,6 +245,7 @@ parameter STORE = 3'd1;
 parameter TLB = 3'd2;
 parameter CACHE2 = 3'd3;
 parameter LEA2 = 3'd4;
+parameter RTS2 = 3'd5;
 
 // FLT1
 parameter FMOV	= 6'h00;
@@ -493,7 +497,7 @@ typedef logic [7:0] ASID;
 typedef logic [63:0] Data;
 typedef logic [3:0] DataTag;
 
-typedef logic [NUM_AIREGS-1:0] RegBitList;
+typedef logic [NUM_AIREGS-1:1] RegBitList;
 
 typedef struct packed
 {
@@ -673,8 +677,9 @@ typedef struct packed
 	logic is_signed;			// is a signed operation
 	logic jump;
 	logic branch;
-	logic needRc;					// STx/CHK
+	logic needRa;
 	logic needRb;					// R2, LDxX
+	logic needRc;					// STx/CHK
 	logic veins;
 	logic vex;
 	logic vsrlv;
@@ -900,6 +905,7 @@ typedef struct packed
 	Address badAddr;
 	logic [127:0] res;
 	logic cmt;
+	logic ret;
 } MemoryResponse;	// 192
 
 endpackage

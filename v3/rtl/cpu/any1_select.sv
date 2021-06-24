@@ -55,6 +55,8 @@ LDx,STx,LDxX,STxX,LDSx,STSx,LDxVX,CVLDSx,STxVX,CVSTSx:
 	4'd15:	sel <= 8'hFF;
 	default:	sel <= 8'h00;
 	endcase
+CALL,RTS:
+	sel <= 8'hFF;
 default:	sel <= 8'h00;
 endcase
 endmodule

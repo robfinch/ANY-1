@@ -112,7 +112,7 @@ reg [2:0] fp_state;
 reg [2:0] gr_state;
 reg [63:0] csrro;
 reg [47:0] rob_q, rob_d;
-wire [47:0] rob_x;
+reg [47:0] rob_x;
 wire [pL1ICacheLineSize-1:0] ic_line;
 
 function [7:0] fnBackupCnt;
@@ -164,6 +164,13 @@ function Address fnIPInc;
 input Address pc;
 begin
 	fnIPInc = {pc[AWID-1:24],pc[23:-1] + 4'd9};
+end
+endfunction
+
+function Address fnIncIP;
+input Address pc;
+begin
+	fnIncIP = {pc[AWID-1:24],pc[23:-1] + 4'd9};
 end
 endfunction
 
@@ -243,7 +250,6 @@ Value regfile [0:31];
 Rid regfilesrc [0:31];					// bit 7 = 0 = regfile, 1 = reorder buffer
 Rid regfilesrc_hist [0:15][0:31];
 reg [WID-1:0] sregfile [0:15];
-wire restore_rfsrc;
 Rid vregfilesrc [0:63];					// bit 7 = 0 = regfile, 1 = reorder buffer
 Rid vregfilesrc_hist [0:15][0:63];
 Rid vm_regfilesrc [0:7];
@@ -292,7 +298,7 @@ reg [63:0] vm_regfile [0:7];
 reg [3:0] active_branch;
 reg dc2if_redirect_rd;
 Address dc_redirect_ip;
-sRedirect dc_redirecti,ex_redirecti,wb_redirecti;
+sRedirect dc_redirecti,ex_redirecti,mem_redirecti,wb_redirecti;
 sRedirect dc_redirecto,ex_redirecto,wb_redirecto;
 reg ex2if_redirect_rd,wb2if_redirect_rd;
 reg dc2if_redirect_rd2,ex2if_redirect_rd2,wb2if_redirect_rd2;
@@ -408,7 +414,10 @@ if (memresp_v) begin
 	memfu.rid <= memresp.tid[5:0];
 	memfu.cmt <= memresp.cmt;
 	memfu.ele <= memresp.step;
-	memfu.res <= memresp.res;
+	if (memresp.ret)
+		memfu.res <= rob[memresp.tid[5:0]].res;
+	else
+		memfu.res <= memresp.res;
 	memfu.cause <= memresp.cause;
 	memfu.badAddr <= memresp.badAddr;
 end
@@ -456,7 +465,7 @@ any1_agen uagen
 // Trace
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 reg wr_trace;
-wire rd_trace;
+reg rd_trace;
 reg wr_whole_address;
 reg [5:0] br_hcnt;
 reg [5:0] br_rcnt;
@@ -632,7 +641,7 @@ assign a2d_full = 1'b0;
 assign a2d_v = 1'b1;
 assign ifStall = !ihit || d2x_full;	// || push_vec;
 reg dcStall,dcStall1,vecStall;
-wire f2a_rst,a2d_rst,d2x_rst;
+reg f2a_rst,a2d_rst,d2x_rst;
 reg wb_f2a_rst,wb_a2d_rst,wb_d2x_rst;
 
 reg pop_f2ad,pop_a2dd,pop_d2xd;
@@ -745,6 +754,7 @@ endgenerate
 
 wire [ROB_ENTRIES-1:0] newer_than_robo = fnNewerInst(robo.rid,rob_que);
 wire [ROB_ENTRIES-1:0] newer_than_wb = fnNewerInst(wb_redirecto.xrid,rob_que);
+wire [ROB_ENTRIES-1:0] newer_than_mem = fnNewerInst(mem_redirecti.xrid,rob_que);
 wire [ROB_ENTRIES-1:0] newer_than_ex = fnNewerInst(ex_redirecti.xrid,rob_que);
 
 /*
@@ -818,6 +828,7 @@ function regValid;
 input [6:0] rg;
 begin
 	regValid = 	rg[6] ||
+							rg[4:0]==5'd0 ||
 							rg[4:0]==5'd31 ||
 							regfilesrc[rg[4:0]].rf == 1'd0 ||
 							rob[regfilesrc[rg[4:0]].rid].cmt
@@ -881,7 +892,7 @@ begin
 	exbufi.branch <= decbuf.branch;
 	exbufi.ir <= decbuf.ir;
 	exbufi.rfwr <= decbuf.rfwr;
-	exbufi.iav <= (decbuf.Ravec ? (vregfilesrc[decbuf.Ra[4:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Ra[2:0]].rf==1'b0 : regValid({1'b0,decbuf.Ra}));
+	exbufi.iav <= !decbuf.needRa || (decbuf.Ravec ? (vregfilesrc[decbuf.Ra[4:0]].rf==1'b0) : decbuf.Ramask ? vm_regfilesrc[decbuf.Ra[2:0]].rf==1'b0 : regValid({1'b0,decbuf.Ra}));
 	exbufi.ibv <= decbuf.Rb[6] || !decbuf.needRb || (decbuf.Rbvec ? (vregfilesrc[decbuf.Rb[4:0]].rf==1'b0) : decbuf.Rbmask ? vm_regfilesrc[decbuf.Rb[2:0]].rf==1'b0 : regValid(decbuf.Rb));
 	exbufi.icv <= regValid(decbuf.Rc) || !decbuf.needRc;
 	// To detect WAW hazard for vector instructions
@@ -984,11 +995,12 @@ if_redirect_fifo udc2if
   .valid()  // output wire valid
 );
 
-wire ex2if_redirect_v, wb2if_redirect_v;
-wire pe_ex2if_redirect_v, pe_wb2if_redirect_v;
-wire ne_ex2if_redirect_v, ne_wb2if_redirect_v;
+wire ex2if_redirect_v, wb2if_redirect_v, mem_redirect_v;
+wire pe_ex2if_redirect_v, pe_wb2if_redirect_v, pe_mem2if_redirect_v;
+wire ne_ex2if_redirect_v, ne_wb2if_redirect_v, ne_mem2if_redirect_v;
 edge_det uedwb2if (.rst(rst_i), .clk(clk_g), .i(wb2if_redirect_v), .pe(pe_wb2if_redirect_v), .ne(ne_wb2if_redirect_v), .ee());
 edge_det uedex2if (.rst(rst_i), .clk(clk_g), .i(ex2if_redirect_v), .pe(pe_ex2if_redirect_v), .ne(ne_ex2if_redirect_v), .ee());
+edge_det uedmem2if (.rst(rst_i), .clk(clk_g), .i(mem2if_redirect_v), .pe(pe_mem2if_redirect_v), .ne(ne_mem2if_redirect_v), .ee());
 
 if_redirect_fifo uex2if
 (
@@ -1021,12 +1033,11 @@ wire brAddrMispredict = exbufi.pip != ex_redirecti.redirect_ip;//exRedirectIp;
 
 reg [NUM_AIREGS-1:1] rob_livetarget [0:ROB_ENTRIES-1];
 reg [NUM_AIREGS-1:1] livetarget;
-wire [31:0] reg_out [0:ROB_ENTRIES-1];
+wire [31:1] reg_out [0:ROB_ENTRIES-1];
 
 generate begin : gRegout
 for (g = 0; g < ROB_ENTRIES; g = g + 1) begin
 decoder5 udc1 (rob[g].Rt[4:0], reg_out[g][31:1]);
-assign reg_out[g][0] = 1'b0;
 end
 end
 endgenerate
@@ -1039,7 +1050,7 @@ end
 
 function RegBitList fnLivetarget;
 begin
-	for (j = 0; j < NUM_AIREGS; j = j + 1) begin
+	for (j = 1; j < NUM_AIREGS; j = j + 1) begin
 		fnLivetarget[j] = 1'b0;
 		for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 			fnLivetarget[j] = fnLivetarget[j] | rob_livetarget[n][j];
@@ -1050,7 +1061,6 @@ endfunction
 
 function RegBitList [ROB_ENTRIES-1:0] fnCumulative;
 input [5:0] missid;
-input [ROB_ENTRIES-1:0] vv;
 integer n;
 begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
@@ -1058,7 +1068,7 @@ begin
 		for (j = n; j < n + ROB_ENTRIES; j = j + 1) begin
 			if (missid==(j % ROB_ENTRIES))
 				for (k = n; k <= j; k = k + 1)
-					fnCumulative[n] = fnCumulative[n] | (rob_livetarget[k % ROB_ENTRIES] & {NUM_AIREGS{vv[n]}});
+					fnCumulative[n] = fnCumulative[n] | rob_livetarget[k % ROB_ENTRIES];// & {NUM_AIREGS{vv[n]}});
 		end
 	end
 end
@@ -1066,15 +1076,17 @@ endfunction
 
 function RegBitList [ROB_ENTRIES-1:0] fnLatestID;
 input [5:0] missid;
-input [ROB_ENTRIES-1:0] vv;
 integer n;
 begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1)
-    fnLatestID[n] = (missid == n || (((rob_livetarget[n] & {NUM_AIREGS{vv[n]}}) & fnCumulative((n+1)%ROB_ENTRIES,vv)) == {NUM_AIREGS{1'b0}}))
+    fnLatestID[n] = (missid == n || ((rob_livetarget[n] & fnCumulative((n+1)%ROB_ENTRIES)) == {NUM_AIREGS{1'b0}}))
 				    ? rob_livetarget[n]
 				    : {NUM_AIREGS{1'b0}};
 end
 endfunction
+
+sReorderEntry robi;
+always_comb robi = rob[safe_rob_exec];
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Floating point logic
@@ -1201,16 +1213,90 @@ any1_point_transform uptt1
 	.pt_o(pt_o)
 );
 
+wire d_vsllv = (robi.ir.r2.opcode==VR2) && robi.ir.r2.func==VSLLV;
+wire d_vsrlv = (robi.ir.r2.opcode==VR2) && robi.ir.r2.func==VSRLV;
+
+wire [127:0] sll_out = {robi.ib.val,robi.ia.val} << robi.ic.val[5:0];
+wire [127:0] sll_out2 = {64'd0,robi.ia.val} << robi.ib.val[5:0];
+wire [127:0] srl_out2 = {robi.ia.val,64'd0} >> robi.ib.val[5:0];
+
+wire brMispredict = ex_takb != robi.predict_taken;//exbufi.predict_taken;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Count: leading zeros, leading ones, population.
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+wire [6:0] cntlzo, cntloo, cntpopo;
+
+cntlz64 uclz1 (robi.ia.val, cntlzo);
+cntlo64 uclo1 (robi.ia.val, cntloo);
+cntpop64 ucpop1 (robi.ia.val, cntpopo);
+
+wire [6:0] ffoo, floo;
+ffo96 uffo1 ({32'd0,robi.ia.val}, ffoo);
+flo96 uflo1 ({32'h0,robi.ia.val}, floo);
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Bitfield
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Value bf_out;
+any1_bitfield ubf1
+(
+	.inst(robi.ir),
+	.a(robi.ia),
+	.b(robi.ib),
+	.c(robi.ic),
+	.d(robi.id),
+	.o(bf_out),
+	.masko()
+);
+
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Bit Matrix Multiply
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Value bmm_o;
+BMM ubmm1
+(
+	.op(robi.ir[1:0]),
+	.a(robi.ia),
+	.b(robi.ib),
+	.o(bmm_o)
+);
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Floating Point
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+wire fa_inf, fa_xz, fa_vz;
+wire fa_qnan, fa_snan, fa_nan;
+wire fb_qnan, fb_snan, fb_nan;
+wire [63:0] fcmp_o;
+wire cmpnan,cmpsnan;
+
+`ifdef SUPPORT_FLOAT
+fpDecomp u12 (.i(robi.ia.val), .sgn(), .exp(), .man(), .fract(), .xz(fa_xz), .mz(), .vz(fa_vz), .inf(fa_inf), .xinf(), .qnan(fa_qnan), .snan(fa_snan), .nan(fa_nan));
+fpDecomp u13 (.i(robi.ib.val), .sgn(), .exp(), .man(), .fract(), .xz(), .mz(), .vz(), .inf(), .xinf(), .qnan(fb_qnan), .snan(fb_snan), .nan(fb_nan));
+
+fpCompare u1 (
+	.a(robi.ia.val),
+	.b(robi.ib.val),
+	.o(fcmp_o),
+	.nan(cmpnan),
+	.snan(cmpsnan)
+);
+`endif
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 reg ld_vtmp;
 reg [63:0] new_vtmp;
-wire [63:0] vtmp;
-reg [5:0] tid;
-sReorderEntry robi;
-always_comb robi = rob[safe_rob_exec];
+reg [63:0] vtmp;
+reg [5:0] tid, last_tid;
 
+/*
 any1_execute uex1(
 	.rst(rst_i),
 	.clk(clk_g),
@@ -1220,7 +1306,7 @@ any1_execute uex1(
 	.divreci(divreci),
 	.membufi(membufi),
 	.rob_exec(rob_exec),
-	.ex_redirect(ex_redirecti),
+	.ex_redirecti(ex_redirecti),
 	.f2a_rst(f2a_rst),
 	.a2d_rst(a2d_rst),
 	.d2x_rst(d2x_rst),
@@ -1242,7 +1328,7 @@ any1_execute uex1(
 	.rd_trace(rd_trace),
 	.trace_dout(trace_dout)
 );
-
+*/
 reg zero_data;
 MemoryRequest memreq;
 MemoryResponse memresp;
@@ -1271,10 +1357,12 @@ else begin
 	case (membufi1.ir.ld.opcode)
 	LDx,LDxX,LDSx,LDxVX,CVLDSx:
 		memreq.func = LOAD;
-	STx,STxX,STSx,STxVX,CVSTSx:
+	STx,STxX,STSx,STxVX,CVSTSx,CALL:
 		memreq.func = STORE;
 	CACHE:
 		memreq.func = CACHE2;
+	RTS:
+		memreq.func = RTS2;
 	default:	memreq.func = LOAD;
 	endcase
 	memreq.fifo_wr = membufi_wr;
@@ -1400,8 +1488,9 @@ reg [5:0] decven2;
 
 wire is_modif = is_modifier[ip[5:-1]];
 wire cmts_ahead = fnCmtsAhead(membufo.rid);
-wire RegBitList [ROB_ENTRIES-1:0] ex_latestID = fnLatestID(ex_redirecto.xrid,~newer_than_ex);
-wire RegBitList [ROB_ENTRIES-1:0] wb_latestID = fnLatestID(wb_redirecto.xrid,~newer_than_wb);
+wire RegBitList [ROB_ENTRIES-1:0] ex_latestID = fnLatestID(ex_redirecti.xrid);
+wire RegBitList [ROB_ENTRIES-1:0] mem_latestID = fnLatestID(mem_redirecti.xrid);
+wire RegBitList [ROB_ENTRIES-1:0] wb_latestID = fnLatestID(wb_redirecto.xrid);
 
 always_comb
 	tReadCSR(csrro,rob[safe_rob_exec].imm[15:0]);
@@ -1440,7 +1529,7 @@ reg cycle_after;
 reg [5:0] rob_que_m1;
 reg branch_invalidating;
 always_comb rob_que_m1 = rob_que==6'd0 ? ROB_ENTRIES -1 : rob_que - 2'd1;
-always_comb branch_invalidating = ihit && (pe_wb2if_redirect_v || pe_ex2if_redirect_v);
+always_comb branch_invalidating = ihit && (pe_wb2if_redirect_v || mem_redirecti.wr || ex_redirecti.wr);
 Address mod_ip;
 Instruction tir;
  
@@ -1583,8 +1672,27 @@ if (rst_i) begin
 	a2d_out.predict_taken <= FALSE;
 	
 	last_rid <= 6'd63;
+
+	// Execute ff's
+	rob_x <= 48'd0;
+	//rob_exec <= 6'd0;
+	robo <= 1'd0;
+	f2a_rst <= TRUE;
+	a2d_rst <= TRUE;
+	d2x_rst <= TRUE;
+	mulreci.wr <= FALSE;
+	divreci.wr <= FALSE;
+	membufi.wr <= FALSE;
+	ex_redirecti.wr <= FALSE;
+	ex_redirecti.redirect_ip <= RSTIP;
+	ex_redirecti.current_ip <= RSTIP;
+	set_wfi <= FALSE;
+	last_tid <= 6'd0;
+	vtmp <= 64'h0;
+	rd_trace <= FALSE;
 end
 else begin
+	mem_redirecti.wr <= FALSE;
 	ex2if_redirect_rd <= FALSE;
 	dc2if_redirect_rd <= FALSE;
 	wb2if_redirect_rd <= FALSE;
@@ -1619,6 +1727,20 @@ else begin
 		ld_time <= FALSE;
 	if (pe_nmi)
 		nmif <= 1'b1;
+
+	f2a_rst <= FALSE;
+	a2d_rst <= FALSE;
+	d2x_rst <= FALSE;
+	mulreci.wr <= FALSE;
+	divreci.wr <= FALSE;
+	membufi.wr <= FALSE;
+	fpreci.wr <= FALSE;
+	ex_redirecti.wr <= FALSE;
+	set_wfi <= FALSE;
+	robo.update_rob <= FALSE;
+	robo.wr_fu <= FALSE;
+	rd_trace <= FALSE;
+
 /*
 	if (!ifStall)
 		decven <= 6'd0;
@@ -1777,11 +1899,19 @@ else begin
 	if (memresp_v && !rob[tidx].cmt && rob[tidx].v) begin
 		rob[tidx].cause <= memresp.cause;
 		rob[tidx].badAddr <= memresp.badAddr;
-		rob[tidx].res <= memresp.res;
-		if (memresp.cmt)
+		if (memresp.cmt && !memresp.ret)
 			rob[tidx].cmt <= TRUE;
-		if (memresp.cmt)
+		if (memresp.cmt && !memresp.ret)
 			rob[tidx].cmt2 <= TRUE;
+		if (memresp.ret) begin
+			mem_redirecti.wr <= TRUE;
+			mem_redirecti.xrid <= memresp.tid[5:0];
+			mem_redirecti.step <= 6'd0;
+			mem_redirecti.redirect_ip <= memresp.res;
+			mem_redirecti.current_ip <= rob[tidx].ip;
+		end
+		else
+			rob[tidx].res <= memresp.res;
 	end
 
 	// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
@@ -1798,7 +1928,1521 @@ else begin
 		funcUnit[FU_EXEC].rid <= 6'd63;
 	end
 
-	if (robo.update_rob && !rob[robo.rid].cmt && rob[robo.rid].v) begin
+	$display("Execute");
+
+	if (robi.v==VAL && !robi.cmt && rob_exec != 6'd63) begin
+		last_tid <= tid;
+		if (robi.dec) begin
+		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, robi.ip, robi.ir,
+			robi.ia.val,robi.iav?"v":" ",robi.ib.val,robi.ibv?"v":" ",
+			robi.ic.val,robi.icv?"v":" ",robi.id.val,robi.idv?"v":" ",
+			robi.imm.val);
+
+		// If the instruction is exceptioned, then ignore executing it.
+
+		if (robi.ui || robi.cause != 16'h0000) begin
+			rob[rob_exec].cmt <= TRUE;
+			rob[rob_exec].cmt2 <= TRUE;
+			rob[rob_exec].out <= TRUE;
+		end
+		else if (!robi.out) begin
+		rob[rob_exec].out <= TRUE;
+		//robi.res.tag <= robi.ir.tag;
+		rob[rob_exec].rid <= robi.rid;
+		rob[rob_exec].btag <= 4'd0;
+		rob[rob_exec].takb <= FALSE;
+		rob[rob_exec].vmask <= -64'd1;
+		rob[rob_exec].jump_tgt <= 32'd0;
+		rob[rob_exec].wr_fu <= TRUE;
+		rob[rob_exec].update_rob <= !robi.mc;
+		rob[rob_exec].cmt <= !robi.mc;
+		rob[rob_exec].cmt2 <= !robi.mc;
+		rob[rob_exec].res_ele <= robi.step;
+		rob[rob_exec].rob_q <= robi.rob_q;
+		case(robi.ir.r2.opcode)
+		BRK:	begin rob[rob_exec].cause <= robi.ir[21:14]; tMod(); end
+		NOP:	tMod();
+		R3:
+			begin
+				case(robi.ir.r2.func)
+				SLLP:	begin rob[rob_exec].res.val <= sll_out[63:0]; tMod(); end
+				PTRDIF:	
+					begin
+						//robi.res.tag <= TAG_INT;
+						rob[rob_exec].res.val <= ((robi.ia.val < robi.ib.val) ? robi.ib.val - robi.ia.val : robi.ia.val - robi.ib.val) >> robi.ic.val[4:0];
+						tMod();
+					end
+				CHK:
+					case(robi.ir.r2.func)
+					3'd0:
+						if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.ib.val)) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd1:
+						if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.ib.val)) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd2:
+						if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.ib.val)) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd3:
+						if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.ib.val)) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd4:
+						if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.ib.val))) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd5:
+						if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.ib.val))) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd6:
+						if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.ib.val))) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd7:
+						if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.ib.val))) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					default:
+						begin
+							rob[rob_exec].ui <= TRUE;
+							tMod();
+						end
+					endcase
+				default:	;
+				endcase
+			end
+		R2:
+			begin
+				case(robi.ir.r2.func)
+				ADD:	begin	rob[rob_exec].res.val <= robi.ia.val + robi.ib.val; tMod(); end
+				SUB:	begin	rob[rob_exec].res.val <= robi.ia.val - robi.ib.val; tMod(); end
+				AND:	begin	rob[rob_exec].res.val <= robi.ia.val & robi.ib.val; tMod(); end
+				OR:		begin	rob[rob_exec].res.val <= robi.ia.val | robi.ib.val; tMod(); end
+				XOR:	begin	rob[rob_exec].res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+				BMMOR,BMMXOR,BMMTOR,BMMTXOR:	begin rob[rob_exec].res.val <= bmm_o; tMod(); end
+				SLL:	begin rob[rob_exec].res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
+				SLLI:	begin rob[rob_exec].res.val <= robi.ia.val << {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]}; tMod(); end
+				SRL:	begin rob[rob_exec].res.val <= robi.ia.val >> robi.ib.val[5:0]; tMod(); end
+				SRLI:	begin rob[rob_exec].res.val <= robi.ia.val >> {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]}; tMod(); end
+				DIF:
+					begin
+						rob[rob_exec].res <= $signed(robi.ia.val) < $signed(robi.ib.val) ?
+						rob[rob_exec].ib.val - robi.ia.val : robi.ia.val - robi.ib.val;
+						tMod();
+					end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
+					begin
+						mulreci.rid <= rob_exec;
+						mulreci.ir <= robi.ir;
+						mulreci.a <= robi.ia;
+						mulreci.b <= robi.ib;
+						mulreci.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				DIV,DIVU,DIVSU:
+					begin
+						divreci.rid <= rob_exec;
+						divreci.ir <= robi.ir;
+						divreci.a <= robi.ia;
+						divreci.b <= robi.ib;
+						divreci.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				MULF:	begin rob[rob_exec].res.val <= robi.ia.val[23:0] * robi.ib.val[15:0]; tMod(); end
+				CMP:	begin rob[rob_exec].res.val <= $signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1; tMod(); end
+				SEQ:	begin rob[rob_exec].res.val <= robi.ia.val == robi.ib.val; tMod(); end
+				SNE:	begin rob[rob_exec].res.val <= robi.ia.val != robi.ib.val; tMod(); end
+				SLT:	begin rob[rob_exec].res.val <= $signed(robi.ia.val) < $signed(robi.ib.val); tMod(); end
+				SGE:	begin rob[rob_exec].res.val <= $signed(robi.ia.val) >= $signed(robi.ib.val); tMod(); end
+				SLTU:	begin rob[rob_exec].res.val <= robi.ia.val < robi.ib.val; tMod(); end
+				SGEU:	begin rob[rob_exec].res.val <= robi.ia.val >= robi.ib.val; tMod(); end
+				default:	;
+				endcase
+			end
+		R1:
+			begin
+				case(robi.ir.r2.func)
+				ABS:	begin rob[rob_exec].res.val <= robi.ia[63] ? -robi.ia : robi.ia; tMod(); end
+				NABS:	begin rob[rob_exec].res.val <= robi.ia[63] ? robi.ia : -robi.ia; tMod(); end
+				NEG:	begin rob[rob_exec].res.val <= -robi.ia; tMod(); end
+				NOT:	begin rob[rob_exec].res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0; tMod(); end
+				CTLZ:	begin rob[rob_exec].res.val <= cntlzo; tMod(); end
+				CTPOP:	begin rob[rob_exec].res.val <= cntpopo; tMod(); end
+				V2BITS:	begin
+									if (robi.step==0) begin
+										if (robi.vmask[0]) begin
+											rob[rob_exec].res.val <= {63'd0,robi.ia.val[0]};
+											vtmp <= {63'd0,robi.ia.val[0]};
+										end
+										else if (robi.irmod.im.z) begin
+											rob[rob_exec].res.val <= 64'd0;
+											vtmp <= 64'd0;
+										end
+									end
+									else begin
+										if (robi.vmask[robi.step]) begin
+											rob[rob_exec].res.val <= vtmp | (robi.ia.val[0] << robi.step);
+											vtmp <= vtmp | (robi.ia.val[0] << robi.step);
+										end
+									end
+									tMod(); 
+								end
+				TRANSFORM:
+					begin
+						graphi.rid <= rob_exec;
+						graphi.ir <= robi.ir;
+						graphi.ia <= robi.ia;
+						graphi.ib <= robi.ib;
+						graphi.ic <= robi.ic;
+						graphi.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				default:	;
+				endcase
+			end
+`ifdef SUPPORT_FLOAT			
+		F1,VF1:
+			begin
+				case(robi.ir.r2.func)
+				FABS:	begin rob[rob_exec].res.val <= {1'b0,robi.ia.val[62:0]}; tMod(); end
+				FNABS:begin rob[rob_exec].res.val <= {1'b1,robi.ia.val[62:0]}; tMod(); end
+				FNEG:	begin rob[rob_exec].res.val <= {~robi.ia.val[63],robi.ia.val[62:0]}; tMod(); end
+				I2F,F2I,FSQRT:
+					begin
+						fpreci.rid <= rob_exec;
+						fpreci.a <= robi.ia;
+						fpreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				FRM:	begin rob[rob_exec].res.val <= robi.ia.val; tMod(); end
+				default:	;
+				endcase
+			end
+		F2,VF2:
+			begin
+				case(robi.ir.r2.func)
+				CPYSGN: begin rob[rob_exec].res.val <= { robi.ib.val[63],robi.ia.val[62:0]}; tMod(); end
+				SGNINV: begin rob[rob_exec].res.val <= {~robi.ib.val[63],robi.ia.val[62:0]}; tMod(); end
+				FADD,FSUB,FMUL,FDIV:
+					begin
+						fpreci.rid <= rob_exec;
+						fpreci.a <= robi.ia;
+						fpreci.b <= robi.ib;
+						fpreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				FMIN:	// FMIN	
+					begin
+						if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
+							rob[rob_exec].res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+						else if (fa_qnan & !fb_nan)
+							rob[rob_exec].res.val <= robi.ib.val;
+						else if (!fa_nan & fb_qnan)
+							rob[rob_exec].res.val <= robi.ia.val;
+						else if (fcmp_o[1])
+							rob[rob_exec].res.val <= robi.ia.val;
+						else
+							rob[rob_exec].res.val <= robi.ib.val;
+						tMod();
+					end
+				FMAX:	// FMAX
+					begin
+						if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
+							rob[rob_exec].res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+						else if (fa_qnan & !fb_nan)
+							rob[rob_exec].res.val <= robi.ib.val;
+						else if (!fa_nan & fb_qnan)
+							rob[rob_exec].res.val <= robi.ia.val;
+						else if (fcmp_o[1])
+							rob[rob_exec].res.val <= robi.ib.val;
+						else
+							rob[rob_exec].res.val <= robi.ia.val;
+						tMod();
+					end
+				FCMP:	begin rob[rob_exec].res.val <=  cmpnan ? 64'h4000000000000000 : fcmp_o[1] ? 64'hBFF0000000000000 : fcmp_o[0] ? 64'd0 : 64'h3FF0000000000000;	tMod(); end	//2,-1,0,1 
+				FCMPB:begin	rob[rob_exec].res.val <=  fcmp_o; tMod(); end
+				FSEQ:	begin rob[rob_exec].res.val <=  fcmp_o[0] & ~cmpnan; tMod(); end
+				FSNE: begin rob[rob_exec].res.val <= ~fcmp_o[0] & ~cmpnan; tMod(); end
+				FSLT:	begin rob[rob_exec].res.val <=  fcmp_o[1] & ~cmpnan; tMod(); end
+				FSLE:	begin rob[rob_exec].res.val <=  fcmp_o[2] & ~cmpnan; tMod(); end
+				FSETM:
+					if (robi.step==6'd0) begin
+						rob[rob_exec].res.val <= 64'd0;
+						vtmp <= 64'd0;
+						case(robi.ir[13:11])
+						3'd0:	begin rob[rob_exec].res.val[robi.step] <=  fcmp_o[0]; vtmp <=  fcmp_o[0]; end
+						3'd1:	begin rob[rob_exec].res.val[robi.step] <= ~fcmp_o[0]; vtmp <= ~fcmp_o[0]; end
+						3'd2:	begin rob[rob_exec].res.val[robi.step] <=  fcmp_o[1]; vtmp <=  fcmp_o[1]; end
+						3'd3:	begin rob[rob_exec].res.val[robi.step] <=  fcmp_o[2]; vtmp <=  fcmp_o[2]; end
+						default:	;
+						endcase
+						tMod();
+					end
+					else begin
+						rob[rob_exec].res.val <= vtmp;
+						case(robi.ir[13:11])
+						3'd0:	begin rob[rob_exec].res.val[robi.step] <=  fcmp_o[0]; vtmp[robi.step] <=  fcmp_o[0]; end
+						3'd1:	begin rob[rob_exec].res.val[robi.step] <= ~fcmp_o[0]; vtmp[robi.step] <= ~fcmp_o[0]; end
+						3'd2:	begin rob[rob_exec].res.val[robi.step] <=  fcmp_o[1]; vtmp[robi.step] <=  fcmp_o[1]; end
+						3'd3:	begin rob[rob_exec].res.val[robi.step] <=  fcmp_o[2]; vtmp[robi.step] <=  fcmp_o[2]; end
+						default:	;
+						endcase
+						tMod();
+					end
+				default:	;
+				endcase
+			end
+		F3,VF3:
+			begin
+				case(robi.ir.r2.func)
+				MADD,MSUB,NMADD,NMSUB:
+					begin
+						fpreci.rid <= rob_exec;
+						fpreci.a <= robi.ia;
+						fpreci.b <= robi.ib;
+						fpreci.c <= robi.ic;
+						fpreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				default:	;
+				endcase
+			end
+`endif
+		ADDI:	begin rob[rob_exec].res.val <= robi.ia.val + robi.imm.val; tMod(); end
+		SUBFI:begin rob[rob_exec].res.val <= robi.imm.val - robi.ia.val; tMod(); end
+		ANDI:	begin rob[rob_exec].res.val <= robi.ia.val & robi.imm.val; tMod(); end
+		ORI:	begin rob[rob_exec].res.val <= robi.ia.val | robi.imm.val; tMod(); end
+		XORI:	begin rob[rob_exec].res.val <= robi.ia.val ^ robi.imm.val; tMod(); end
+		MULI,MULUI,MULSUI:
+				begin
+					begin
+						mulreci.rid <= rob_exec;
+						mulreci.a <= robi.ia;
+						mulreci.imm <= robi.imm;
+						mulreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				end
+		DIVI,DIVUI,DIVSUI:
+				begin
+					begin
+						divreci.rid <= rob_exec;
+						divreci.a <= robi.ia;
+						divreci.imm <= robi.imm;
+						divreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				end
+		MULFI:begin rob[rob_exec].res.val <= robi.ia.val[23:0] + robi.imm.val[15:0]; tMod(); end
+		SEQI:	begin rob[rob_exec].res.val <= robi.ia.val == robi.imm.val; tMod(); end
+		SNEI:	begin rob[rob_exec].res.val <= robi.ia != robi.imm; tMod(); end
+		SLTI:	begin rob[rob_exec].res.val <= $signed(robi.ia.val) < $signed(robi.imm.val); tMod(); end
+		SGTI:	begin rob[rob_exec].res.val <= $signed(robi.ia.val) > $signed(robi.imm.val); tMod(); end
+		SLTUI:	begin rob[rob_exec].res.val <= robi.ia.val < robi.imm.val; tMod(); end
+		SGTUI:	begin rob[rob_exec].res.val <= robi.ia.val > robi.imm.val; tMod(); end
+		BTFLD:	begin rob[rob_exec].res.val <= bf_out.val; tMod(); rob[rob_exec].cmt <= TRUE; end
+    BYTNDX:
+	    begin
+	    	if (robi.ir.r2.func[6:3]!=4'd0) begin
+	        if (robi.ia.val[7:0]==robi.imm.val[7:0])
+	          rob[rob_exec].res.val <= 64'd0;
+	        else if (robi.ia.val[15:8]==robi.imm.val[7:0])
+	          rob[rob_exec].res.val <= 64'd1;
+	        else if (robi.ia.val[23:16]==robi.imm.val[7:0])
+	          rob[rob_exec].res.val <= 64'd2;
+	        else if (robi.ia.val[31:24]==robi.imm.val[7:0])
+	          rob[rob_exec].res.val <= 64'd3;
+	        else if (robi.ia.val[39:32]==robi.imm.val[7:0])
+	          rob[rob_exec].res.val <= 64'd4;
+	        else if (robi.ia.val[47:40]==robi.imm.val[7:0])
+	          rob[rob_exec].res.val <= 64'd5;
+	        else if (robi.ia.val[55:40]==robi.imm.val[7:0])
+	          rob[rob_exec].res.val <= 64'd6;
+	        else if (robi.ia.val[63:56]==robi.imm.val[7:0])
+	          rob[rob_exec].res.val <= 64'd7;
+	        else
+	          rob[rob_exec].res.val <= {64{1'b1}};  // -1
+	      end
+	      else begin
+	        if (robi.ia.val[7:0]==robi.ib.val[7:0])
+	          rob[rob_exec].res.val <= 64'd0;
+	        else if (robi.ia.val[15:8]==robi.ib.val[7:0])
+	          rob[rob_exec].res.val <= 64'd1;
+	        else if (robi.ia.val[23:16]==robi.ib.val[7:0])
+	          rob[rob_exec].res.val <= 64'd2;
+	        else if (robi.ia.val[31:24]==robi.ib.val[7:0])
+	          rob[rob_exec].res.val <= 64'd3;
+	        else if (robi.ia.val[39:32]==robi.ib.val[7:0])
+	          rob[rob_exec].res.val <= 64'd4;
+	        else if (robi.ia.val[47:40]==robi.ib.val[7:0])
+	          rob[rob_exec].res.val <= 64'd5;
+	        else if (robi.ia.val[55:40]==robi.ib.val[7:0])
+	          rob[rob_exec].res.val <= 64'd6;
+	        else if (robi.ia.val[63:56]==robi.ib.val[7:0])
+	          rob[rob_exec].res.val <= 64'd7;
+	        else
+	          rob[rob_exec].res.val <= {64{1'b1}};  // -1
+	      end
+	      tMod();
+	    end
+`ifdef U10NDX
+    U10NDX:
+    begin
+    	if (robi.ir.sz==4'd1) begin
+        if (robi.ia.val[9:0]==robi.imm.val[9:0])
+          rob[rob_exec].res.val <= 64'd0;
+        else if (robi.ia.val[19:10]==robi.imm.val[9:0])
+          rob[rob_exec].res.val <= 64'd1;
+        else if (robi.ia.val[29:20]==robi.imm.val[9:0])
+          rob[rob_exec].res.val <= 64'd2;
+        else if (robi.ia.val[39:30]==robi.imm.val[9:0])
+          rob[rob_exec].res.val <= 64'd3;
+        else if (robi.ia.val[49:40]==robi.imm.val[9:0])
+          rob[rob_exec].res.val <= 64'd4;
+        else if (robi.ia.val[59:50]==robi.imm.val[9:0])
+          rob[rob_exec].res.val <= 64'd5;
+        else
+          rob[rob_exec].res.val <= {64{1'b1}};  // -1
+      end
+      else begin
+        if (robi.ia.val[9:0]==robi.ib.val[9:0])
+          rob[rob_exec].res.val <= 64'd0;
+        else if (robi.ia.val[19:10]==robi.ib.val[9:0])
+          rob[rob_exec].res.val <= 64'd1;
+        else if (robi.ia.val[29:20]==robi.ib.val[9:0])
+          rob[rob_exec].res.val <= 64'd2;
+        else if (robi.ia.val[39:30]==robi.ib.val[9:0])
+          rob[rob_exec].res.val <= 64'd3;
+        else if (robi.ia.val[49:40]==robi.ib.val[9:0])
+          rob[rob_exec].res.val <= 64'd4;
+        else if (robi.ia.val[59:50]==robi.ib.val[9:0])
+          rob[rob_exec].res.val <= 64'd5;
+        else
+          rob[rob_exec].res.val <= {64{1'b1}};  // -1
+      end
+      tMod();
+    end
+`endif
+    U21NDX:
+			begin
+	    	if (robi.ir.r2.func[6:3]!=4'd0) begin
+	        if (robi.ia.val[20:0]==robi.imm.val[20:0])
+	          rob[rob_exec].res.val <= 64'd0;
+	        else if (robi.ia.val[41:21]==robi.imm.val[20:0])
+	          rob[rob_exec].res.val <= 64'd1;
+	        else if (robi.ia.val[62:42]==robi.imm.val[20:0])
+	          rob[rob_exec].res.val <= 64'd2;
+	        else
+	          rob[rob_exec].res.val <= {64{1'b1}};  // -1
+	      end
+	      else begin
+	        if (robi.ia.val[20:0]==robi.ib.val[20:0])
+	          rob[rob_exec].res.val <= 64'd0;
+	        else if (robi.ia.val[41:21]==robi.ib.val[20:0])
+	          rob[rob_exec].res.val <= 64'd1;
+	        else if (robi.ia.val[62:42]==robi.ib.val[20:0])
+	          rob[rob_exec].res.val <= 64'd2;
+	        else
+	          rob[rob_exec].res.val <= {64{1'b1}};  // -1
+	      end
+	      tMod();
+	    end
+    PERM:
+			begin
+	    	if (robi.ir.r2.func!=4'd0) begin
+	    		rob[rob_exec].res.val[7:0] <= robi.ia.val >> {robi.imm.val[2:0],3'b0};
+	    		rob[rob_exec].res.val[15:8] <= robi.ia.val >> {robi.imm.val[5:3],3'b0};
+	    		rob[rob_exec].res.val[23:16] <= robi.ia.val >> {robi.imm.val[8:6],3'b0};
+	    		rob[rob_exec].res.val[31:24] <= robi.ia.val >> {robi.imm.val[11:9],3'b0};
+	    		rob[rob_exec].res.val[39:32] <= robi.ia.val >> {robi.imm.val[14:12],3'b0};
+	    		rob[rob_exec].res.val[47:40] <= robi.ia.val >> {robi.imm.val[17:15],3'b0};
+	    		rob[rob_exec].res.val[55:48] <= robi.ia.val >> {robi.imm.val[20:18],3'b0};
+	    		rob[rob_exec].res.val[63:56] <= robi.ia.val >> {robi.imm.val[23:21],3'b0};
+					tMod();
+				end
+				else if (robi.ibv) begin
+	    		rob[rob_exec].res.val[7:0] <= robi.ia.val >> {robi.ib.val[2:0],3'b0};
+	    		rob[rob_exec].res.val[15:8] <= robi.ia.val >> {robi.ib.val[5:3],3'b0};
+	    		rob[rob_exec].res.val[23:16] <= robi.ia.val >> {robi.ib.val[8:6],3'b0};
+	    		rob[rob_exec].res.val[31:24] <= robi.ia.val >> {robi.ib.val[11:9],3'b0};
+	    		rob[rob_exec].res.val[39:32] <= robi.ia.val >> {robi.ib.val[14:12],3'b0};
+	    		rob[rob_exec].res.val[47:40] <= robi.ia.val >> {robi.ib.val[17:15],3'b0};
+	    		rob[rob_exec].res.val[55:48] <= robi.ia.val >> {robi.ib.val[20:18],3'b0};
+	    		rob[rob_exec].res.val[63:56] <= robi.ia.val >> {robi.ib.val[23:21],3'b0};
+					tMod();
+				end
+			end    	
+		CHKI:
+			begin
+				case(robi.ir.r2.Rt[2:0])
+				3'd0:
+					if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.imm.val)) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd1:
+					if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.imm.val)) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd2:
+					if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.imm.val)) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd3:
+					if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.imm.val)) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd4:
+					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm.val))) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd5:
+					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm.val))) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd6:
+					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm.val))) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd7:
+					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm.val))) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				endcase
+			end
+		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:
+			begin
+				rob[rob_exec].takb <= ex_takb;
+				rob[rob_exec].res.val <= fnIncIP(robi.ip);
+				tMod();
+				if (brMispredict) begin
+					f2a_rst <= TRUE;
+					a2d_rst <= TRUE;
+					d2x_rst <= TRUE;
+					ex_redirecti.redirect_ip <= ex_takb ? robi.ic + {robi.imm.val,3'b0} + robi.imm.val : fnIncIP(robi.ip);
+					ex_redirecti.current_ip <= robi.ip;
+					ex_redirecti.step <= 6'd0;
+					ex_redirecti.xrid <= rob_exec;
+					ex_redirecti.wr <= TRUE;
+					rob[rob_exec].cmt <= FALSE;
+					rob[rob_exec].cmt2 <= FALSE;
+				end
+				else if (brAddrMispredict) begin
+					f2a_rst <= TRUE;
+					a2d_rst <= TRUE;
+					d2x_rst <= TRUE;
+					ex_redirecti.redirect_ip <= ex_takb ? robi.ic + {robi.imm.val,3'b0} + robi.imm.val : fnIncIP(robi.ip);
+					ex_redirecti.current_ip <= robi.ip;
+					ex_redirecti.step <= 6'd0;
+					ex_redirecti.xrid <= rob_exec;
+					ex_redirecti.wr <= TRUE;
+					rob[rob_exec].cmt <= FALSE;
+					rob[rob_exec].cmt2 <= FALSE;
+				end
+			end
+		JALR:
+			begin
+				rob[rob_exec].jump <= TRUE;
+				rob[rob_exec].jump_tgt <= robi.ia.val + robi.imm.val;
+				rob[rob_exec].res <= fnIncIP(robi.ip);
+				f2a_rst <= TRUE;
+				a2d_rst <= TRUE;
+				d2x_rst <= TRUE;
+				ex_redirecti.redirect_ip <= robi.ia.val + robi.imm.val;
+				ex_redirecti.current_ip <= robi.ip;
+				ex_redirecti.step <= 6'd0;
+				ex_redirecti.xrid <= rob_exec;
+				ex_redirecti.wr <= TRUE;
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+			end
+		JAL:
+			begin
+				rob[rob_exec].jump <= TRUE;
+				rob[rob_exec].jump_tgt <= robi.imm.val;
+				rob[rob_exec].res.val <= fnIncIP(robi.ip);
+				f2a_rst <= TRUE;
+				a2d_rst <= TRUE;
+				d2x_rst <= TRUE;
+				ex_redirecti.redirect_ip <= robi.imm.val;
+				ex_redirecti.current_ip <= robi.ip;
+				ex_redirecti.xrid <= rob_exec;
+				ex_redirecti.step <= 6'd0;
+				ex_redirecti.wr <= TRUE;
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+			end
+		BAL:
+			begin
+				rob[rob_exec].jump <= TRUE;
+				rob[rob_exec].jump_tgt <= robi.ip + robi.imm.val;
+				rob[rob_exec].res.val <= fnIncIP(robi.ip);
+				f2a_rst <= TRUE;
+				a2d_rst <= TRUE;
+				d2x_rst <= TRUE;
+				ex_redirecti.redirect_ip <= robi.ip + robi.imm.val;
+				ex_redirecti.current_ip <= robi.ip;
+				ex_redirecti.xrid <= rob_exec;
+				ex_redirecti.step <= 6'd0;
+				ex_redirecti.wr <= TRUE;
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+			end
+		CALL:
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia.val <= robi.ia.val - 4'd8;
+				membufi.ib.val <= fnIncIP(robi.ip);
+				membufi.ic <= robi.ic;
+				membufi.dato <= fnIncIP(robi.ip);
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				f2a_rst <= TRUE;
+				a2d_rst <= TRUE;
+				d2x_rst <= TRUE;
+				ex_redirecti.redirect_ip <= robi.ir[8] ? robi.imm.val : robi.ip + robi.imm.val;
+				ex_redirecti.current_ip <= robi.ip;
+				ex_redirecti.xrid <= rob_exec;
+				ex_redirecti.step <= 6'd0;
+				ex_redirecti.wr <= TRUE;
+				rob[rob_exec].res.val <= robi.ia.val - 4'd8;	// decrement SP
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].wr_fu <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+		RTS:
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				rob[rob_exec].res.val <= robi.ia.val + {robi.imm.val[63:3],3'b0};	// increment SP
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].wr_fu <= TRUE;
+				rob[rob_exec].out <= TRUE;
+			end
+		LEA,LDx,LDxX:
+			// This does not wait for registers to be valid.
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].wr_fu <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+		STx,STxX:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].wr_fu <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+		LDSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (robi.vmask[robi.step]) begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].wr_fu <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+			else if (robi.irmod.im.z)
+				tDoOp(64'd0);
+			else begin
+				tDoOp(64'd0);
+				rob[rob_exec].vrfwr <= FALSE;
+			end
+			end
+		STSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (robi.vmask[robi.step]) begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].wr_fu <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+			else if (robi.irmod.im.z) begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= 64'd0;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].wr_fu <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+			else begin
+				tDoOp(64'd0);
+				rob[rob_exec].vrfwr <= FALSE;
+			end
+			end
+		CVLDSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (robi.vmask[robi.step]) begin
+				vtmp[5:0] <= vtmp[5:0] + 2'd1;
+				membufi.rid <= rob_exec;
+				membufi.step <= vtmp[5:0];
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].wr_fu <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+			else if (robi.irmod.im.z)
+				tDoOp(64'd0);
+			else begin
+				tDoOp(64'd0);
+				rob[rob_exec].vrfwr <= FALSE;
+			end
+			end
+		CVSTSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (robi.vmask[robi.step]) begin
+				vtmp[5:0] <= vtmp[5:0] + 2'd1;
+				membufi.rid <= rob_exec;
+				membufi.step <= vtmp[5:0];
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].wr_fu <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+			else begin
+				tDoOp(64'd0);
+				rob[rob_exec].vrfwr <= FALSE;
+			end
+			end
+		CSR:
+			begin
+				rob[rob_exec].ia <= robi.ia;
+				case(robi.imm[10:8])
+				CSRR:	rob[rob_exec].res <= csrro;
+				CSRW,CSRS,CSRC:	;
+				CSRRW:	rob[rob_exec].res <= csrro;
+				default:	;
+				endcase
+		    tMod();
+			end
+		SYS:
+			case(robi.ir.r2.func)
+			POPQ:
+				begin
+					case(robi.ia[5:0])
+					6'd15:	
+						begin
+							rob[rob_exec].res <= trace_dout;
+							rd_trace <= TRUE;
+							tMod();
+						end
+					default:	;
+					endcase
+				end
+			POPQI:
+				begin
+					case(robi.ir.r2.Ra)
+					6'd15:	
+						begin
+							rob[rob_exec].res <= trace_dout;
+							rd_trace <= TRUE;
+							tMod();
+						end
+					default:	;
+					endcase
+				end
+			PEEKQ:
+				begin
+					case(robi.ia[5:0])
+					6'd15:	
+						begin
+							rob[rob_exec].res <= trace_dout;
+							tMod();
+						end
+					default:	;
+					endcase
+				end
+			PEEKQI:
+				begin
+					case(robi.ir.r2.Ra)
+					6'd15:	
+						begin
+							rob[rob_exec].res <= trace_dout;
+							tMod();
+						end
+					default:	;
+					endcase
+				end
+			PFI:
+				begin
+	      	if (irq_i != 1'b0)
+			    	rob[rob_exec].cause <= 16'h8000|cause_i;
+			    tMod();
+		  	end
+		  WFI:	begin set_wfi <= TRUE; tMod(); end
+			TLBRW:
+				begin
+					membufi.rid <= rob_exec;
+					membufi.step <= robi.step;
+					membufi.ir <= robi.ir;
+					membufi.ia <= robi.ia;
+					membufi.ib <= robi.ib;
+					membufi.imm <= robi.imm;
+					membufi.wr <= TRUE;
+					tMod();
+					rob[rob_exec].cmt <= FALSE;
+					rob[rob_exec].cmt2 <= FALSE;
+					rob[rob_exec].wr_fu <= FALSE;
+					rob[rob_exec].out <= TRUE;
+				end
+			default:	;
+			endcase
+		EXI0,EXI1,EXI2:	tMod();
+		IMOD:
+				tMod();
+		BRMOD:
+				tMod();
+		STRIDE:
+				tMod();
+		8'hFF:
+			;//rob_exec <= rob_exec;
+`ifdef SUPPORT_VECTOR
+		VR1:
+			begin
+				case(robi.ir.r2.func)
+				ABS:	begin
+								rob[rob_exec].update_rob <= TRUE;
+								if (robi.vmask.val[robi.step]) begin
+									rob[rob_exec].res.val <= robi.ia[63] ? -robi.ia : robi.ia;
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									rob[rob_exec].res.val <= 64'd0;
+						  end
+				NABS:	begin
+								rob[rob_exec].update_rob <= TRUE;
+								if (robi.vmask.val[robi.step]) begin
+									rob[rob_exec].res.val <= robi.ia[63] ? robi.ia : -robi.ia;
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									rob[rob_exec].res.val <= 64'd0;
+						  end
+				NEG:	begin
+								rob[rob_exec].update_rob <= TRUE;
+								if (robi.vmask.val[robi.step]) begin
+									rob[rob_exec].res.val <= -robi.ia;
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									rob[rob_exec].res.val <= 64'd0;
+						  end
+				NOT:	begin
+								rob[rob_exec].update_rob <= TRUE;
+								if (robi.vmask.val[robi.step]) begin
+									rob[rob_exec].res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0;
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									rob[rob_exec].res.val <= 64'd0;
+							end
+				CTLZ:	begin
+								rob[rob_exec].update_rob <= TRUE;
+								if (robi.vmask.val[robi.step]) begin
+									rob[rob_exec].res.val <= cntlzo;
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									rob[rob_exec].res.val <= 64'd0;
+							end
+				CTPOP:begin
+								rob[rob_exec].update_rob <= TRUE;
+								if (robi.vmask.val[robi.step]) begin
+									rob[rob_exec].res.val <= cntpopo;
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+								else if (robi.irmod.im.z)
+									rob[rob_exec].res.val <= 64'd0;
+							end
+				V2BITS:	
+					if (robi.iav) begin
+						if (robi.step==0) begin
+							if (robi.vmask[0]) begin
+								rob[rob_exec].res.val <= {63'd0,robi.ia.val[0]};
+								vtmp <= {63'd0,robi.ia.val[0]};
+							end
+							else if (robi.irmod.im.z) begin
+								rob[rob_exec].res.val <= 64'd0;
+								vtmp <= 64'd0;
+							end
+						end
+						else begin
+							if (robi.vmask[robi.step]) begin
+								rob[rob_exec].res.val <= vtmp | (robi.ia.val[0] << robi.step);
+								vtmp <= vtmp | (robi.ia.val[0] << robi.step);
+							end
+						end
+						tMod();
+						if (robi.step + 2'd1 >= vl)
+							rob[rob_exec].vcmt <= TRUE;
+					end
+				BITS2V:
+					if (robi.iav) begin
+						tDoOp(robi.ia.val[robi.step]);
+					end
+				VCMPRSS:
+					begin
+						if (robi.step==6'd0)
+							vtmp[5:0] <= 6'd0;
+						rob[rob_exec].res <= robi.ia;
+						if (robi.vmask[robi.step]) begin
+							rob[rob_exec].res_ele <= |robi.step ? vtmp[5:0] : 6'd0;
+							vtmp[5:0] <= vtmp[5:0] + 2'd1;
+						end
+						tMod();
+					end
+				VCIDX:
+					begin
+						if (robi.step==6'd0)
+							vtmp[5:0] <= 6'd0;
+						rob[rob_exec].res <= robi.ia * robi.step;
+						if (robi.vmask[robi.step]) begin
+							rob[rob_exec].res_ele <= |robi.step ? vtmp[5:0] : 6'd0;
+							vtmp[5:0] <= vtmp[5:0] + 2'd1;
+						end
+						tMod();
+					end
+				VSCAN:
+					begin
+						rob[rob_exec].res.val <= vtmp;
+						if (robi.step==6'd0) begin
+							vtmp <= 64'd0;
+							rob[rob_exec].res.val <= 64'd0;
+						end
+						else if (robi.vmask[robi.step])
+							vtmp <= vtmp + robi.ia.val;
+						tMod();
+					end
+				default:	;
+				endcase
+			end
+		VR2:
+			begin
+				case(robi.ir.r2.func)
+				ADD:	tDoOp(robi.ia.val + robi.ib.val);
+				SUB:	tDoOp(robi.ia.val - robi.ib.val);
+				AND:	tDoOp(robi.ia.val & robi.ib.val);
+				OR:		tDoOp(robi.ia.val | robi.ib.val);
+				XOR:	tDoOp(robi.ia.val ^ robi.ib.val);
+				SLL:	tDoOp(robi.ia.val << robi.ib.val[5:0]);
+				SLLI:	tDoOp(robi.ia.val << {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]});
+				SRL:	tDoOp(rob[rob_exec].res.val <= robi.ia.val >> robi.ib.val[5:0]);
+				SRLI:	tDoOp(rob[rob_exec].res.val <= robi.ia.val >> {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]});
+				DIF:
+					begin
+						tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ?
+							rob[rob_exec].ib.val - robi.ia.val : robi.ia.val - robi.ib.val);
+					end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
+					begin
+						mulreci.rid <= rob_exec;
+						mulreci.ir <= robi.ir;
+						mulreci.a <= robi.ia;
+						mulreci.b <= robi.ib;
+						mulreci.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].vcmt <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				DIV,DIVU,DIVSU:
+					begin
+						divreci.rid <= rob_exec;
+						divreci.ir <= robi.ir;
+						divreci.a <= robi.ia;
+						divreci.b <= robi.ib;
+						divreci.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].vcmt <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				MULF:	tDoOp(robi.ia.val[23:0] * robi.ib.val[15:0]);
+				CMP:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1);
+				SEQ:	tDoOp(robi.ia.val == robi.ib.val);
+				SNE:	tDoOp(robi.ia.val != robi.ib.val);
+				SLT:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val));
+				SGE:	tDoOp($signed(robi.ia.val) >= $signed(robi.ib.val));
+				SLTU:	tDoOp(robi.ia.val < robi.ib.val);
+				SGEU:	tDoOp(robi.ia.val >= robi.ib.val);
+				SETM:
+					if (robi.step==6'd0) begin
+						rob[rob_exec].res.val <= 64'd0;
+						vtmp <= 64'd0;
+						case(robi.ir[13:11])
+						3'd0:	begin rob[rob_exec].res.val[robi.step] <= robi.ia.val==robi.ib.val; vtmp <= robi.ia.val==robi.ib.val; end
+						3'd1:	begin rob[rob_exec].res.val[robi.step] <= robi.ia.val!=robi.ib.val; vtmp <= robi.ia.val!=robi.ib.val; end
+						3'd2:	begin rob[rob_exec].res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); vtmp <= $signed(robi.ia.val)< $signed(robi.ib.val); end
+						3'd3:	begin rob[rob_exec].res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); vtmp <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
+						3'd4:	begin rob[rob_exec].res.val[robi.step] <= robi.ia.val< robi.ib.val; vtmp <= robi.ia.val< robi.ib.val; end
+						3'd5:	begin rob[rob_exec].res.val[robi.step] <= robi.ia.val<=robi.ib.val; vtmp <= robi.ia.val<=robi.ib.val; end
+						default:	;
+						endcase
+						tMod();
+					end
+					else begin
+						rob[rob_exec].res.val <= vtmp;
+						case(robi.ir[13:11])
+						3'd0:	begin rob[rob_exec].res.val[robi.step] <= robi.ia.val==robi.ib.val; vtmp[robi.step] <= robi.ia.val==robi.ib.val; end
+						3'd1:	begin rob[rob_exec].res.val[robi.step] <= robi.ia.val!=robi.ib.val; vtmp[robi.step] <= robi.ia.val!=robi.ib.val; end
+						3'd2:	begin rob[rob_exec].res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); vtmp[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); end
+						3'd3:	begin rob[rob_exec].res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); vtmp[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
+						3'd4:	begin rob[rob_exec].res.val[robi.step] <= robi.ia.val< robi.ib.val; vtmp[robi.step] <= robi.ia.val< robi.ib.val; end
+						3'd5:	begin rob[rob_exec].res.val[robi.step] <= robi.ia.val<=robi.ib.val; vtmp[robi.step] <= robi.ia.val<=robi.ib.val; end
+						default:	;
+						endcase
+						tMod();
+					end
+				VEX:
+					if (robi.step_v) begin
+						rob[rob_exec].res.val <= robi.ib;
+						tMod();
+					end
+					else begin
+						rob[rob_exec].step_v <= TRUE;
+						rob[rob_exec].step <= robi.ia[5:0];
+					end
+				VEINS:
+					if (robi.step_v)
+						tDoOp(robi.ib);
+					else begin
+						rob[rob_exec].step_v <= TRUE;
+						rob[rob_exec].step <= robi.ia[5:0];
+					end
+				VSLLV:
+					begin
+						if ({2'b0,robi.ia_ele} + robi.ib.val[11:6] <= vl) begin
+							rob[rob_exec].res_ele <= robi.ia_ele + robi.ib.val[11:6];
+							tDoOp(sll_out2[63:0]|vtmp);
+							vtmp <= sll_out2[127:64];
+						end
+						else begin
+							rob[rob_exec].res_ele <= robi.ia_ele - vl - 2'd1;
+							tDoOp(64'd0);
+						end
+					end
+				VSRLV:
+					begin
+						if (robi.ia_ele >= robi.ib.val[11:6]) begin
+							rob[rob_exec].res_ele <= robi.ia_ele - robi.ib.val[11:6];
+							tDoOp(vtmp|srl_out2[127:64]);
+							vtmp <= srl_out2[63:0];
+						end
+						else begin
+							rob[rob_exec].res_ele <= robi.ia_ele;
+							tDoOp(64'd0);
+						end
+					end
+				default:	;
+				endcase
+			end
+		VR3:
+			begin
+				case(robi.ir.r2.func)
+				SLLP:	tDoOp(rob[rob_exec].res.val <= sll_out[63:0]);
+				PTRDIF:	tDoOp(((robi.ia.val < robi.ib.val) ? robi.ib.val - robi.ia.val : robi.ia.val - robi.ib.val) >> robi.ic.val[4:0]);
+				CHK:
+					case(robi.ir.r2.func)
+					3'd0:
+						if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.ib.val)) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd1:
+						if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.ib.val)) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd2:
+						if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.ib.val)) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd3:
+						if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.ib.val)) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd4:
+						if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.ib.val))) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd5:
+						if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.ib.val))) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd6:
+						if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.ib.val))) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					3'd7:
+						if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.ib.val))) begin
+							rob[rob_exec].cause <= FLT_CHK;
+							tMod();
+						end
+					default:
+						begin
+							rob[rob_exec].ui <= TRUE;
+							tMod();
+						end
+					endcase
+				default:	;
+				endcase
+			end
+		VADDI:	tDoOp(robi.ia.val + robi.imm.val);
+		VSUBFI:	tDoOp(robi.imm.val - robi.ia.val);
+		VANDI:	tDoOp(robi.ia.val & robi.imm.val);
+		VORI:		tDoOp(robi.ia.val | robi.imm.val);
+		VXORI:	tDoOp(robi.ia.val ^ robi.imm.val);
+		VMULI,VMULUI,VMULSUI:
+				begin
+					begin
+						mulreci.rid <= rob_exec;
+						mulreci.a <= robi.ia;
+						mulreci.imm <= robi.imm;
+						mulreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].vcmt <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				end
+		VDIVI,VDIVUI,VDIVSUI:
+				begin
+					begin
+						divreci.rid <= rob_exec;
+						divreci.a <= robi.ia;
+						divreci.imm <= robi.imm;
+						divreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].vcmt <= FALSE;
+						rob[rob_exec].wr_fu <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				end
+		VMULFI:	tDoOp(robi.ia.val[23:0] + robi.imm.val[15:0]);
+		VSEQI:	tDoOp(robi.ia.val == robi.imm.val);
+		VSNEI:	tDoOp(robi.ia != robi.imm);
+		VSLTI:	tDoOp($signed(robi.ia.val) < $signed(robi.imm.val));
+		VSGTI:	tDoOp($signed(robi.ia.val) > $signed(robi.imm.val));
+		VSLTUI:	tDoOp(robi.ia.val < robi.imm.val);
+		VSGTUI:	tDoOp(robi.ia.val > robi.imm.val);
+		VBTFLD:	tDoOp(bf_out.val);
+    VBYTNDX:
+	    begin
+	   		if (vtmp==64'd0 | robi.Rt[6]) begin
+		    	if (robi.ir.r2.func[6:3]!=4'd0) begin
+		        if (robi.ia.val[7:0]==robi.imm.val[7:0]) begin
+		        	vtmp <= {robi.step,3'b0};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'b0});
+		        end
+		        else if (robi.ia.val[15:8]==robi.imm.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd1};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd1});
+		        end
+		        else if (robi.ia.val[23:16]==robi.imm.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd2};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd2});
+		        end
+		        else if (robi.ia.val[31:24]==robi.imm.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd3};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd3});
+		        end
+		        else if (robi.ia.val[39:32]==robi.imm.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd4};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd4});
+		        end
+		        else if (robi.ia.val[47:40]==robi.imm.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd5};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd5});
+		        end
+		        else if (robi.ia.val[55:40]==robi.imm.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd6};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd6});
+		        end
+		        else if (robi.ia.val[63:56]==robi.imm.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd7};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd7});
+		        end
+		        else
+		          tDoOp({64{1'b1}});  // -1
+	        end
+		      else begin
+		        if (robi.ia.val[7:0]==robi.ib.val[7:0]) begin
+		        	vtmp <= {robi.step,3'b0};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'b0});
+		        end
+		        else if (robi.ia.val[15:8]==robi.ib.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd1};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd1});
+		        end
+		        else if (robi.ia.val[23:16]==robi.ib.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd2};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd2});
+		        end
+		        else if (robi.ia.val[31:24]==robi.ib.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd3};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd3});
+		        end
+		        else if (robi.ia.val[39:32]==robi.ib.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd4};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd4});
+		        end
+		        else if (robi.ia.val[47:40]==robi.ib.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd5};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd5});
+		        end
+		        else if (robi.ia.val[55:40]==robi.ib.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd6};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd6});
+		        end
+		        else if (robi.ia.val[63:56]==robi.ib.val[7:0]) begin
+		        	vtmp <= {robi.step,3'd7};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({robi.step,3'd7});
+		        end
+		        else
+		          tDoOp({64{1'b1}});  // -1
+		      end
+	      end
+        else begin
+          tDoOp(vtmp[63] ? {1'b0,vtmp[62:0]} : 64'hFFFFFFFFFFFFFFFF);  // -1
+        end
+	    end
+	  VM:
+			case(robi.ir.r2.func)
+			MTM:	begin rob[rob_exec].res.val <= robi.ia.val; tMod(); end
+			MFM:	if (robi.vmv) begin rob[rob_exec].res.val <= robi.vmask; tMod(); end
+			VMADD:begin rob[rob_exec].res.val <= robi.ia.val + robi.ib.val; tMod(); end
+			MAND:	begin rob[rob_exec].res.val <= robi.ia.val & robi.ib.val; tMod(); end
+			MOR:	begin rob[rob_exec].res.val <= robi.ia.val | robi.ib.val; tMod(); end
+			MXOR:	begin rob[rob_exec].res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+			MFILL:	begin 
+								for (n = 0; n < 64; n = n + 1)
+									rob[rob_exec].res.val[n] <= n[5:0] <= robi.ia.val[5:0];
+								tMod();
+							end
+			MSLL:	begin rob[rob_exec].res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
+			MSRL:	begin rob[rob_exec].res.val <= robi.ia.val >> robi.ib.val[5:0]; tMod(); end
+			MPOP: begin rob[rob_exec].res.val <= cntpopo; tMod(); end
+			MFIRST:	begin rob[rob_exec].res.val <= floo; tMod(); end
+			MLAST:	begin rob[rob_exec].res.val <= ffoo; tMod(); end
+			default:	;
+	  	endcase
+`ifdef U10NDX
+    VU10NDX:
+    begin
+    	if (robi.ir.sz==4'd1) begin
+        if (robi.ia.val[9:0]==robi.imm.val[9:0])
+          tDoOp( 64'd0);
+        else if (robi.ia.val[19:10]==robi.imm.val[9:0])
+          tDoOp( 64'd1);
+        else if (robi.ia.val[29:20]==robi.imm.val[9:0])
+          tDoOp( 64'd2);
+        else if (robi.ia.val[39:30]==robi.imm.val[9:0])
+          tDoOp( 64'd3);
+        else if (robi.ia.val[49:40]==robi.imm.val[9:0])
+          tDoOp( 64'd4);
+        else if (robi.ia.val[59:50]==robi.imm.val[9:0])
+          tDoOp( 64'd5);
+        else
+          tDoOp( {64{1'b1}});  // -1
+      end
+      else begin
+        if (robi.ia.val[9:0]==robi.ib.val[9:0])
+          tDoOp( 64'd0);
+        else if (robi.ia.val[19:10]==robi.ib.val[9:0])
+          tDoOp( 64'd1);
+        else if (robi.ia.val[29:20]==robi.ib.val[9:0])
+          tDoOp( 64'd2);
+        else if (robi.ia.val[39:30]==robi.ib.val[9:0])
+          tDoOp( 64'd3)
+        else if (robi.ia.val[49:40]==robi.ib.val[9:0])
+          tDoOp( 64'd4)
+        else if (robi.ia.val[59:50]==robi.ib.val[9:0])
+          tDoOp( 64'd5);
+        else
+          tDoOp( {64{1'b1}});  // -1
+      end
+    end
+`endif
+    VU21NDX:
+		begin
+    	if (robi.ir.r2.func!=4'd0) begin
+        if (robi.ia.val[20:0]==robi.imm.val[20:0])
+          tDoOp( 64'd0);
+        else if (robi.ia.val[41:21]==robi.imm.val[20:0])
+          tDoOp( 64'd1);
+        else if (robi.ia.val[62:42]==robi.imm.val[20:0])
+          tDoOp( 64'd2);
+        else
+          tDoOp( {64{1'b1}});  // -1
+      end
+      else begin
+        if (robi.ia.val[20:0]==robi.ib.val[20:0])
+          tDoOp( 64'd0);
+        else if (robi.ia.val[41:21]==robi.ib.val[20:0])
+          tDoOp( 64'd1);
+        else if (robi.ia.val[62:42]==robi.ib.val[20:0])
+          tDoOp( 64'd2);
+        else
+          tDoOp( {64{1'b1}});  // -1
+      end
+    end
+    PERM:
+		begin
+    	if (robi.ir.r2.func!=4'd0) begin
+    		tDoOp({
+    		robi.ia.val >> {robi.imm.val[23:21],3'b0},
+    		robi.ia.val >> {robi.imm.val[20:18],3'b0},
+    		robi.ia.val >> {robi.imm.val[17:15],3'b0},
+    		robi.ia.val >> {robi.imm.val[14:12],3'b0},
+    		robi.ia.val >> {robi.imm.val[11:9],3'b0},
+    		robi.ia.val >> {robi.imm.val[8:6],3'b0},
+    		robi.ia.val >> {robi.imm.val[5:3],3'b0},
+    		robi.ia.val >> {robi.imm.val[2:0],3'b0}});
+			end
+			else begin
+    		tDoOp({
+    		robi.ia.val >> {robi.ib.val[23:21],3'b0},
+    		robi.ia.val >> {robi.ib.val[20:18],3'b0},
+    		robi.ia.val >> {robi.ib.val[17:15],3'b0},
+    		robi.ia.val >> {robi.ib.val[14:12],3'b0},
+    		robi.ia.val >> {robi.ib.val[11:9],3'b0},
+    		robi.ia.val >> {robi.ib.val[8:6],3'b0},
+    		robi.ia.val >> {robi.ib.val[5:3],3'b0},
+    		robi.ia.val >> {robi.ib.val[2:0],3'b0}});
+			end
+		end    	
+		VCHKI:
+			begin
+				case(robi.ir.r2.Rt[2:0])
+				3'd0:
+					if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.imm.val)) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd1:
+					if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.imm.val)) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd2:
+					if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.imm.val)) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd3:
+					if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.imm.val)) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd4:
+					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm.val))) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd5:
+					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm.val))) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd6:
+					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm.val))) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				3'd7:
+					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm.val))) begin
+						rob[rob_exec].cause <= FLT_CHK;
+						tMod();
+					end
+				endcase
+			end
+`endif
+		default:	;
+		endcase
+		end
+	end
+	end
+	else begin
+		if (robi.v==INV)
+			tMod();
+		else if (robi.dec && rob_exec != 6'd63) begin
+			tMod();
+		end
+	end
+/*
+	if (robo.update_rob && !rob[robo.rid].cmt && rob[robo.rid].v && robo.rid != prev_rob_que) begin
 		rob[robo.rid].wr_fu <= robo.wr_fu;
 		rob[robo.rid].takb <= robo.takb;
 		rob[robo.rid].cause <= robo.cause;
@@ -1810,7 +3454,7 @@ else begin
 		rob[robo.rid].vcmt <= robo.vcmt;
 	end
 	rob[robo.rid].out <= robo.out;
-
+*/
   $display ("----------------------------------------------------------------- Reorder Buffer -----------------------------------------------------------------");
   $display ("head: %d  tail: %d", rob_deq, rob_que);
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
@@ -1836,7 +3480,7 @@ else begin
 	$display("Writeback");
 	$display("ticks: %d  committed:%d  ifStalls:%d  ex miss:%d", tick[15:0], insnCommitted, ifStalls[15:0], exec_misses[15:0]);
 	if (TRUE) begin
-		if (rob[rob_deq].cmt==TRUE) begin
+		if (rob[rob_deq].cmt==TRUE && rob[rob_deq].v==VAL) begin
 			insnCommitted <= insnCommitted + 2'd1;
 			begin
 				$display("ip:%h  ir:%h", rob[rob_deq].ip[AWID-1:0], rob[rob_deq].ir);
@@ -1972,19 +3616,18 @@ else begin
 					endcase
 					if (rob[rob_deq].rfwr==TRUE) begin
 						regfile[rob[rob_deq].Rt[4:0]] <= rob[rob_deq].res;
-						regfilesrc[rob[rob_deq].Rt[4:0]].rf <= 1'h0;
+						regfilesrc[rob[rob_deq].Rt[4:0]].rf <= 1'b0;
 					end
 `ifdef SUPPORT_VECTOR					
 					if (rob[rob_deq].vrfwr) begin
 						vrf_update <= TRUE;
 						vrf_din <= rob[rob_deq].res;
 						vrf_wa <= {rob[rob_deq].res_ele,rob[rob_deq].Rt[5:0]};
-						if (rob[rob_deq].vcmt)
-							vregfilesrc[rob[rob_deq].Rt[4:0]].rf <= 1'h0;
+						vregfilesrc[rob[rob_deq].Rt[4:0]].rf <= 1'b0;
 					end
 					if (rob[rob_deq].vmrfwr) begin
 						vm_regfile[rob[rob_deq].Rt[2:0]] <= rob[rob_deq].res.val;
-						vm_regfilesrc[rob[rob_deq].Rt[2:0]].rf <= 1'b0;
+						vm_regfilesrc[rob[rob_deq].Rt[4:0]].rf <= 1'b0;
 					end
 `endif					
 				end
@@ -2566,7 +4209,7 @@ else begin
 		end
 	end
 
-	if (push_d2x & decbuf.v) begin
+	if (push_d2x & decbuf.v & ~branch_invalidating) begin
 		if (decbuf.rfwr) begin
 			regfilesrc[decbuf.Rt[4:0]].rf <= 1'b1;
 			regfilesrc[decbuf.Rt[4:0]].rid <= rob_que;
@@ -2601,6 +4244,12 @@ else begin
 		ex2if_redirect_rd <= FALSE;
 		if (rob[wb_redirecto.xrid].v && !rob[wb_redirecto.xrid].cmt && rob[wb_redirecto.xrid].out)
 			tBranch(wb_redirecto,newer_than_wb,wb_latestID);
+		else if (!ifStall)
+			ip <= fnIPInc(ip);
+	end
+	else if (mem_redirecti.wr) begin
+		if (rob[mem_redirecti.xrid].v && !rob[mem_redirecti.xrid].cmt)
+			tBranch(mem_redirecti,newer_than_mem,mem_latestID);
 		else if (!ifStall)
 			ip <= fnIPInc(ip);
 	end
@@ -2991,29 +4640,50 @@ input [ROB_ENTRIES-1:0] newer_than;
 input RegBitList [ROB_ENTRIES-1:0] latestID;
 begin
 	begin
-		rob[redi.xrid].cmt <= TRUE;
-		rob[redi.xrid].cmt2 <= TRUE;
-		rob[redi.xrid].v <= FALSE;
-		ip <= redi.redirect_ip;
-		decven <= redi.step;
-		ifetch_v <= INV;
-		f2a_in.v <= INV;
-		a2d_out.v <= INV;
-		for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-			if (newer_than[n] && n!=redi.xrid)
-				rob[n].v <= INV;
+		if (rob[redi.xrid].v) begin
+			rob[redi.xrid].cmt <= TRUE;
+			rob[redi.xrid].cmt2 <= TRUE;
+			//rob[redi.xrid].v <= FALSE;
+			ip <= redi.redirect_ip;
+			decven <= redi.step;
+			ifetch_v <= INV;
+			f2a_in.v <= INV;
+			a2d_out.v <= INV;
+			for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+				if (newer_than[n] && n[5:0]!=redi.xrid)
+					rob[n].v <= INV;
+			end
+			for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+				regfilesrc[rob[n].Rt[4:0]].rf <= 1'b0;
+				regfilesrc[rob[n].Rt[4:0]].rid <= 6'd0;
+				vregfilesrc[rob[n].Rt[4:0]].rf <= 1'b0;
+				vregfilesrc[rob[n].Rt[4:0]].rid <= 6'd0;
+				vm_regfilesrc[rob[n].Rt[2:0]].rf <= 1'b0;
+				vm_regfilesrc[rob[n].Rt[2:0]].rid <= 6'd0;
+			end
+			for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
+	  		SetSource(rob[n].Rt[4:0],1'b0,n[5:0]);
+		  	if (|latestID[n] && (~newer_than[n] || n[5:0]==redi.xrid)) begin
+		  		if (rob[n].v==VAL) begin
+			  		if (rob[n].Rt[5]) begin
+				  		vregfilesrc[rob[n].Rt[4:0]].rf <= 1'b1;
+				  		vregfilesrc[rob[n].Rt[4:0]].rid <= n[5:0];
+				  		SetSource(rob[n].Rt[4:0],1'b1,n[5:0]);
+			  		end
+			  		else if (rob[n].vmrfwr) begin
+				  		vm_regfilesrc[rob[n].Rt[2:0]].rf <= 1'b1;
+				  		vm_regfilesrc[rob[n].Rt[2:0]].rid <= n[5:0];
+				  		SetSource(rob[n].Rt[4:0],1'b1,n[5:0]);
+			  		end
+			  		else begin
+			  			regfilesrc[rob[n].Rt[4:0]].rf <= 1'b1;
+			  			regfilesrc[rob[n].Rt[4:0]].rid <= n[5:0];
+				  		SetSource(rob[n].Rt[4:0],1'b1,n[5:0]);
+			  		end
+			  	end
+		  	end
+		  end
 		end
-		for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-			regfilesrc[rob[n].Rt[4:0]].rf <= 1'b0;
-			regfilesrc[rob[n].Rt[4:0]].rid <= 6'd0;
-		end
-		for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-	  	if (|latestID[n] && ~newer_than[n]) begin
-	  		regfilesrc[rob[n].Rt[4:0]].rf <= 1'b1;
-	  		regfilesrc[rob[n].Rt[4:0]].rid <= n[5:0];
-	  		SetSource(rob[n].Rt[4:0],1'b1,n[5:0]);
-	  	end
-	  end
 	end
 //		tRestoreRegfileSrc(rob[redi.xrid].btag);
 end
@@ -3022,10 +4692,10 @@ endtask
 task arg_vs;
 begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		rob[n].ias <= rob[n].Ravec ? vregfilesrc[rob[n].Ra[5:0]] : regfilesrc[rob[n].Ra[5:0]];
-		rob[n].ibs <= rob[n].Rbvec ? vregfilesrc[rob[n].Rb[5:0]] : regfilesrc[rob[n].Rb[5:0]];
-		rob[n].ics <= rob[n].Rcvec ? vregfilesrc[rob[n].Rc[5:0]] : regfilesrc[rob[n].Rc[5:0]];
-		rob[n].ids <= rob[n].Rdvec ? vregfilesrc[rob[n].Rd[5:0]] : regfilesrc[rob[n].Rd[5:0]];
+		rob[n].ias <= rob[n].Ravec ? vregfilesrc[rob[n].Ra[4:0]] : regfilesrc[rob[n].Ra[4:0]];
+		rob[n].ibs <= rob[n].Rbvec ? vregfilesrc[rob[n].Rb[4:0]] : regfilesrc[rob[n].Rb[4:0]];
+		rob[n].ics <= rob[n].Rcvec ? vregfilesrc[rob[n].Rc[4:0]] : regfilesrc[rob[n].Rc[4:0]];
+		rob[n].ids <= rob[n].Rdvec ? vregfilesrc[rob[n].Rd[4:0]] : regfilesrc[rob[n].Rd[4:0]];
 	end
 end
 endtask
@@ -3222,6 +4892,35 @@ begin
 end
 endtask
 */
+
+task tDoOp;
+input Value res;
+begin
+	rob[rob_exec].out <= TRUE;
+	if (robi.vmask.val[robi.step])
+		rob[rob_exec].res.val <= res.val;
+	else if (robi.irmod.im.z)
+		rob[rob_exec].res.val <= {VALUE_SIZE{1'd0}};
+	rob[rob_exec].cmt <= TRUE;
+	rob[rob_exec].cmt2 <= TRUE;
+	if (robi.step >= vl) begin
+		vtmp <= 64'h0;
+		rob[rob_exec].vcmt <= TRUE;
+	end
+end
+endtask
+
+task tMod;
+begin
+	rob[rob_exec].cmt <= TRUE;
+	rob[rob_exec].cmt2 <= TRUE;
+	rob[rob_exec].vcmt <= robi.step >= vl;
+	if (robi.step >= vl) begin
+		vtmp <= 64'h0;
+		rob[rob_exec].vcmt <= TRUE;
+	end
+end
+endtask
 
 endmodule
 
