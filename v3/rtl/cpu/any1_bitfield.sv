@@ -71,6 +71,7 @@ always @*
 begin
 o1 = 128'd0;	// prevent inferred latch
 o2 = 128'd0;
+o.val = {DWIDTH{1'b0}};
 case (op)
 `BFINS: 
 	begin

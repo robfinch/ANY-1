@@ -604,6 +604,8 @@ if (rst) begin
 	memreq_rd <= FALSE;
 	memresp.fifo_wr <= FALSE;
 	memresp.res <= 128'd0;
+	memresp.ret <= FALSE;
+	memresp.call <= FALSE;
 end
 else begin
 	inext <= FALSE;
@@ -654,6 +656,7 @@ else begin
 			memresp.cause <= 16'h0;
 			memresp.badAddr <= 33'd0;
 			memresp.ret <= FALSE;
+			memresp.call <= memreq.func==M_CALL;
 			ealow <= ea[7:0];
 			// Detect cache controller commands
   		case(memreq.func)
@@ -712,7 +715,7 @@ else begin
 		      sel <= {16'h0,memreq.sel} << ea[3:0];
 		  		goto (MEMORY3);
 				end
-			STORE:
+			STORE,M_CALL:
 				begin
 		    	daccess <= TRUE;
     		  tEA(ea);
@@ -796,7 +799,7 @@ else begin
       				sr_o <= LOW;
 	      		end
 	      	end
-	      STORE:	
+	      STORE,M_CALL:
 	      	begin
       			cr_o <= memreq.func2==STCR;
 	      		we_o <= HIGH;
@@ -816,7 +819,7 @@ else begin
 	    dce & dhit:
 		    begin
 		    	datil <= dc_line;
-		  		if (memreq.func==STORE) begin
+		  		if (memreq.func==STORE || memreq.func==M_CALL) begin
 		  			if (ack_i) begin
 			  			dci <= (dc_line & stmask) | ((dat << {adr_o[5:4],7'b0}) & ~stmask);
 			  			dc_wway <= dc_rway;
@@ -858,7 +861,7 @@ else begin
 		      			dati <= datil >> {adr_o[5:3],6'b0};
 			        goto (DATA_ALIGN);
 		      	end
-			    STORE:
+			    STORE,M_CALL:
 			    	begin
 			    		if (memreq.func2==STPTR) begin	// STPTR
 					    	if (~|ea[AWID-5:0]) begin
@@ -949,7 +952,7 @@ else begin
 	MEMORY12:
 	  if (dhit & dce) begin
 	  	datil <= dc_line;
-			if (memreq.func==STORE) begin
+			if (memreq.func==STORE || memreq.func==M_CALL) begin
 				if (ack_i) begin
 	  			dci <= (dc_line & stmask) | ((dat << {adr_o[5:4],7'b0}) & ~stmask);
 	  			dc_wway <= dc_rway;
@@ -982,7 +985,7 @@ else begin
 	      			dati <= datil >> {adr_o[5:3],6'b0};
 		        goto (DATA_ALIGN);
 	      	end
-		    STORE:
+		    STORE,M_CALL:
 		    	begin
 		    		if (memreq.func2==STPTR) begin	// STPTR
 				    	if (~|ea[AWID-5:0]) begin
@@ -1303,7 +1306,7 @@ endtask
 task tEA;
 input Address iea;
 begin
-  if (MUserMode && memreq.func==STORE && !ea_acr[1])
+  if (MUserMode && (memreq.func==STORE || memreq.func==M_CALL) && !ea_acr[1])
     memresp.cause <= 16'h8032;
   else if (MUserMode && (memreq.func==LOAD || memreq.func==RTS2) && !ea_acr[2])
     memresp.cause <= 16'h8033;

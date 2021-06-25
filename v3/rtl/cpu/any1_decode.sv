@@ -54,6 +54,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 		decbuf.predict_taken <= a2d_out.predict_taken;
 		decbuf.rfwr <= FALSE;
 		decbuf.vrfwr <= FALSE;
+		decbuf.vmrfwr <= FALSE;
 		decbuf.Ra <= {a2d_out.ir.r2.Ta,a2d_out.ir.r2.Ra};
 		decbuf.Rb <= {a2d_out.ir.r2.Tb,a2d_out.ir.r2.Rb};
 		decbuf.Vm <= 3'd0;
@@ -72,6 +73,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 		decbuf.is_signed <= TRUE;
 		decbuf.is_vec <= a2d_out.ir.r2.opcode[7];
 		decbuf.branch <= a2d_out.ir.r2.opcode[7:3]=={4'h4,1'b1};
+		decbuf.call <= FALSE;
 		decbuf.vex <= FALSE;
 		decbuf.veins <= FALSE;
 		decbuf.vsrlv <= FALSE;
@@ -100,7 +102,8 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 			begin
 				decbuf.needRb <= TRUE;
 				case(a2d_out.ir.r2.func)
-				ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= {a2d_out.ir.r2.Tt,a2d_out.ir.r2.Rt}; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				ADD,SUB:	begin decbuf.Rt <= {a2d_out.ir.r2.Tt,a2d_out.ir.r2.Rt}; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				AND,OR,XOR,NAND,NOR,XNOR:	begin decbuf.Rt <= {a2d_out.ir.r2.Tt,a2d_out.ir.r2.Rt}; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 				DIF:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 				MULF:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.is_signed <= FALSE; end
 				MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
@@ -162,25 +165,25 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				endcase
 			end
 `endif			
-		ADDI,SUBFI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		ANDI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{48{1'b1}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		MULFI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
-		MULI,DIVI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; end
-		MULUI,MULSUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
-		DIVUI,DIVSUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
-		ORI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		XORI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		ADDI,SUBFI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		ANDI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd1}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		MULFI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
+		MULI,DIVI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; end
+		MULUI,MULSUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
+		DIVUI,DIVSUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
+		ORI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		XORI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
 		BTFLD:		begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
-		SEQI,SNEI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		SLTI,SGTI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		SLTUI,SGTUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.ui <= FALSE; decbuf.is_signed <= FALSE; end
-		BYTNDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {54'd0,a2d_out.ir[29:20]}; end
-		U21NDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; end
-		PERM:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{48{1'b0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		SEQI,SNEI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		SLTI,SGTI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		SLTUI,SGTUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; decbuf.is_signed <= FALSE; end
+		BYTNDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-10{1'd0}},a2d_out.ir[29:20]}; end
+		U21NDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; end
+		PERM:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
 		CHKI:
 			begin
 				decbuf.ui <= FALSE;
-				decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]};
+				decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]};
 			end
 		JAL,BAL:
 			begin
@@ -188,7 +191,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				decbuf.ui <= FALSE;
 				decbuf.Rt <= {4'h0,a2d_out.ir[9:8]};
 				decbuf.Rtvec <= FALSE;
-				decbuf.imm.val <= {{38{a2d_out.ir[35]}},a2d_out.ir[35:10]};
+				decbuf.imm.val <= {{VALUE_SIZE-26{a2d_out.ir[35]}},a2d_out.ir[35:10]};
 				decbuf.rfwr <= TRUE;
 				decbuf.mc <= TRUE;
 			end
@@ -197,20 +200,20 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				decbuf.ui <= FALSE;
 				decbuf.Rt <= {4'h0,a2d_out.ir[9:8]};
 				decbuf.Rtvec <= FALSE;
-				decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]};
+				decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]};
 				decbuf.rfwr <= TRUE;
 				decbuf.mc <= TRUE; 
 			end
 		CALL:
 			begin
-				decbuf.needRa <= FALSE;
 				decbuf.ui <= FALSE;
+				decbuf.call <= TRUE;
 				decbuf.rfwr <= TRUE;
 				decbuf.Rt <= 6'd30;	// SP
 				decbuf.Ra <= 6'd30;
 				decbuf.Rtvec <= FALSE;
 				decbuf.Ravec <= FALSE;
-				decbuf.imm.val <= {{38{a2d_out.ir[35]}},a2d_out.ir[35:10]};
+				decbuf.imm.val <= {{VALUE_SIZE-26{a2d_out.ir[35]}},a2d_out.ir[35:10]};
 				decbuf.mc <= TRUE; 
 			end
 		RTS:
@@ -221,20 +224,20 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				decbuf.Ra <= 6'd30;
 				decbuf.Rtvec <= FALSE;
 				decbuf.Ravec <= FALSE;
-				decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]};
+				decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]};
 				decbuf.mc <= TRUE; 
 			end
-		BEQ,BNE,BLT,BGE:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:28],a2d_out.ir[13:8]}; decbuf.branch <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
-		BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:28],a2d_out.ir[13:8]}; decbuf.branch <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
-		LEA:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
-		LDx:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{52{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
+		BEQ,BNE,BLT,BGE:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:28],a2d_out.ir[13:8]}; decbuf.branch <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:28],a2d_out.ir[13:8]}; decbuf.branch <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
+		LEA:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
+		LDx:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
 		LDxX: begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
-		LDSx: begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{52{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
-		LDxVX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{52{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
-		STx:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{53{a2d_out.ir.st.disphi[4]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		LDSx: begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		LDxVX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{a2d_out.ir.ld.disp[11]}},a2d_out.ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		STx:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{VALUE_SIZE-13{a2d_out.ir.st.disphi[4]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		STxX: begin decbuf.Rt <= 6'd0; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
-		STSx: begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{53{a2d_out.ir.st.disphi[4]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
-		STxVX:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{53{a2d_out.ir.st.disphi[4]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		STSx: begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{VALUE_SIZE-13{a2d_out.ir.st.disphi[4]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		STxVX:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{VALUE_SIZE-13{a2d_out.ir.st.disphi[4]}},a2d_out.ir.st.disphi,a2d_out.ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		SYS:
 			begin
 				case(a2d_out.ir.r2.func)
@@ -247,7 +250,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				default:	;
 				endcase
 			end
-		CSR:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.ui <= FALSE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; end
+		CSR:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.Rtvec <= FALSE; decbuf.Ravec <= FALSE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; end
 		EXI0,EXI1,EXI2:	begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; end
 		BRMOD:	begin decbuf.ui <= FALSE; decbuf.Rc <= {1'b0,a2d_out.ir.im.Tc1,a2d_out.ir.im.Rc}; end
 		BTFLDX,IMOD,STRIDE:	begin decbuf.ui <= FALSE; decbuf.Rc <= {a2d_out.ir.im.Tc2,a2d_out.ir.im.Tc1,a2d_out.ir.im.Rc}; end
@@ -346,25 +349,25 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				endcase
 			end
 `endif			
-		VADDI,VSUBFI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		VANDI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{48{1'b1}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		VMULFI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
-		VMULI,VDIVI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; end
-		VMULUI,VMULSUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.mc <= TRUE; end
-		VDIVUI,VDIVSUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.mc <= TRUE; end
-		VORI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		VXORI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		VADDI,VSUBFI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		VANDI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'b1}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		VMULFI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
+		VMULI,VDIVI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; end
+		VMULUI,VMULSUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; end
+		VDIVUI,VDIVSUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.mc <= TRUE; end
+		VORI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		VXORI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
 		VBTFLD:		begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; end
-		VSEQI,VSNEI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		VSLTI,VSGTI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
-		VSLTUI,VSGTUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {48'd0,a2d_out.ir[35:20]}; decbuf.ui <= FALSE; decbuf.is_signed <= FALSE; end
+		VSEQI,VSNEI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		VSLTI,VSGTI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		VSLTUI,VSGTUI:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; decbuf.is_signed <= FALSE; end
 		VBYTNDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= a2d_out.ir[30]; decbuf.vrfwr <= ~a2d_out.ir[30]; decbuf.ui <= FALSE; decbuf.imm.val <= {54'd0,a2d_out.ir[29:20]}; end
 		VU21NDX:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= a2d_out.ir[30]; decbuf.vrfwr <= ~a2d_out.ir[30]; decbuf.ui <= FALSE; decbuf.imm.val <= {54'd0,a2d_out.ir[29:20]}; end
-		VPERM:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{48{1'b0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
+		VPERM:	begin decbuf.Rt <= a2d_out.ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},a2d_out.ir[35:20]}; decbuf.ui <= FALSE; end
 		VCHKI:
 			begin
 				decbuf.ui <= FALSE;
-				decbuf.imm.val <= {{48{a2d_out.ir[35]}},a2d_out.ir[35:20]};
+				decbuf.imm.val <= {{VALUE_SIZE-16{a2d_out.ir[35]}},a2d_out.ir[35:20]};
 			end
 `endif			
 		default:	;

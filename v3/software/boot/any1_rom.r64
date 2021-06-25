@@ -16,7 +16,7 @@ XON					equ		$11
 XOFF				equ		$13
 EOF         equ   $1A
 DEL					equ		$7F
-VIA					equ		$FFFFFFFFFF910000
+VIA					equ		$FFFFFFFFFF910000*2
 VIA_PA			equ		$04
 VIA_DDRA		equ		$0C
 VIA_T1CL		equ		$10
@@ -28,22 +28,22 @@ VIA_PCR			equ		$30
 VIA_IFR			equ		$34
 VIA_IER			equ		$38
 VIA_PARAW		equ		$3C
-UART				equ		$FFFFFFFFFF930000
+UART				equ		$FFFFFFFFFF930000*2
 UART_TRB		equ		$00
 UART_STAT		equ		$04
 UART_CMD		equ		$08
 
 CSR_UIE     equ   $004
 ROMBASE		equ		$FFFFFFFFFFFC0000
-IOBASE		equ		$FFFFFFFFFF800000
-TEXTSCR		equ		$FFFFFFFFFF800000
-KEYBD		equ		$FFFFFFFFFF8E0000
-LEDS		equ			$FFFFFFFFFF910000
-xbLEDS		equ			$FFFFFFFFFBDC0600
-xbBridge1 equ   $FFFFFFFFFFDCF010
-BUTTONS		equ		$FFFFFFFFFF910000
-SCRATCHPAD	equ		$FFFFFFFFFF400000
-SCRATCHMEM	equ		$FFFFFFFFFF400000
+IOBASE		equ		$FFFFFFFFFF800000*2
+TEXTSCR		equ		$FFFFFFFFFF800000*2
+KEYBD		equ		$FFFFFFFFFF8E0000*2
+LEDS		equ			$FFFFFFFFFF910000*2
+xbLEDS		equ			$FFFFFFFFFBDC0600*2
+xbBridge1 equ   $FFFFFFFFFFDCF010*2
+BUTTONS		equ		$FFFFFFFFFF910000*2
+SCRATCHPAD	equ		$FFFFFFFFFF400000*2
+SCRATCHMEM	equ		$FFFFFFFFFF400000*2
 _DBGAttr  equ   SCRATCHMEM
 ;DBGATTR   equ   $0000FFFF000F0000   ; white on blue, priority $40
 DBGATTR   equ   %000000_111111111111111111111_000001100000110111111_0000000000000000
@@ -91,7 +91,7 @@ MachineStart:
   ldi   $a0,#$AA
   stb   $a0,LEDS
 
-	ldi		$sp,#SCRATCHMEM+$CDF8		  ; setup machine mode stack pointer
+	ldi		$sp,#SCRATCHMEM+$CDF8*2		  ; setup machine mode stack pointer
 	sub 	$sp,$sp,#8
 	ldi   $a0,#10
 	ldi   $a1,#0
@@ -167,7 +167,7 @@ endif
 ; First thing to do is start a task so that the startup code may run on the
 ; first task switch.
 ;------------------------------------------------------------------------------
-  align 	code
+;  align 	code
 UserStart:
   call  DumpTraceQueue
   wai                   ; wait for task switch
@@ -176,8 +176,7 @@ UserStart2:
   ldi   $a1,#SystemASR
   brk   #240
 .appBad:
-  tst   $cr0,$a0
-  bne   $cr0,.appBad
+  bne   $a0,#0,.appBad
   mov   $s1,$a1
   ldi   $a0,#14         ; get current tid
   brk   #240            ; $a1 = task id
@@ -208,7 +207,7 @@ UserStart2:
   mov   $gp,$a1
 
 UserStart3:
-	ldi		$sp,#$A0080000-4  ; setup user mode stack pointer
+	ldi		$sp,#$A0080000-8  	; setup user mode stack pointer
 	ldi		$a0,#24							; RequestIOFocus
 	mov   $a1,$s1
 	brk   #240
@@ -222,8 +221,8 @@ UserStart3:
 	ldi		$a3,#XON
 .0004:
 	call  Putch ;SerialPutChar
-	sub.	$t2,$t2,#1
-	bne	  $cr0,.0004
+	sub		$t2,$t2,#1
+	bne	  $t2,#0,.0004
 .0002:
 ;  ldi   $a0,#25             ; Map OS vars
 ;  brk #240
@@ -300,7 +299,7 @@ IdleTask:
   add   $t0,$t0,#PAGESZ
   sne   $t3,$t0,#MEMSZ*PAGESZ
   bne   $t3,#0,.loop
-	jmp		.loop2
+	bra		.loop2
   ; This section of code runs as part of the OS
   ; Don't callany functions though as there's no stack available
 .IdleCode:
@@ -311,14 +310,15 @@ IdleTask:
   and  	$t3,$t3,#TS_READY
   bne   $t3,#0,.nxtObj
   ; The task was ready, but not found in the ready queue. So add it
-  lsr   $a0,$a2,#LOG_PGSZ
+  srl   $a0,$a2,#LOG_PGSZ
   mDI
   mInsertIntoReadyQueue
   mEI
 .nxtObj:
   ldi   $a0,#E_Ok
-  jmp   OSExit
+  bra   OSExit
 
+	align	1
 msgIdleAnnounce:
   db  "Idle task running.",CR,0
 
@@ -500,23 +500,21 @@ fputc:
 	sto		$a1,16[$sp]
 	sto		$a2,24[$sp]
 	seq   $t0,$a6,#'B'
-	bf    .noBypass
+	beq   $t0,#0,.noBypass
 	call  SerialPutChar
-	jmp   .xit
+	bra   .xit
 .noBypass:
 	; If the device is a UI device there may be multiple owning jobs. It doesn't
 	; do any good to check for ownership. Instead the I/O focus is checked to
 	; see if it's present.
 	call  GetUIFlag
-	tst   $cr0,$a1
-	beq   $cr0,.checkOwner
+	bne   $a1,#0,.checkOwner
   ldo   $a1,16[$sp]
 	call  WaitForIOFocus
-	jmp   .0001
+	bra   .0001
 .checkOwner:
   call  CheckDevOwner
-  tst   $cr0,$a0
-  bne   $cr0,.notOwner
+  bne   $a0,#0,.notOwner
 .0001:
   ldo   $a1,16[$sp]
 	ldi		$a0,#26							; FMTK_IO
@@ -530,7 +528,7 @@ fputc:
 	ret
 .notOwner:
   ldi   $a0,#EOF
-  jmp   .xit
+  bra   .xit
  
 ;------------------------------------------------------------------------------
 ; fgetc - get a character from an I/O device. If the task doesn't have the I/O
@@ -550,7 +548,7 @@ fputc:
 ;------------------------------------------------------------------------------
   ; align cache
 fgetc:
-	sub	$sp,$sp,#32
+	sub		$sp,$sp,#32
 	sto		$a1,16[$sp]
 	sto		$a2,24[$sp]
 	call  GetUIFlag
@@ -558,7 +556,7 @@ fgetc:
 	beq   .checkOwner
 	ldt		$a1,16[$sp]
 	call  WaitForIOFocus
-	jmp   .0001
+	bra   .0001
 .checkOwner:
 	ldt		$a1,16[$sp]
   call  CheckDevOwner
@@ -577,7 +575,7 @@ fgetc:
 	ret
 .notOwner:
   ldi   $a0,#-1
-  jmp   .0002
+  bra   .0002
 
 ;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
@@ -608,8 +606,8 @@ Monitor:
 ;		call	DumpReadyList
 ;		call	DumpTimeoutList
 	ldi		  $s1,#0					; s1 = input pointer
-	call    PutInlineString
-	db      CR,LNFD,'>',0
+	ldi			$a0,#msgPrompt
+	call    PutString
 .0001:
 	call	    Getch						; wait until character pressed
 	tst     $a0        ; test return value
@@ -811,8 +809,8 @@ doMem:
 	bge		.loop
 	sltu  $s3,$s4
 	bt	  .loop2
-	call  PutInlineString
-	db    ' ',' ',0
+;	call  PutInlineString
+;	db    ' ',' ',0
 	mov   $s3,$s5
 .0004:
 	ldbu  $a0,[$s3]
@@ -829,17 +827,17 @@ doMem:
   bt    .0004
   ldi   $a0,#CR
   call  Putch
-	jmp		Monitor		
+	bra		Monitor		
 
   ; align cache
 EditMem:
-	csrrs $x0,#CSR_UIE,#1        ; enable gc interrupt
-	call	  GetHexNum			; get address to edit
+;	csrrs $x0,#CSR_UIE,#1        ; enable gc interrupt
+	call  GetHexNum			; get address to edit
 	mov		$s3,$a0
 	add		$s1,$s1,#1
-	call	  GetHexNum			; get value to set
+	call  GetHexNum			; get value to set
 	stb		$s3,[$a0]			; update mem
-	jmp		Monitor
+	bra		Monitor
 
 ;------------------------------------------------------------------------------
 ; >V 0
@@ -855,8 +853,7 @@ doVMem:
 .0001:
   and.  $a0,$t1,#3
   bne   .notLF
-  call  PutInlineString
-  db    CR,LNFD,0
+  call  PutCRLF
 .notLF:
   mov   $a0,$t0
   call  PutHexWord
@@ -879,8 +876,7 @@ doVMem:
 
   ; align cache
 doPStat:
-  call  PutInlineString
-  db    CR,LNFD,0
+  call  PutCRLF
   ldi   $t1,#0        ; $a1 = bit number
 .0001:
   ldi   $a0,#32       ; Get PAM bit pair
@@ -888,9 +884,9 @@ doPStat:
   add   $a0,$a1,#'0'
   call  Putch
   add   $t1,$t1,#1
-  slt   $t1,#MEMSZ
-  bne   .0001
-  jmp   Monitor
+  slt   $a0,$t1,#MEMSZ
+  bne   $a0,#0,.0001
+  bra   Monitor
  
 ;------------------------------------------------------------------------------
 ;	>F 1000 800 EE
@@ -907,10 +903,10 @@ FillMem:
 	add		$s1,$s1,#1
 	call	GetHexNum			; get byte to use
 .0001:
-	sub.	$s4,$s4,#1
+	sub		$s4,$s4,#1
 	stb		$a0,[$s3+$s4]
-	bgt		.0001
-	jmp		Monitor
+	bgeu	$s4,#1,.0001
+	bra		Monitor
 
 ;------------------------------------------------------------------------------
 ; FI Hello
@@ -959,8 +955,7 @@ Find:
   jmp   .notFound
 .found:
   call  PutHexTetra
-  call  PutInlineString
-  db    CR,LNFD,0
+  call  PutCRLF
   jmp   .next
 .notFound:
   ldi   $a0,#CR
@@ -1156,6 +1151,12 @@ PutInlineString:
 	ldo		$a0,[$sp]				  ; restore a0
 	add   $sp,$sp,#8
   jmp   [$t1]
+
+;------------------------------------------------------------------------------
+;------------------------------------------------------------------------------
+
+PutCRLF:
+	ldi		$a0,#msgCRLF
 
 ;------------------------------------------------------------------------------
 ; PutString
@@ -1434,6 +1435,8 @@ msgTaskStart:
 		db		" task started."
 msgCRLF:
 		db		13,10,0
+msgPrompt:
+	db      CR,LNFD,'>',0
 flt50:
 	dw	0x00000000,0x00000000,0x00000000,0x40049000
 flt20:

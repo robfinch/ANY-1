@@ -57,21 +57,20 @@ if (rst)
 	ea <= 32'd0;
 else begin
 	case(ir.ld.opcode)
-	LDx:	ea[AWID-1:0] <= imm + ia.val;
-	LDxX:	ea[AWID-1:0] <= imm + ia.val + (ib.val << ir.nld.Sc);
-	STx:	ea[AWID-1:0] <= imm + ia.val;
-	STxX:	ea[AWID-1:0] <= imm + ia.val + (ic.val << Sc);
-	LDSx:	ea[AWID-1:0] <= imm + ia.val + ic.val * step;
-	STSx:	ea[AWID-1:0] <= imm + ia.val + ic.val * step;
-	LDxVX:	ea[AWID-1:0] <= imm + ia.val + ic.val;
-	STxVX:	ea[AWID-1:0] <= imm + ia.val + ic.val;
-	CVLDSx:	ea[AWID-1:0] <= imm + ia.val + ic.val * step;
-	CVSTSx:	ea[AWID-1:0] <= imm + ia.val + ic.val * step;
-	CALL:	  ea[AWID-1:0] <= ia.val;
-	RTS:		ea[AWID-1:0] <= ia.val;
+	LDx:	ea <= imm + ia.val;
+	LDxX:	ea <= imm + ia.val + (ib.val << ir.nld.Sc);
+	STx:	ea <= imm + ia.val;
+	STxX:	ea <= imm + ia.val + (ic.val << Sc);
+	LDSx:	ea <= imm + ia.val + ic.val * step;
+	STSx:	ea <= imm + ia.val + ic.val * step;
+	LDxVX:	ea <= imm + ia.val + ic.val;
+	STxVX:	ea <= imm + ia.val + ic.val;
+	CVLDSx:	ea <= imm + ia.val + ic.val * step;
+	CVSTSx:	ea <= imm + ia.val + ic.val * step;
+	CALL:	  ea <= ia.val;
+	RTS:		ea <= ia.val;
 	default:	ea <= 33'd0;
 	endcase
-	ea[-1:-1] <= 1'b0;
 end
 
 endmodule

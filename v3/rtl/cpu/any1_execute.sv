@@ -228,6 +228,7 @@ else begin
 		robo.vmask <= -64'd1;
 		robo.jump_tgt <= 32'd0;
 		robo.wr_fu <= TRUE;
+		robo.out2 <= FALSE;
 		robo.update_rob <= !robi.mc;
 		robo.cmt <= !robi.mc;
 		robo.cmt2 <= !robi.mc;
@@ -809,7 +810,7 @@ else begin
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
-				ex_redirect.redirect_ip <= robi.ip + robi.imm.val;
+				ex_redirect.redirect_ip <= robi.ip + robi.imm.val[AWID:0];
 				ex_redirect.current_ip <= robi.ip;
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.step <= 6'd0;
@@ -842,8 +843,8 @@ else begin
 				robo.update_rob <= TRUE;
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
-				robo.wr_fu <= FALSE;
-				robo.out <= TRUE;
+				robo.out2 <= TRUE;
+				robo.wr_fu <= TRUE;
 			end
 		RTS:
 			begin
@@ -861,7 +862,6 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= TRUE;
-				robo.out <= TRUE;
 			end
 		LEA,LDx,LDxX:
 			// This does not wait for registers to be valid.
@@ -1025,10 +1025,10 @@ else begin
 		CSR:
 			begin
 				robo.ia <= robi.ia;
-				case(robi.imm[10:8])
+				case({robi.ir.r2.Ta,robi.ir.r2.Tt})
 				CSRR:	robo.res <= csrro;
 				CSRW,CSRS,CSRC:	;
-				CSRRW:	robo.res <= csrro;
+//				CSRRW:	robo.res <= csrro;
 				default:	;
 				endcase
 		    tMod();
@@ -1716,9 +1716,12 @@ else begin
 	end
 	end
 	else begin
+		/*
 		if (robi.v==INV)
 			tMod();
-		else if (robi.dec && rob_exec != 6'd63) begin
+		else
+		*/
+		if (robi.dec && robi.out && rob_exec != 6'd63) begin
 			tMod();
 		end
 	end
