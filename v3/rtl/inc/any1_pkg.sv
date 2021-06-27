@@ -33,6 +33,7 @@ parameter VALUE_SIZE = 64;
 `define SEG_SHIFT	14'd0
 `define SUPPORT_FLOAT		1'b1
 `define SUPPORT_VECTOR	1'b1
+//`define SUPPORT_GRAPHICS	1'b1
 `define SUPPORT_VICTIM_CACHE	1'b1
 `define ANY1_TLB	1'b1
 
@@ -85,6 +86,9 @@ parameter XOR		= 6'h02;
 parameter ADD		= 6'h04;
 parameter SUB		= 6'h05;
 parameter MUL		= 6'h06;
+parameter NAND	= 6'h08;
+parameter NOR		= 6'h09;
+parameter XNOR	= 6'h0A;
 parameter MULU	= 6'h0E;
 parameter MULH	= 6'h0F;
 parameter DIV		= 6'h10;
@@ -134,6 +138,7 @@ parameter SQRT	= 6'h1B;
 parameter VCMPRSS = 6'h1C;
 parameter VCIDX	= 6'h1D;
 parameter VSCAN	= 6'h1E;
+parameter CLIP	= 6'h20;
 
 parameter ADDI	= 8'h04;
 parameter SUBFI	= 8'h05;
@@ -174,14 +179,16 @@ parameter F4		= 8'h37;
 parameter NOP  	= 8'h3F;
 
 parameter CSR		= 8'h0F;
-parameter CSRR	= 3'd0;
-parameter CSRW	= 3'd1;
-parameter CSRS	= 3'd2;
-parameter CSRC	= 3'd3;
-parameter CSRRW	= 3'd4;
+parameter CSRR	= 2'd0;
+parameter CSRW	= 2'd1;
+parameter CSRS	= 2'd2;
+parameter CSRC	= 2'd3;
+//parameter CSRRW	= 3'd4;
 
-parameter SYS		= 8'h44;
+// {OS} ops
+parameter SYS		= 8'h07;
 
+parameter EXEC	= 6'h07;
 parameter PUSHQ = 6'h08;
 parameter POPQ  =	6'h09;
 parameter PEEKQ = 6'h0A;
@@ -207,10 +214,14 @@ parameter BNE		= 8'h4F;
 parameter EXI0	= 8'h50;
 parameter EXI1	= 8'h51;
 parameter EXI2	= 8'h52;
+parameter EXI3  = 8'h53;
+parameter EXI4  = 8'h54;
 parameter IMOD	= 8'h58;
 parameter BTFLDX	= 8'h59;
 parameter BRMOD	= 8'h5A;
 parameter STRIDE= 8'h5C;
+
+parameter VSYS	= 8'h87;
 
 parameter VIMOD	= 8'hD8;
 parameter VBTFLDX=8'hD9;
@@ -231,10 +242,12 @@ parameter LDB = 4'd0;
 parameter LDW = 4'd1;
 parameter LDT = 4'd2;
 parameter LDO = 4'd3;
+parameter LDH = 4'd4;
 parameter LDOR = 4'd6;
 parameter LDBU = 4'd8;
 parameter LDWU = 4'd9;
 parameter LDTU = 4'd10;
+parameter LDOU = 4'd11;
 parameter LEA	 = 4'd14;
 parameter CACHE	= 4'd15;
 parameter STCR = 4'd6;
@@ -246,6 +259,7 @@ parameter TLB = 3'd2;
 parameter CACHE2 = 3'd3;
 parameter LEA2 = 3'd4;
 parameter RTS2 = 3'd5;
+parameter M_CALL	= 3'd6;
 
 // FLT1
 parameter FMOV	= 6'h00;
@@ -625,6 +639,12 @@ typedef struct packed
 
 typedef struct packed
 {
+	Point ul;		// upper left
+	Point lr;		// lower right
+} Rect;
+
+typedef struct packed
+{
 	logic rf;
 	logic [5:0] rid;
 } Rid;
@@ -677,6 +697,8 @@ typedef struct packed
 	logic is_signed;			// is a signed operation
 	logic jump;
 	logic branch;
+	logic call;
+	logic exec;
 	logic needRa;
 	logic needRb;					// R2, LDxX
 	logic needRc;					// STx/CHK
@@ -800,7 +822,12 @@ typedef struct packed
 	logic [3:0] btag;			// Branch tag
 	logic veins;
 	logic branch;
+	logic call;
 	logic mem_op;
+	logic exi;
+	logic imod;
+	logic brmod;
+	logic stride;
 	logic mc;							// multi-cycle op
 	logic takb;
 	logic predict_taken;
@@ -828,8 +855,9 @@ typedef struct packed
 	logic [5:0] ic_ele;
 	logic [5:0] id_ele;
 	logic [5:0] it_ele;
-	Value imm;
+	logic [127:0] imm;
 	Value vmask;						// vector mask register value
+	logic z;
 	logic iav;
 	logic ibv;
 	logic icv;
@@ -841,6 +869,7 @@ typedef struct packed
 	Rid ics;
 	Rid ids;
 	Rid its;
+	Rid irs;
 	Rid vms;
 	Value res;
 	sFPFlags fp_flags;
@@ -892,7 +921,7 @@ typedef struct packed
 	logic [3:0] func2;	// more resolution to function
 	Address adr;
 	logic [127:0] dat;
-	logic [15:0] sel;		// data byte select, indicates size of data
+	logic [31:0] sel;		// data byte select, indicates size of data (nybbles)
 } MemoryRequest;	// 198
 
 // All the fields in this structure are *output* back to the system.
@@ -906,6 +935,7 @@ typedef struct packed
 	logic [127:0] res;
 	logic cmt;
 	logic ret;
+	logic call;
 } MemoryResponse;	// 192
 
 endpackage

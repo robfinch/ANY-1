@@ -156,24 +156,25 @@ Address ea;
 always_comb
  	ea = {memreq.adr[AWID-1:AWID-4],memreq.adr[AWID-5:-1] >> shr_ma};	// Keep same segment
 
-reg [7:0] ealow;
+reg [7:-1] ealow;
 wire [3:0] segsel = ea[AWID-1:AWID-4];
 wire [3:0] ea_acr = sregfile[segsel][3:0];
 wire [3:0] pc_acr = sregfile[ip[AWID-1:AWID-4]][3:0];
 
-reg [31:0] sel;
+reg [63:0] sel;
+reg [63:0] nsel;
 reg [255:0] dat, dati;
 reg [63:0] datis;
-always_comb datis <= dati >> {ealow[3:0],3'b0};
+always_comb datis <= dati >> {ealow[3:-1],2'b0};
 `ifdef CPU_B64
 reg [15:0] sel;
 reg [127:0] dat, dati;
-wire [63:0] datis = dati >> {ealow[2:0],3'b0};
+wire [63:0] datis = dati >> {ealow[2:-1],2'b0};
 `endif
 `ifdef CPU_B32
 reg [7:0] sel;
 reg [63:0] dat, dati;
-wire [63:0] datis = dati >> {ealow[1:0],3'b0};
+wire [63:0] datis = dati >> {ealow[1:-1],2'b0};
 `endif
 
 // Build an insert mask for data cache store operations.
@@ -657,7 +658,7 @@ else begin
 			memresp.badAddr <= 33'd0;
 			memresp.ret <= FALSE;
 			memresp.call <= memreq.func==M_CALL;
-			ealow <= ea[7:0];
+			ealow <= ea[7:-1];
 			// Detect cache controller commands
   		case(memreq.func)
 			TLB:
@@ -701,7 +702,7 @@ else begin
 	    		  tEA(ea);
 	      		xlaten <= TRUE;
 	      		// Setup proper select lines
-			      sel <= {16'h0,memreq.sel} << ea[3:0];
+			      sel <= {32'h0,memreq.sel} << ea[3:-1];
 			  		goto (MEMORY3);
 					end
 				endcase
@@ -712,7 +713,7 @@ else begin
     		  tEA(ea);
       		xlaten <= TRUE;
       		// Setup proper select lines
-		      sel <= {16'h0,memreq.sel} << ea[3:0];
+		      sel <= {32'h0,memreq.sel} << ea[3:-1];
 		  		goto (MEMORY3);
 				end
 			STORE,M_CALL:
@@ -721,9 +722,9 @@ else begin
     		  tEA(ea);
       		xlaten <= TRUE;
       		// Setup proper select lines
-		      sel <= zero_data ? 16'h0001 << ea[3:0] : {16'h0,memreq.sel} << ea[3:0];
+		      sel <= zero_data ? 32'h0003 << ea[3:-1] : {32'h0,memreq.sel} << ea[3:-1];
 		      // Shift output data into position
-    		  dat <= zero_data ? 256'd0 : {128'd0,memreq.dat} << {ea[3:0],3'b0};
+    		  dat <= zero_data ? 256'd0 : {128'd0,memreq.dat} << {ea[3:-1],2'b0};
 		  		goto (MEMORY3);
 				end
 			default:	ret();	// unknown operation
@@ -788,7 +789,9 @@ else begin
 	    	vda_o <= HIGH;
 	      cyc_o <= HIGH;
 	      stb_o <= HIGH;
-	      sel_o <= sel[15:0];
+	      for (n = 0; n < 32; n = n + 2)
+	      	sel_o[n>>1] <= sel[n];
+//	      sel_o <= sel[15:0];
 	      dat_o <= dat[127:0];
 	      case(memreq.func)
 	      LOAD,RTS2:
@@ -826,7 +829,7 @@ else begin
 		  				dcache_wr <= TRUE;
 				      goto (MEMORY7);
 				      stb_o <= LOW;
-				      if (sel[31:16]==1'h0)
+				      if (sel[63:32]==1'h0)
 				      	tDeactivateBus();
 				    end
 		  		end
@@ -841,7 +844,7 @@ else begin
 		      goto (MEMORY7);
 		      stb_o <= LOW;
 		      dati <= dat_i;
-		      if (sel[31:16]==1'h0) begin
+		      if (sel[63:32]==1'h0) begin
 		      	tDeactivateBus();
 		      end
 		    end
@@ -851,7 +854,7 @@ else begin
 	MEMORY7:
 		begin
 		  if (~ack_i) begin
-		    if (|sel[31:16])
+		    if (|sel[63:32])
 		      goto (MEMORY8);
 		    else begin
 		      case(memreq.func)
@@ -943,7 +946,9 @@ else begin
 		 			tDeactivateBus();
 				else begin
 	      	stb_o <= HIGH;
-	      	sel_o <= sel[31:16];
+		      for (n = 0; n < 32; n = n + 2)
+		      	sel_o[n>>1] <= sel[n+32];
+//	      	sel_o <= sel[31:16];
 	      	dat_o <= dat[255:128];
 	    	end
 	    end
@@ -959,7 +964,7 @@ else begin
 	  			dcache_wr <= TRUE;
 		      goto (MEMORY13);
 		      stb_o <= LOW;
-		      if (sel[31:16]==1'h0)
+		      if (sel[63:32]==1'h0)
 				    tDeactivateBus();
 		    end
 			end

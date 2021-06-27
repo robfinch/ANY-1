@@ -556,8 +556,8 @@ void emitByte(int64_t cd)
 {
   bt_ndx = 0;
   if (gCpu == ANY1V3) {
-    emitNybble(cd >> 4LL);
     emitNybble(cd);
+    emitNybble(cd>>4LL);
     return;
   }
 	if (segment < 5) {
@@ -1002,7 +1002,7 @@ void process_org()
     int64_t new_address;
 	int mul = 1;
 
-	if (gCpu==7 || gCpu==GAMBIT || gCpu==GAMBIT_V5 || gCpu==ANY1V3)
+	if (gCpu==7 || gCpu==GAMBIT || gCpu==GAMBIT_V5)
 		mul = 2;
     NextToken();
     new_address = expr();

@@ -259,6 +259,7 @@ any1oo ucpu1
 //    .clk4x_i(clk4x_i),
     .wc_clk_i(tm_clk_i),
 //    .div_clk_i(div_clk_i),
+		.nmi_i(1'b0),
     .irq_i(irq),
     .cause_i(cause),
     .cti_o(cti),

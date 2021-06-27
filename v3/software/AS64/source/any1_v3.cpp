@@ -344,6 +344,7 @@ static int regCnst;
 #define RD(x)		(((x) & 0x3fLL) << 8LL)
 #define RA(x)		(((x) & 0x3FLL) << 14LL)
 #define RB(x)		(((x) & 0x7fLL) << 20LL)
+#define TA(x)		(((x) & 1LL) << 19LL)
 #define FUNC4(x)	(((x) & 15LL) << 32LL)
 #define FUNC6(x)	(((x) & 0x7FLL) << 29LL)
 #define IMM(x)	(((x) & 0xffffLL) << 20LL)
@@ -520,8 +521,9 @@ static int getRegisterX()
 		inptr++;
 	if (*inptr == '#') {
 		inptr++;
-		reg = expr();
 		any1_NextToken();
+		reg = expr();
+//		any1_NextToken();
 		return (reg|0x40);
 	}
   switch(*inptr) {
@@ -2953,9 +2955,11 @@ static void process_bcc()
 		Ra = Rb;
 		Rb = Rc;
 	}
-	if (!IsNBit(disp,15))
-		emit_insn((((disp) >> 15LL) << 21LL) | RA(31) | RT(0) | I_BRMOD);
-	emit_insn((((disp) >> 6LL) << 27LL) | RB(Rb) | RA(Ra) | RT(disp) | opcode6);
+	if (Ra & 0x40)
+		error("Register value required");
+	if (!IsNBit(disp,16))
+		emit_insn((((disp) >> 16LL) << 21LL) | RA(31) | RT(0) | I_BRMOD);
+	emit_insn((((disp) >> 6LL) << 27LL) | RB(Rb) | TA(disp >> 6) | RA(Ra) | RT(disp) | opcode6);
 	prevToken();
 	return;
 }
@@ -2999,9 +3003,9 @@ static void process_bbc(int opcode6, int opcode3)
 		val = expr();
 		disp = (val - code_address);
 		disp /= 9;
-		if (!IsNBit(disp, 15))
-			emit_insn((((disp) >> 15LL) << 21LL) | RA(31) | RT(0) | I_BRMOD);
-		emit_insn((((disp) >> 6LL) << 27LL) | RB(bitno) | RA(Ra) | RT(disp) | opcode6);
+		if (!IsNBit(disp, 16))
+			emit_insn((((disp) >> 16LL) << 21LL) | RA(31) | RT(0) | I_BRMOD);
+		emit_insn((((disp) >> 7LL) << 27LL) | RB(bitno) | TA(disp>>6) | RA(Ra) | RT(disp) | opcode6);
 		return;
 	}
 	error("ibne: target must be a label");
