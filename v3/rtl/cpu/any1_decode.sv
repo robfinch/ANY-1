@@ -237,6 +237,8 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 		LEA:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{ir.ld.disp[11]}},ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
 		LDx:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{ir.ld.disp[11]}},ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
 		LDxX: begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
+		LDxZ:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{ir.ld.disp[11]}},ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
+		LDxXZ:begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		LDSx: begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{ir.ld.disp[11]}},ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		LDxVX:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{ir.ld.disp[11]}},ir.ld.disp}; decbuf.ui <= FALSE; decbuf.Rtvec <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end
 		STx:	begin decbuf.Rt <= 6'd0; decbuf.imm.val <= {{VALUE_SIZE-13{ir.st.disphi[4]}},ir.st.disphi,ir.st.displo}; decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; end

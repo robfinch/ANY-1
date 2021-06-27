@@ -668,7 +668,7 @@ else begin
     			tlbwr <= TRUE;
 					goto (TLB1);
 				end
-			LOAD:
+			LOAD,LOADZ:
 				case(memreq.func2)
 				CACHE2:
 					begin
@@ -794,7 +794,7 @@ else begin
 //	      sel_o <= sel[15:0];
 	      dat_o <= dat[127:0];
 	      case(memreq.func)
-	      LOAD,RTS2:
+	      LOAD,LOADZ,RTS2:
 	      	begin
 	     			sr_o <= memreq.func2==LDOR;
   	    		if (dhit) begin
@@ -858,7 +858,7 @@ else begin
 		      goto (MEMORY8);
 		    else begin
 		      case(memreq.func)
-		      LOAD,RTS2:
+		      LOAD,LOADZ,RTS2:
 		      	begin
 		      		if (dce & dhit)
 		      			dati <= datil >> {adr_o[5:3],6'b0};
@@ -942,7 +942,7 @@ else begin
 			if (tlbmiss)
 				tTLBMiss({ea,1'b0});
 			else begin
-				if (dhit && (memreq.func==LOAD || memreq.func==RTS2) && dce)
+				if (dhit && (memreq.func==LOAD || memreq.func==LOADZ|| memreq.func==RTS2) && dce)
 		 			tDeactivateBus();
 				else begin
 	      	stb_o <= HIGH;
@@ -984,7 +984,7 @@ else begin
 	  if (~ack_i) begin
 	    begin
 	      case(memreq.func)
-	      LOAD,RTS2:
+	      LOAD,LOADZ,RTS2:
 	      	begin
 	      		if (dhit & dce)
 	      			dati <= datil >> {adr_o[5:3],6'b0};
@@ -1024,7 +1024,7 @@ else begin
 
 	DATA_ALIGN:
 	  begin
-	  	if ((memreq.func==LOAD || memreq.func==RTS2) & ~dhit & dcachable & dce)
+	  	if ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==RTS2) & ~dhit & dcachable & dce)
 	  		goto (DFETCH2);
 	  	else
 	    	ret();
@@ -1042,9 +1042,17 @@ else begin
 		    	LDT:	begin memresp.res <= {{32{datis[31]}},datis[31:0]}; end
 		    	LDO:	begin memresp.res <= datis[63:0]; end
 		    	LDOR:	begin memresp.res <= datis[63:0]; end
-		    	LDBU:	begin memresp.res <= {56'd0,datis[7:0]}; end
-		    	LDWU:	begin memresp.res <= {48'd0,datis[15:0]}; end
-		    	LDTU:	begin memresp.res <= {32'd0,datis[31:0]}; end
+		    	default:	memresp.res <= 128'h0;
+		    	endcase
+	    	end
+	    LOADZ:
+	    	begin
+		    	case(memreq.func2)
+		    	LDB:	begin memresp.res <= {56'd0,datis[7:0]}; end
+		    	LDW:	begin memresp.res <= {48'd0,datis[15:0]}; end
+		    	LDT:	begin memresp.res <= {32'd0,datis[31:0]}; end
+		    	LDO:	begin memresp.res <= datis[63:0]; end
+		    	LDOR:	begin memresp.res <= datis[63:0]; end
 		    	default:	memresp.res <= 128'h0;
 		    	endcase
 	    	end
@@ -1313,7 +1321,7 @@ input Address iea;
 begin
   if (MUserMode && (memreq.func==STORE || memreq.func==M_CALL) && !ea_acr[1])
     memresp.cause <= 16'h8032;
-  else if (MUserMode && (memreq.func==LOAD || memreq.func==RTS2) && !ea_acr[2])
+  else if (MUserMode && (memreq.func==LOAD || memreq.func==LOADZ || memreq.func==RTS2) && !ea_acr[2])
     memresp.cause <= 16'h8033;
 	if (!MUserMode || iea[AWID-1:24]=={AWID-24{1'b1}})
 		dadr <= iea;
@@ -1329,7 +1337,7 @@ begin
   // PMA Check
   for (n = 0; n < 8; n = n + 1)
     if (adr_o[31:4] >= PMA_LB[n] && adr_o[31:4] <= PMA_UB[n]) begin
-      if ((memreq.func==STORE && !PMA_AT[n][1]) || ((memreq.func==LOAD || memreq.func==RTS2) && !PMA_AT[n][2]))
+      if ((memreq.func==STORE && !PMA_AT[n][1]) || ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==RTS2) && !PMA_AT[n][2]))
 		    memresp.cause <= 16'h803D;
 		  dcachable <= PMA_AT[n][3];
     end

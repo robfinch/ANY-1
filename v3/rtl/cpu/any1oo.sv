@@ -100,7 +100,7 @@ reg mul_sign;
 Value mul_a;
 Value mul_b;
 reg [VALUE_SIZE*2-1:0] mul_p;
-reg [5:0] rob_que, prev_rob_que, prev_rob_dec;
+reg [5:0] rob_que, prev_rob_que, prev_rob_dec, prev_rob_dec2;
 reg [5:0] rob_deq;
 reg [5:0] rob_exec, rob_pexec, safe_rob_exec, rob_dec;
 always_comb
@@ -1443,6 +1443,8 @@ else begin
 	case (membufi1.ir.ld.opcode)
 	LDx,LDxX,LDSx,LDxVX,CVLDSx:
 		memreq.func = LOAD;
+	LDxZ,LDxXZ:
+		memreq.func = LOADZ;
 	STx,STxX,STSx,STxVX,CVSTSx:
 		memreq.func = STORE;
 	CACHE:
@@ -1767,6 +1769,7 @@ if (rst_i) begin
 	a2d_out.predict_taken <= FALSE;
 	
 	last_rid <= 6'd63;
+	prev_rob_dec2 <= 6'd63;
 end
 else begin
 	mem_redirecti.wr <= FALSE;
@@ -1991,7 +1994,7 @@ else begin
 		funcUnit[FU_EXEC].rid <= 6'd63;
 	end
 
-	if (robo.update_rob && !rob[robo.rid].cmt && rob[robo.rid].v && robo.rid != prev_rob_que) begin
+	if (robo.update_rob==TRUE && !rob[robo.rid].cmt && rob[robo.rid].v==VAL) begin// && robo.rid != prev_rob_dec2) begin
 		rob[robo.rid].wr_fu <= robo.wr_fu;
 		rob[robo.rid].takb <= robo.takb;
 		rob[robo.rid].cause <= robo.cause;
@@ -2013,7 +2016,7 @@ else begin
   $display ("----------------------------------------------------------------- Reorder Buffer -----------------------------------------------------------------");
   $display ("head: %d  tail: %d", rob_deq, rob_que);
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		$display("%c%c%c%d: %c%c%c%c%c ip=%h.%h.%d ir=%h Rt=%d res=%h imm=%h a=%h b=%h q:%d",
+		$display("%c%c%c%d: %c%c%c%c%c ip=%h.%h.%d ir=%h Rt=%d res=%h imm=%h a=%h%c b=%h%c c=%h%c q:%d",
 			n[5:0]==rob_deq ? "D" : " ", n==rob_que ? "Q" : " ", n==rob_exec ? "X" : " ",
 			n[5:0],rob[n].cmt ? "C" : " ",rob[n].v ? "V" : " ",
 			rob[n].rfwr ? "W" : " ",
@@ -2021,7 +2024,9 @@ else begin
 			rob[n].out ? "O" : " ",
 			rob[n].ip[AWID-1:0],{3'b0,rob[n].ip[-1:-1]}<<3,rob[n].step,rob[n].ir,
 			rob[n].Rt,rob[n].res.val,
-			rob[n].imm,rob[n].ia.val,rob[n].ib.val,
+			rob[n].imm,rob[n].ia.val,rob[n].iav?"v":" ",
+			rob[n].ib.val,rob[n].ibv?"v":" ",
+			rob[n].ic.val,rob[n].icv?"v":" ",
 			rob[n].rob_q[15:0]);
 	end
 
@@ -2351,7 +2356,8 @@ else begin
 	end
 
 	rob_dec <= fnNextDec(rob_dec);
-	if (rob_dec != 6'd63) begin
+	if (rob_dec != 6'd63 && !rob[rob_dec].dec) begin
+		prev_rob_dec2 <= rob_dec;
 		rob[rob_dec].ui <= decbuf.ui;
 		rob[rob_dec].is_vec <= decbuf.is_vec;
 		rob[rob_dec].Ra <= decbuf.Ra;
@@ -2398,10 +2404,10 @@ else begin
 			rob[rob_dec].ias <= vregfilesrc[decbuf.Ra[4:0]];
 		else
 `endif
-	if (rob[rob_deq].v==VAL && rob[rob_deq].cmt==TRUE && rob[rob_deq].Rt[4:0]==decbuf.Ra[4:0] && rob[rob_deq].rfwr)
-		rob[rob_dec].ias <= {1'b0,6'b0};
-	else
-		rob[rob_dec].ias <= regfilesrc[decbuf.Ra[4:0]];
+		if (rob[rob_dec].v==VAL && rob[rob_dec].cmt==TRUE && rob[rob_dec].Rt[4:0]==decbuf.Ra[4:0] && rob[rob_dec].rfwr)
+			rob[rob_dec].ias <= {1'b0,6'b0};
+		else
+			rob[rob_dec].ias <= regfilesrc[decbuf.Ra[4:0]];
 		rob[rob_dec].step_v <= TRUE;
 `ifdef SUPPORT_VECTOR
 		if (decbuf.vex) begin
@@ -2413,7 +2419,7 @@ else begin
 		else
 `endif
 		begin
-			if (rob[rob_deq].v==VAL && rob[rob_deq].cmt==TRUE && rob[rob_deq].Rt[4:0]==decbuf.Rb[4:0] && rob[rob_deq].rfwr)
+			if (rob[rob_dec].v==VAL && rob[rob_dec].cmt==TRUE && rob[rob_dec].Rt[4:0]==decbuf.Rb[4:0] && rob[rob_dec].rfwr)
 				rob[rob_dec].ibs <= {1'b0,6'b0};
 			else
 				rob[rob_dec].ibs <= regfilesrc[decbuf.Rb[4:0]];
@@ -2555,6 +2561,8 @@ else begin
 				rob[rob_dec].Rd <= rob[prev_rob_dec].Rb;
 				rob[rob_dec].ic <= rob[prev_rob_dec].ia;
 				rob[rob_dec].id <= rob[prev_rob_dec].ib;
+				rob[rob_dec].icv <= rob[prev_rob_dec].iav;
+				rob[rob_dec].idv <= rob[prev_rob_dec].ibv;
 				rob[rob_dec].ics <= rob[prev_rob_dec].ias;
 				rob[rob_dec].ids <= rob[prev_rob_dec].ibs;
 				rob[rob_dec].Rcvec <= rob[prev_rob_dec].Ravec;
@@ -2570,6 +2578,8 @@ else begin
 				rob[rob_dec].Rd <= rob[prev_rob_dec].Rb;
 				rob[rob_dec].ic <= rob[prev_rob_dec].ia;
 				rob[rob_dec].id <= rob[prev_rob_dec].ib;
+				rob[rob_dec].icv <= rob[prev_rob_dec].iav;
+				rob[rob_dec].idv <= rob[prev_rob_dec].ibv;
 				rob[rob_dec].ics <= rob[prev_rob_dec].ias;
 				rob[rob_dec].ids <= rob[prev_rob_dec].ibs;
 				rob[rob_dec].Rcvec <= rob[prev_rob_dec].Ravec;
@@ -2588,6 +2598,8 @@ else begin
 				rob[rob_dec].Rd <= rob[prev_rob_dec].Rb;
 				rob[rob_dec].ic <= rob[prev_rob_dec].ia;
 				rob[rob_dec].id <= rob[prev_rob_dec].ib;
+				rob[rob_dec].icv <= rob[prev_rob_dec].iav;
+				rob[rob_dec].idv <= rob[prev_rob_dec].ibv;
 				rob[rob_dec].ics <= rob[prev_rob_dec].ias;
 				rob[rob_dec].ids <= rob[prev_rob_dec].ibs;
 				rob[rob_dec].Rcvec <= rob[prev_rob_dec].Ravec;
@@ -2595,15 +2607,12 @@ else begin
 			end
 		end
 		if (rob[rob_dec].v==VAL & ~branch_invalidating) begin
-			if (decbuf.rfwr) begin
+			if (decbuf.rfwr)
 				regfilesrc[decbuf.Rt[4:0]].rid <= rob_dec;
-			end
-			if (decbuf.vrfwr) begin
+			if (decbuf.vrfwr)
 				vregfilesrc[decbuf.Rt[4:0]].rid <= rob_dec;
-			end
-			if (decbuf.vmrfwr) begin
+			if (decbuf.vmrfwr)
 				vm_regfilesrc[decbuf.Rt[4:0]].rid <= rob_dec;
-			end
 		end
 	end
 
@@ -3065,24 +3074,24 @@ begin
 			end
 			*/
 			for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-	  		if (redi.xrid != n)
-		  		SetSource(rob[n].Rt[4:0],n[5:0]);
+//	  		if (redi.xrid != n)
+//		  		SetSource(rob[n].Rt[4:0],n[5:0]);
 		  	if (|latestID[n]) begin// && (~newer_than[n] || n[5:0]==redi.xrid)) begin
 		  		if (rob[n].v==VAL) begin
 			  		if (rob[n].Rt[5]) begin
 				  		vregfilesrc[rob[n].Rt[4:0]].rid <= n[5:0];
-				  		if (redi.xrid != n)
-				  			SetSource(rob[n].Rt[4:0],n[5:0]);
+//				  		if (redi.xrid != n)
+//				  			SetSource(rob[n].Rt[4:0],n[5:0]);
 			  		end
 			  		else if (rob[n].vmrfwr) begin
 				  		vm_regfilesrc[rob[n].Rt[2:0]].rid <= n[5:0];
-				  		if (redi.xrid != n)
-					  		SetSource(rob[n].Rt[2:0],n[5:0]);
+//				  		if (redi.xrid != n)
+//					  		SetSource(rob[n].Rt[2:0],n[5:0]);
 			  		end
 			  		else begin
 			  			regfilesrc[rob[n].Rt[4:0]].rid <= n[5:0];
-				  		if (redi.xrid != n)
-					  		SetSource(rob[n].Rt[4:0],n[5:0]);
+//				  		if (redi.xrid != n)
+//					  		SetSource(rob[n].Rt[4:0],n[5:0]);
 			  		end
 			  	end
 		  	end

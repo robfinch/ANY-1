@@ -205,6 +205,8 @@ else begin
 	set_wfi <= FALSE;
 	robo.update_rob <= FALSE;
 	robo.wr_fu <= FALSE;
+	robo.out <= FALSE;
+	robo.out2 <= FALSE;
 	rd_trace <= FALSE;
 
 	$display("Execute");
@@ -886,8 +888,7 @@ else begin
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= TRUE;
 			end
-		LEA,LDx,LDxX:
-			// This does not wait for registers to be valid.
+		LEA,LDx,LDxX,LDxZ,LDxXZ:
 			begin
 				membufi.rid <= rob_exec;
 				membufi.step <= robi.step;
@@ -902,11 +903,9 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out <= TRUE;
 			end
 		STx,STxX:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
-			// This does not wait for registers to be valid.
 			begin
 				membufi.rid <= rob_exec;
 				membufi.step <= robi.step;
@@ -921,11 +920,9 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out <= TRUE;
 			end
 		LDSx:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
-			// This does not wait for registers to be valid.
 			begin
 			if (robi.vmask[robi.step]) begin
 				membufi.rid <= rob_exec;
@@ -941,7 +938,6 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= FALSE;
-				robo.out <= TRUE;
 			end
 			else if (robi.irmod.im.z)
 				tDoOp(64'd0);
@@ -1736,7 +1732,7 @@ else begin
 		default:	;
 		endcase
 		end
-	end
+		end
 	end
 	else begin
 		/*

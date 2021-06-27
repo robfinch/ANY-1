@@ -43,7 +43,8 @@ output reg [31:0] sel;
 
 always @*
 case(ir.r2.opcode)
-LDx,STx,LDxX,STxX,LDSx,STSx,LDxVX,CVLDSx,STxVX,CVSTSx:
+LDx,STx,LDxX,STxX,LDSx,STSx,LDxVX,CVLDSx,STxVX,CVSTSx,
+LDxZ,LDxXZ:
 	case(ir.ld.func)
 	4'd0:	sel <= 32'h00000003;
 	4'd1:	sel <= 32'h0000000F;

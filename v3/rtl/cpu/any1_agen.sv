@@ -57,8 +57,8 @@ if (rst)
 	ea <= 32'd0;
 else begin
 	case(ir.ld.opcode)
-	LDx:	ea <= imm + ia.val;
-	LDxX:	ea <= imm + ia.val + (ib.val << ir.nld.Sc);
+	LDx,LDxZ:		ea <= imm + ia.val;
+	LDxX,LDxXZ:	ea <= imm + ia.val + (ib.val << ir.nld.Sc);
 	STx:	ea <= imm + ia.val;
 	STxX:	ea <= imm + ia.val + (ic.val << Sc);
 	LDSx:	ea <= imm + ia.val + ic.val * step;
