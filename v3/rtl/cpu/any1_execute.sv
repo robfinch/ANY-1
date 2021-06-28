@@ -313,6 +313,26 @@ else begin
 				AND:	begin	robo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
 				OR:		begin	robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
 				XOR:	begin	robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+`ifdef SUPPORT_MYST				
+				MYST:
+					begin
+						case(robi.id.val[5:0])
+						ADD:	begin	robo.res.val <= robi.ia.val + robi.ib.val; tMod(); end
+						SUB:	begin	robo.res.val <= robi.ia.val - robi.ib.val; tMod(); end
+						AND:	begin	robo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
+						OR:		begin	robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
+						XOR:	begin	robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+						CMP:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1; tMod(); end
+						SEQ:	begin robo.res.val <= robi.ia.val == robi.ib.val; tMod(); end
+						SNE:	begin robo.res.val <= robi.ia.val != robi.ib.val; tMod(); end
+						SLT:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val); tMod(); end
+						SGE:	begin robo.res.val <= $signed(robi.ia.val) >= $signed(robi.ib.val); tMod(); end
+						SLTU:	begin robo.res.val <= robi.ia.val < robi.ib.val; tMod(); end
+						SGEU:	begin robo.res.val <= robi.ia.val >= robi.ib.val; tMod(); end
+						default:	tMod();
+						endcase
+					end
+`endif					
 				BMMOR,BMMXOR,BMMTOR,BMMTXOR:	begin robo.res.val <= bmm_o; tMod(); end
 				SLL:	begin robo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
 				SLLI:	begin robo.res.val <= robi.ia.val << {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]}; tMod(); end
@@ -547,6 +567,25 @@ else begin
 		ANDI:	begin robo.res.val <= robi.ia.val & robi.imm; tMod(); end
 		ORI:	begin robo.res.val <= robi.ia.val | robi.imm; tMod(); end
 		XORI:	begin robo.res.val <= robi.ia.val ^ robi.imm; tMod(); end
+`ifdef SUPPORT_MYST
+		MYSTI:
+			begin
+				case(robi.id.val[5:0])
+				ADDI:	begin robo.res.val <= robi.ia.val + robi.imm; tMod(); end
+				SUBFI:begin robo.res.val <= robi.imm - robi.ia.val; tMod(); end
+				ANDI:	begin robo.res.val <= robi.ia.val & robi.imm; tMod(); end
+				ORI:	begin robo.res.val <= robi.ia.val | robi.imm; tMod(); end
+				XORI:	begin robo.res.val <= robi.ia.val ^ robi.imm; tMod(); end
+				SEQI:	begin robo.res.val <= robi.ia.val == robi.imm; tMod(); end
+				SNEI:	begin robo.res.val <= robi.ia != robi.imm; tMod(); end
+				SLTI:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.imm); tMod(); end
+				SGTI:	begin robo.res.val <= $signed(robi.ia.val) > $signed(robi.imm); tMod(); end
+				SLTUI:	begin robo.res.val <= robi.ia.val < robi.imm; tMod(); end
+				SGTUI:	begin robo.res.val <= robi.ia.val > robi.imm; tMod(); end
+				default:	;
+				endcase
+			end
+`endif
 		MULI,MULUI,MULSUI:
 				begin
 					begin
@@ -835,7 +874,7 @@ else begin
 				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
-				ex_redirect.redirect_ip <= robi.ip + robi.imm[AWID:0];
+				ex_redirect.redirect_ip <= robi.ip + robi.imm;
 				ex_redirect.current_ip <= robi.ip;
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.step <= 6'd0;

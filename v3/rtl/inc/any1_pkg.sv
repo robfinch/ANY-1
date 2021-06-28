@@ -101,6 +101,7 @@ parameter SLLI	= 6'h1A;
 parameter MULF	= 6'h1C;
 parameter MULSUH= 6'h1D;
 parameter MULUH = 6'h1E;
+parameter MYST	= 6'h1F;
 parameter CMP		= 6'h20;
 parameter SRL		= 6'h21;
 parameter SRLI	= 6'h22;
@@ -140,6 +141,7 @@ parameter VCIDX	= 6'h1D;
 parameter VSCAN	= 6'h1E;
 parameter CLIP	= 6'h20;
 
+// RI ops
 parameter ADDI	= 8'h04;
 parameter SUBFI	= 8'h05;
 parameter MULI	= 8'h06;
@@ -157,6 +159,7 @@ parameter U10NDX= 8'h1A;
 parameter BYTNDX= 8'h1A;
 parameter WYDNDX= 8'h1B;
 parameter BTFLD	=	8'h1C;
+parameter MYSTI	= 8'h1F;
 
 parameter CHKI	= 8'h22;
 parameter U21NDX= 8'h23;
@@ -229,6 +232,8 @@ parameter VSTRIDE=8'hDC;
 
 parameter LDx		= 8'h60;
 parameter LDxX	= 8'h61;
+parameter LDxZ	= 8'h64;
+parameter LDxXZ	= 8'h65;
 parameter STx		= 8'h70;
 parameter STxX	= 8'h71;
 
@@ -260,6 +265,7 @@ parameter CACHE2 = 3'd3;
 parameter LEA2 = 3'd4;
 parameter RTS2 = 3'd5;
 parameter M_CALL	= 3'd6;
+parameter LOADZ = 3'd7;		// unsigned load
 
 // FLT1
 parameter FMOV	= 6'h00;
@@ -319,6 +325,7 @@ parameter VU10NDX= 8'h9A;
 parameter VBYTNDX= 8'h9A;
 parameter VWYDNDX= 8'h9B;
 parameter VBTFLD	=	8'h9C;
+parameter VMYSTI	= 8'h9F;
 
 parameter VCHKI	= 8'hA2;
 parameter VU21NDX= 8'hA3;
@@ -698,7 +705,6 @@ typedef struct packed
 	logic jump;
 	logic branch;
 	logic call;
-	logic exec;
 	logic needRa;
 	logic needRb;					// R2, LDxX
 	logic needRc;					// STx/CHK
@@ -869,7 +875,6 @@ typedef struct packed
 	Rid ics;
 	Rid ids;
 	Rid its;
-	Rid irs;
 	Rid vms;
 	Value res;
 	sFPFlags fp_flags;

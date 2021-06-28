@@ -176,10 +176,10 @@ begin
 	fnOlderInst = {ROB_ENTRIES{1'b0}};
 	done = FALSE;
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (m==qp)
-			done = TRUE;
 		if (!done)
 			fnOlderInst[m] = TRUE;
+		if (m==qp)
+			done = TRUE;
 		m = m - 1;
 		if (m < 0)
 			m = ROB_ENTRIES-1;
@@ -187,22 +187,19 @@ begin
 end
 endfunction
 
+function [5:0] fnQp1;
+input [5:0] q;
+begin
+	fnQp1 = q >= ROB_ENTRIES-1 ? 6'd0 : q + 2'd1;
+end
+endfunction
+
 function [ROB_ENTRIES-1:0] fnNewerInst;
 input [5:0] ridi;
-input [5:0] qp;		// que position
-integer n,m,done;
+integer n;
 begin
-	m = ridi;
-	done = FALSE;
-	fnNewerInst = {ROB_ENTRIES{1'b0}};
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		if (m==qp)
-			done = TRUE;
-		if (!done)
-			fnNewerInst[m] = TRUE;
-		m = m + 1;
-		if (m >= ROB_ENTRIES)
-			m = 0;
+		fnNewerInst[n] = rob[n].rob_q > rob[ridi].rob_q;
 	end
 end
 endfunction
@@ -749,10 +746,10 @@ end
 end
 endgenerate
 
-wire [ROB_ENTRIES-1:0] newer_than_robo = fnNewerInst(robo.rid,rob_que);
-wire [ROB_ENTRIES-1:0] newer_than_wb = fnNewerInst(wb_redirecto.xrid,rob_que);
-wire [ROB_ENTRIES-1:0] newer_than_mem = fnNewerInst(mem_redirecti.xrid,rob_que);
-wire [ROB_ENTRIES-1:0] newer_than_ex = fnNewerInst(ex_redirecti.xrid,rob_que);
+wire [ROB_ENTRIES-1:0] newer_than_robo = fnNewerInst(robo.rid);
+wire [ROB_ENTRIES-1:0] newer_than_wb = fnNewerInst(wb_redirecto.xrid);
+wire [ROB_ENTRIES-1:0] newer_than_mem = fnNewerInst(mem_redirecti.xrid);
+wire [ROB_ENTRIES-1:0] newer_than_ex = fnNewerInst(ex_redirecti.xrid);
 
 /*
 f2a_fifo uf2a
@@ -1058,7 +1055,7 @@ begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		ex_stomp[n] = 1'b0;
 		if (newer_than_ex[n]) begin
-			ex_stomp[n] = ~do_ex_branch;
+			ex_stomp[n] = do_ex_branch;
 		end
 	end
 end
@@ -1067,7 +1064,7 @@ begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		mem_stomp[n] = 1'b0;
 		if (newer_than_mem[n]) begin
-			mem_stomp[n] = ~do_mem_branch;
+			mem_stomp[n] = do_mem_branch;
 		end
 	end
 end
@@ -2197,63 +2194,15 @@ else begin
 					end
 `endif					
 				end
-				begin
-					rob[rob_deq].v <= INV;
-					rob[rob_deq].ui <= INV;
-					rob[rob_deq].cause <= FLT_NONE;
-					rob[rob_deq].cmt <= FALSE;
-					rob[rob_deq].rfwr <= FALSE;
-					rob[rob_deq].vrfwr <= FALSE;
-					rob[rob_deq].vmrfwr <= FALSE;
-					rob[rob_deq].jump <= FALSE;
-					rob[rob_deq].branch <= FALSE;
-					rob_d <= rob_d + 2'd1;
-					if (rob_deq >= ROB_ENTRIES-1)
-						rob_deq <= 6'd0;
-					else
-						rob_deq <= rob_deq + 2'd1;
-				end
+				tDeque1();
 			end
 		end
 		else if (rob[rob_deq].v==INV) begin
-			rob[rob_deq].ui <= INV;
-			rob[rob_deq].cause <= FLT_NONE;
-			rob[rob_deq].cmt <= FALSE;
-			rob[rob_deq].rfwr <= FALSE;
-			rob[rob_deq].vrfwr <= FALSE;
-			rob[rob_deq].vmrfwr <= FALSE;
-			rob[rob_deq].jump <= FALSE;
-			rob[rob_deq].branch <= FALSE;
-			rob_d <= rob_d + 2'd1;
-			if (rob_deq >= ROB_ENTRIES-1)
-				rob_deq <= 6'd0;
-			else begin
-				rob_deq <= rob_deq + 2'd1;
-				insnCommitted <= insnCommitted + 2'd1;
-			end
+			tDeque1();
 		end
 	end
 	else begin
-		begin
-			rob[rob_deq].v <= INV;
-			rob[rob_deq].ui <= INV;
-			rob[rob_deq].cause <= FLT_NONE;
-			rob[rob_deq].cmt <= FALSE;
-			rob[rob_deq].rfwr <= FALSE;
-			rob[rob_deq].vrfwr <= FALSE;
-			rob[rob_deq].vmrfwr <= FALSE;
-			rob[rob_deq].jump <= FALSE;
-			rob[rob_deq].branch <= FALSE;
-			rob_d <= rob_d + 2'd1;
-			if (rob_deq != rob_que) begin
-				if (rob_deq >= ROB_ENTRIES-1)
-					rob_deq <= 6'd0;
-				else begin
-					rob_deq <= rob_deq + 2'd1;
-					insnCommitted <= insnCommitted + 2'd1;
-				end
-			end
-		end
+		tDeque1();
 	end
 	
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -2382,23 +2331,12 @@ else begin
 			rob[rob_dec].ic <= 64'd0;
 		rob[rob_dec].imm <= {{64{decbuf.imm.val[VALUE_SIZE-1]}},decbuf.imm.val};
 		rob[rob_dec].vmask <= exbufi.vmask;
-		if (decbuf.exec) begin
-			rob[rob_dec].ir <= exbufi.ia;
-			rob[rob_dec].iav <= FALSE;
-			rob[rob_dec].ibv <= FALSE;
-			rob[rob_dec].icv <= FALSE;
-			rob[rob_dec].idv <= FALSE;
-			rob[rob_dec].itv <= FALSE;
-			rob[rob_dec].vmv <= FALSE;
-		end
-		else begin
 			rob[rob_dec].iav <= exbufi.iav;
 			rob[rob_dec].ibv <= exbufi.ibv;
 			rob[rob_dec].icv <= TRUE;
 			rob[rob_dec].idv <= TRUE;
 			rob[rob_dec].itv <= exbufi.itv;
 			rob[rob_dec].vmv <= exbufi.vmv;
-		end
 `ifdef SUPPORT_VECTOR
 		if (decbuf.Ravec)
 			rob[rob_dec].ias <= vregfilesrc[decbuf.Ra[4:0]];
@@ -2432,7 +2370,7 @@ else begin
 		rob[rob_dec].jump <= decbuf.jump;
 		rob[rob_dec].mem_op <= decbuf.mem_op;
 		rob[rob_dec].mc <= decbuf.mc;
-		rob[rob_dec].dec <= !decbuf.exec;
+		rob[rob_dec].dec <= TRUE;
 		rob[rob_dec].cmt <= FALSE;
 		rob[rob_dec].cmt2 <= FALSE;
 		rob[rob_dec].out <= FALSE;
@@ -3042,6 +2980,26 @@ end	// clock domain
 // Support tasks
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
+task tDeque1;
+begin
+	rob[rob_deq].v <= INV;
+	rob[rob_deq].ui <= INV;
+	rob[rob_deq].cause <= FLT_NONE;
+	rob[rob_deq].cmt <= FALSE;
+	rob[rob_deq].rfwr <= FALSE;
+	rob[rob_deq].vrfwr <= FALSE;
+	rob[rob_deq].vmrfwr <= FALSE;
+	rob[rob_deq].jump <= FALSE;
+	rob[rob_deq].branch <= FALSE;
+	// Test if queue would be empty
+	if (fnQp1(rob_deq) != rob_que) begin
+		rob_d <= rob_d + 2'd1;
+		rob_deq <= fnQp1(rob_deq);
+		insnCommitted <= insnCommitted + 2'd1;
+	end
+end
+endtask
+
 task tBranch;
 input sRedirect redi;
 input [ROB_ENTRIES-1:0] newer_than;
@@ -3049,11 +3007,8 @@ input RegBitList [ROB_ENTRIES-1:0] latestID;
 begin
 	begin
 		if (rob[redi.xrid].v) begin
-			// Call will commit later
-			if (!rob[redi.xrid].call) begin
-				rob[redi.xrid].cmt <= TRUE;
-				rob[redi.xrid].cmt2 <= TRUE;
-			end
+			rob[redi.xrid].cmt <= TRUE;
+			rob[redi.xrid].cmt2 <= TRUE;
 			//rob[redi.xrid].v <= FALSE;
 			ip <= redi.redirect_ip;
 			decven <= redi.step;

@@ -77,13 +77,12 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 		decbuf.vex <= FALSE;
 		decbuf.veins <= FALSE;
 		decbuf.vsrlv <= FALSE;
-		decbuf.exec <= FALSE;
 		decbuf.is_mod <= ir.r2.opcode[7:4]==4'h5;
 		decbuf.needRa <= TRUE;
 		decbuf.needRb <= FALSE;
 		decbuf.needRc <= FALSE;
 		decbuf.imm.val <= 64'd0;
-		decbuf.mem_op <= ir.r2.opcode[6:5]==2'd3;
+		decbuf.mem_op <= ir.r2.opcode[6:5]==2'd3 && ir.r2.opcode!=JAL && ir.r2.opcode!=BAL && ir.r2.opcode!=JALR;
 		decbuf.mc <= FALSE;
 //		dcRedirectIp <= a2d_out.ip + {{25{ir[63]}},ir[63:28],3'h0};
 		case(ir.r2.opcode)
@@ -108,6 +107,9 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				case(ir.r2.func)
 				ADD,SUB:	begin decbuf.Rt <= {ir.r2.Tt,ir.r2.Rt}; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 				AND,OR,XOR,NAND,NOR,XNOR:	begin decbuf.Rt <= {ir.r2.Tt,ir.r2.Rt}; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+`ifdef SUPPORT_MYST		
+				MYST:	begin decbuf.Rt <= {ir.r2.Tt,ir.r2.Rt}; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+`endif				
 				DIF:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 				MULF:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.is_signed <= FALSE; end
 				MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
@@ -177,6 +179,9 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 		DIVUI,DIVSUI:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; end
 		ORI:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; decbuf.ui <= FALSE; end
 		XORI:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; decbuf.ui <= FALSE; end
+`ifdef SUPPORT_MYST		
+		MYSTI:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; decbuf.ui <= FALSE; end
+`endif		
 		BTFLD:		begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 		SEQI,SNEI:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{ir[35]}},ir[35:20]}; decbuf.ui <= FALSE; end
 		SLTI,SGTI:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{ir[35]}},ir[35:20]}; decbuf.ui <= FALSE; end
@@ -254,7 +259,6 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				PEEKQI:	begin decbuf.ui <= FALSE; decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; end
 				PFI:		begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; end
 				TLBRW:	begin decbuf.ui <= FALSE; decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.mc <= TRUE; end
-				EXEC:		begin decbuf.ui <= FALSE; decbuf.exec <= TRUE; end
 				default:	;
 				endcase
 			end
@@ -286,6 +290,9 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				decbuf.needRb <= TRUE; 
 				case(ir.r2.func)
 				ADD,SUB,AND,OR,XOR:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; end
+`ifdef SUPPORT_MYST		
+				MYST:	begin decbuf.Rt <= {ir.r2.Tt,ir.r2.Rt}; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; end
+`endif				
 				DIF:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; end
 				MULF:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.is_signed <= FALSE; end
 				MUL,MULU,MULSU,MULH,MULUH,MULSUH:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end
@@ -369,6 +376,9 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 		VDIVUI,VDIVSUI:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; decbuf.mc <= TRUE; end
 		VORI:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; decbuf.ui <= FALSE; end
 		VXORI:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; decbuf.ui <= FALSE; end
+`ifdef SUPPORT_MYST		
+		VMYSTI:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; decbuf.ui <= FALSE; end
+`endif		
 		VBTFLD:		begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.ui <= FALSE; end
 		VSEQI,VSNEI:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{ir[35]}},ir[35:20]}; decbuf.ui <= FALSE; end
 		VSLTI,VSGTI:	begin decbuf.Rt <= ir[13:8]; decbuf.vrfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-16{ir[35]}},ir[35:20]}; decbuf.ui <= FALSE; end
@@ -380,13 +390,6 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 			begin
 				decbuf.ui <= FALSE;
 				decbuf.imm.val <= {{VALUE_SIZE-16{ir[35]}},ir[35:20]};
-			end
-		VSYS:
-			begin
-				case(ir.r2.func)
-				EXEC:		begin decbuf.ui <= FALSE; decbuf.exec <= TRUE; end
-				default:	;
-				endcase
 			end
 `endif			
 		default:	;
