@@ -883,6 +883,7 @@ else begin
 				robo.cmt <= FALSE;
 				robo.cmt2 <= FALSE;
 			end
+`ifdef SUPPORT_CALL_RET			
 		CALL:
 			begin
 				membufi.rid <= rob_exec;
@@ -927,6 +928,7 @@ else begin
 				robo.cmt2 <= FALSE;
 				robo.wr_fu <= TRUE;
 			end
+`endif			
 		LEA,LDx,LDxX,LDxZ,LDxXZ:
 			begin
 				membufi.rid <= rob_exec;

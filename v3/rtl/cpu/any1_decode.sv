@@ -214,6 +214,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				decbuf.rfwr <= TRUE;
 				decbuf.mc <= TRUE; 
 			end
+`ifdef SUPPORT_CALL_RET			
 		CALL:
 			begin
 				decbuf.ui <= FALSE;
@@ -237,6 +238,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				decbuf.imm.val <= {{VALUE_SIZE-16{ir[35]}},ir[35:20]};
 				decbuf.mc <= TRUE; 
 			end
+`endif			
 		BEQ,BNE,BLT,BGE:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{ir[35]}},ir[35:27],ir[19],ir[13:8]}; decbuf.branch <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; decbuf.Ravec <= FALSE; decbuf.Ra[5] <= 1'b0; end
 		BLTU,BGEU,BBS:	begin	decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{ir[35]}},ir[35:27],ir[19],ir[13:8]}; decbuf.branch <= TRUE; decbuf.needRb <= TRUE; decbuf.mc <= TRUE; decbuf.is_signed <= FALSE; decbuf.Ravec <= FALSE; decbuf.Ra[5] <= 1'b0; end
 		LEA:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.imm.val <= {{VALUE_SIZE-12{ir.ld.disp[11]}},ir.ld.disp}; decbuf.ui <= FALSE; decbuf.mc <= TRUE; end

@@ -114,7 +114,7 @@ begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		if (m==rob_que)
 			done = TRUE;
-		if (rob[m].ir.r2.opcode[6:4]==3'd4 && !rob[m].cmt && rob[m].v && !done)
+		if ((rob[m].ir.r2.opcode[6:4]==3'd4 || rob[m].ir.r2.opcode==BAL || rob[m].ir.r2.opcode==JAL || rob[m].ir.r2.opcode== JALR) && !rob[m].cmt && rob[m].v && !done)
 			uncommitted_fc = TRUE;
 		m = m - 1;
 		if (m < 0)

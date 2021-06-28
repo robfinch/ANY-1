@@ -1047,7 +1047,7 @@ if_redirect_fifo uwb2if
 sReorderEntry robo,robo1;
 wire brAddrMispredict = exbufi.pip != ex_redirecti.redirect_ip;//exRedirectIp;
 
-reg do_ex_branch, do_mem_branch;
+reg do_ex_branch, do_mem_branch, do_wb_branch;
 reg [ROB_ENTRIES-1:0] ex_stomp, mem_stomp;
 
 always @*
@@ -1059,6 +1059,7 @@ begin
 		end
 	end
 end
+`ifdef SUPPORT_CALL_RET
 always @*
 begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
@@ -1068,7 +1069,10 @@ begin
 		end
 	end
 end
-
+`else
+always_comb
+	mem_stomp <= {ROB_ENTRIES{1'b0}};
+`endif
 
 reg [NUM_AIREGS-1:1] rob_livetarget [0:ROB_ENTRIES-1];
 wire [31:1] reg_out [0:ROB_ENTRIES-1];
@@ -1146,6 +1150,8 @@ always_comb
 	do_ex_branch = ex_redirecti.wr && rob[ex_redirecti.xrid].v==VAL && rob[ex_redirecti.xrid].cmt==FALSE;
 always_comb
 	do_mem_branch = mem_redirecti.wr && rob[mem_redirecti.xrid].v==VAL && rob[mem_redirecti.xrid].cmt==FALSE;
+always_comb
+	do_wb_branch = wb_redirecti.wr && rob[wb_redirecti.xrid].v==VAL && rob[wb_redirecti.xrid].cmt==FALSE;
 
 reg [31:0] regIsValid, vregIsValid, vm_regIsValid;
 RegBitList livetarget;
@@ -1446,10 +1452,12 @@ else begin
 		memreq.func = STORE;
 	CACHE:
 		memreq.func = CACHE2;
+`ifdef SUPPORT_CALL_RET		
 	RTS:
 		memreq.func = RTS2;
 	CALL:
 		memreq.func = M_CALL;
+`endif		
 	default:	memreq.func = LOAD;
 	endcase
 	memreq.fifo_wr = membufi_wr;
@@ -1613,13 +1621,37 @@ bc_fifo16X #(.WID($bits(sReorderEntry))) ubcf1
 	.ctr(ex_cnt)
 );
 
+
+// Core watchdog timer
+reg [9:0] wd_timer;
+reg [5:0] pp_rob_exec;
+reg wd_timeout;
+always_ff @(posedge clk_g)
+if (rst_i) begin
+	pp_rob_exec <= 6'd63;
+	wd_timer <= 10'd0;
+	wd_timeout <= FALSE;
+end
+else begin
+	wd_timeout <= FALSE;
+	pp_rob_exec <= rob_pexec;
+	if (pp_rob_exec==rob_pexec)
+		wd_timer <= wd_timer + 2'd1;
+	else
+		wd_timer <= 10'd0;
+	if (wd_timer[9]) begin
+		wd_timeout <= TRUE;
+		wd_timer <= 10'd0;
+	end
+end
+
 reg ifetch_v;
 reg [5:0] last_rid;
 reg cycle_after;
 reg [5:0] rob_que_m1;
 reg branch_invalidating;
 always_comb rob_que_m1 = rob_que==6'd0 ? ROB_ENTRIES -1 : rob_que - 2'd1;
-always_comb branch_invalidating = ihit && (pe_wb2if_redirect_v || mem_redirecti.wr || ex_redirecti.wr);
+always_comb branch_invalidating = ihit && (wb_redirecti.wr || mem_redirecti.wr || ex_redirecti.wr);
 Address mod_ip;
 Instruction tir;
  
@@ -1627,6 +1659,7 @@ always @(posedge clk_g)
 if (rst_i) begin
 	ip <= RSTIP;
 	mod_ip <= RSTIP;
+	tvec[4'd4] <= BRKIP;
 	decven <= 6'd0;
 	mod_cnt <= 3'd0;
 	tid <= 6'd0;
@@ -2066,7 +2099,7 @@ else begin
 					wb_f2a_rst <= TRUE;
 					wb_a2d_rst <= TRUE;
 					wb_d2x_rst <= TRUE;
-					wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
+					wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,5'h00};
 					wb_redirecti.current_ip <= rob[rob_deq].ip;
 					wb_redirecti.xrid <= rob_deq;
 					wb2if_wr <= TRUE;
@@ -2501,8 +2534,8 @@ else begin
 				rob[rob_dec].id <= rob[prev_rob_dec].ib;
 				rob[rob_dec].icv <= rob[prev_rob_dec].iav;
 				rob[rob_dec].idv <= rob[prev_rob_dec].ibv;
-				rob[rob_dec].ics <= rob[prev_rob_dec].ias;
-				rob[rob_dec].ids <= rob[prev_rob_dec].ibs;
+				rob[rob_dec].ics <= {1'b1,prev_rob_dec};
+				rob[rob_dec].ids <= {1'b1,prev_rob_dec};
 				rob[rob_dec].Rcvec <= rob[prev_rob_dec].Ravec;
 				rob[rob_dec].Rdvec <= rob[prev_rob_dec].Rbvec;
 				if (rob[prev_rob_dec].ir[12]) begin
@@ -2518,8 +2551,8 @@ else begin
 				rob[rob_dec].id <= rob[prev_rob_dec].ib;
 				rob[rob_dec].icv <= rob[prev_rob_dec].iav;
 				rob[rob_dec].idv <= rob[prev_rob_dec].ibv;
-				rob[rob_dec].ics <= rob[prev_rob_dec].ias;
-				rob[rob_dec].ids <= rob[prev_rob_dec].ibs;
+				rob[rob_dec].ics <= {1'b1,prev_rob_dec};
+				rob[rob_dec].ids <= {1'b1,prev_rob_dec};
 				rob[rob_dec].Rcvec <= rob[prev_rob_dec].Ravec;
 				rob[rob_dec].Rdvec <= rob[prev_rob_dec].Rbvec;
 				rob[rob_dec].imm[127:16] <= rob[prev_rob_dec].imm[127:16];
@@ -2538,8 +2571,8 @@ else begin
 				rob[rob_dec].id <= rob[prev_rob_dec].ib;
 				rob[rob_dec].icv <= rob[prev_rob_dec].iav;
 				rob[rob_dec].idv <= rob[prev_rob_dec].ibv;
-				rob[rob_dec].ics <= rob[prev_rob_dec].ias;
-				rob[rob_dec].ids <= rob[prev_rob_dec].ibs;
+				rob[rob_dec].ics <= {1'b1,prev_rob_dec};
+				rob[rob_dec].ids <= {1'b1,prev_rob_dec};
 				rob[rob_dec].Rcvec <= rob[prev_rob_dec].Ravec;
 				rob[rob_dec].Rdvec <= rob[prev_rob_dec].Rbvec;
 			end
@@ -2578,38 +2611,37 @@ else begin
 	// bit.
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
-	if (!wb2if_redirect_empty)
-		wb2if_redirect_rd <= 1'b1;
-//	else if (!ex2if_redirect_empty)
-//		ex2if_redirect_rd <= 1'b1;
-
-	// Note the use of ihit and not ifStall here. We want the branch to work even
-	// during a stall cycle os it is fast. Other instructions will continue to
-	// execute during a stall as well.
-	if (pe_wb2if_redirect_v) begin
-		ex2if_redirect_rd <= FALSE;
-		if (rob[wb_redirecto.xrid].v && !rob[wb_redirecto.xrid].cmt && rob[wb_redirecto.xrid].out)
-			tBranch(wb_redirecto,newer_than_wb,wb_latestID);
+	if (wb_redirecti.wr) begin
+		if (rob[wb_redirecti.xrid].v && !rob[wb_redirecti.xrid].cmt)
+			tBranch(wb_redirecti,newer_than_wb,wb_latestID);
 		else if (!ifStall)
 			ip <= fnIPInc(ip);
 	end
+`ifdef SUPPORT_CALL_RET	
 	else if (mem_redirecti.wr) begin
 		if (rob[mem_redirecti.xrid].v && !rob[mem_redirecti.xrid].cmt)
 			tBranch(mem_redirecti,newer_than_mem,mem_latestID);
 		else if (!ifStall)
 			ip <= fnIPInc(ip);
 	end
+`endif	
 	else if (ex_redirecti.wr) begin
 		if (rob[ex_redirecti.xrid].v && !rob[ex_redirecti.xrid].cmt)
 			tBranch(ex_redirecti,newer_than_ex,ex_latestID);
 		else if (!ifStall)
 			ip <= fnIPInc(ip);
 	end
-	if (ne_wb2if_redirect_v)
-		wb2if_redirect_rd <= FALSE;
-//	if (ne_ex2if_redirect_v)
-//		ex2if_redirect_rd <= FALSE;
 
+
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+	// Watchdog timeout pipeline advance logic.
+	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+	if (wd_timeout) begin
+		rob[safe_rob_exec].ir <= NOP_INSN;
+		rob[safe_rob_exec].cause <= FLT_WD;
+		rob[safe_rob_exec].v <= TRUE;
+		rob[safe_rob_exec].cmt <= TRUE;
+	end
 
 // -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  
 // Handle multipler type operations.
