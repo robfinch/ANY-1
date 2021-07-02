@@ -31,8 +31,10 @@ package any1_pkg;
 parameter VALUE_SIZE = 64;
 
 `define SEG_SHIFT	14'd0
+//`define SUPPORT_EXEC		1'b1
+//`define SUPPORT_MYST		1'b1
 `define SUPPORT_FLOAT		1'b1
-`define SUPPORT_VECTOR	1'b1
+//`define SUPPORT_VECTOR	1'b1
 //`define SUPPORT_GRAPHICS	1'b1
 `define SUPPORT_VICTIM_CACHE	1'b1
 `define ANY1_TLB	1'b1
@@ -220,26 +222,30 @@ parameter EXI2	= 8'h52;
 parameter EXI3  = 8'h53;
 parameter EXI4  = 8'h54;
 parameter IMOD	= 8'h58;
-parameter BTFLDX	= 8'h59;
 parameter BRMOD	= 8'h5A;
-parameter STRIDE= 8'h5C;
-
+parameter STRIDE= 8'h5B;
+parameter RGLST0= 8'h5C;
+parameter RGLST1= 8'h5D;
+parameter RGLST2= 8'h5E;
+parameter RGLST3= 8'h5F;
 parameter VSYS	= 8'h87;
 
 parameter VIMOD	= 8'hD8;
 parameter VBTFLDX=8'hD9;
-parameter VSTRIDE=8'hDC;
+parameter VSTRIDE=8'hDB;
 
 parameter LDx		= 8'h60;
 parameter LDxX	= 8'h61;
 parameter LDxZ	= 8'h64;
 parameter LDxXZ	= 8'h65;
+parameter LDM		= 8'h6F;
 parameter STx		= 8'h70;
 parameter STxX	= 8'h71;
+parameter STM		= 8'h7F;
 
-parameter JAL		= 8'h78;
-parameter BAL		= 8'h79;
-parameter JALR	= 8'h7A;
+parameter JAL		= 8'h40;
+parameter BAL		= 8'h41;
+parameter JALR	= 8'h42;
 parameter RTS		= 8'h7B;
 parameter CALL  = 8'h7C;
 
@@ -253,6 +259,7 @@ parameter LDBU = 4'd8;
 parameter LDWU = 4'd9;
 parameter LDTU = 4'd10;
 parameter LDOU = 4'd11;
+parameter LSM  = 4'd13;
 parameter LEA	 = 4'd14;
 parameter CACHE	= 4'd15;
 parameter STCR = 4'd6;
@@ -369,6 +376,7 @@ parameter CSR_FSTAT	= 16'h?014;
 parameter CSR_ASID	= 16'h101F;
 parameter CSR_KEYS	= 16'b0001_0000_0010_00??;
 parameter CSR_KEYTBL= 16'h1024;
+parameter CSR_SCRATCH=16'h?041;
 parameter CSR_MCR0	= 16'h3000;
 parameter CSR_MHARTID = 16'h3001;
 parameter CSR_TICK	= 16'h3002;
@@ -387,6 +395,7 @@ parameter CSR_DSTATUS	= 16'h4044;
 parameter CSR_DVSTEP= 16'h4046;
 parameter CSR_DVTMP	= 16'h4047;
 parameter CSR_DEIP	=	16'h4048;
+parameter CSR_DTCBPTR=16'h4050;
 parameter CSR_TIME	= 16'h?FE0;
 parameter CSR_MTIME	= 16'h3FE0;
 parameter CSR_DTIME	= 16'h4FE0;
@@ -410,8 +419,9 @@ parameter FLT_FP_ASSIST = 8'h0E;
 parameter FLT_RESERVED = 8'h2F;
 */
 parameter FLT_NONE	= 8'h00;
+parameter FLT_IADR	= 8'h22;
 parameter FLT_CHK		= 8'h27;
-parameter FLT_IADR	= 8'h36;
+parameter FLT_WD		= 8'h36;
 parameter FLT_UNIMP	= 8'h37;
 parameter FLT_NMI		= 8'hFE;
 
@@ -510,6 +520,7 @@ parameter pL1ICacheLines = 512;
 parameter pL1ICacheLineSize = 548;
 localparam pL1Imsb = $clog2(pL1ICacheLines-1)-1+6;
 parameter RSTIP = {32'hFFFC0300,1'b0};
+parameter BRKIP = {32'hFFFC0000,1'b0};
 parameter RIBO = 1;
 
 typedef logic [`ABITS] Address;
@@ -650,9 +661,14 @@ typedef struct packed
 	Point lr;		// lower right
 } Rect;
 
+parameter SRC_REG = 2'b00;
+parameter SRC_RES = 2'b01;
+parameter SRC_ARG = 2'b10;
+
 typedef struct packed
 {
 	logic rf;
+	logic [1:0] src;
 	logic [5:0] rid;
 } Rid;
 
@@ -705,6 +721,8 @@ typedef struct packed
 	logic jump;
 	logic branch;
 	logic call;
+	logic exec;
+	logic lsm;
 	logic needRa;
 	logic needRb;					// R2, LDxX
 	logic needRc;					// STx/CHK
@@ -720,6 +738,7 @@ typedef struct packed
 	logic [6:0] Rb;
 	logic [6:0] Rc;				// Sometimes Rt is transferred here
 	logic [5:0] Rt;
+	logic [5:0] Rm;
 	logic Ravec;
 	logic Rbvec;
 	logic Rcvec;
@@ -830,6 +849,9 @@ typedef struct packed
 	logic branch;
 	logic call;
 	logic mem_op;
+	logic exec;
+	logic myst;
+	logic [5:0] count;		// LDM / STM count
 	logic exi;
 	logic imod;
 	logic brmod;
@@ -845,6 +867,7 @@ typedef struct packed
 	logic [6:0] Rb;				// for VEX
 	logic [6:0] Rc;
 	logic [6:0] Rd;
+	logic [5:0] Rm;
 	logic Ravec;
 	logic Rbvec;
 	logic Rcvec;
@@ -874,6 +897,7 @@ typedef struct packed
 	Rid ibs;
 	Rid ics;
 	Rid ids;
+	logic idib;					// id comes from ia
 	Rid its;
 	Rid vms;
 	Value res;
@@ -913,6 +937,7 @@ typedef struct packed
 	logic [5:0] rid;
 	logic [5:0] ele;
 	Value res;
+	Value res2;
 	logic [7:0] cause;	// exception code if any
 	Address badAddr;
 } sFuncUnit;

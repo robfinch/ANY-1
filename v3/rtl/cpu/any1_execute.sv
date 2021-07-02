@@ -41,7 +41,8 @@ module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,fpreci,rob_exec,ex
 	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,out,tid,
 	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q,
 	ld_vtmp, vtmp, new_vtmp, graphi, rd_trace, trace_dout,
-	gr_target, gr_clip, clip_en);
+	gr_target, gr_clip, clip_en, lsm_mask
+	);
 input rst;
 input clk;
 input sReorderEntry robi;
@@ -79,8 +80,9 @@ input [63:0] trace_dout;
 input Rect gr_target;
 input Rect gr_clip;
 input clip_en;
+input [35:0] lsm_mask;
 
-integer n;
+integer m,n;
 
 function Address fnIncIP;
 input Address ptr;
@@ -107,9 +109,27 @@ cntlz64 uclz1 (robi.ia.val, cntlzo);
 cntlo64 uclo1 (robi.ia.val, cntloo);
 cntpop64 ucpop1 (robi.ia.val, cntpopo);
 
-wire [6:0] ffoo, floo;
+wire [6:0] ffoo, floo, lsm_pc;
 ffo96 uffo1 ({32'd0,robi.ia.val}, ffoo);
 flo96 uflo1 ({32'h0,robi.ia.val}, floo);
+
+cntpop64 upop2 ({34'd0,robi.ir[35:8],robi.ir[1:0]}, lsm_pc);
+
+reg [4:0] Rm;
+reg done;
+always @*
+begin
+	m = 0;
+	done = FALSE;
+	for (n = 0; n < 36; n = n + 1) begin
+		if (lsm_mask[n] && !done && (n > 7 || n < 2)) begin
+			Rm = m;
+			done = TRUE;
+		end
+		if (n > 7 || n < 2)
+			m = m + 1;
+	end
+end
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Bitfield
@@ -170,7 +190,7 @@ fpCompare u1 (
 	// Multi-cycle instructions are placed in instruction queues.
 	
 reg [5:0] last_tid;
-
+reg [5:0] count;			// count for STM
 
 always @(posedge clk)
 if (rst) begin
@@ -191,6 +211,7 @@ if (rst) begin
 	last_tid <= 6'd0;
 	vtmp <= 64'h0;
 	rd_trace <= FALSE;
+	count <= 6'd0;
 end
 else begin
 	f2a_rst <= FALSE;
@@ -220,7 +241,6 @@ else begin
 			robi.imm);
 
 		// If the instruction is exceptioned, then ignore executing it.
-
 		if (robi.ui || robi.cause != 16'h0000) begin
 			robo.cmt <= TRUE;
 			robo.cmt2 <= TRUE;
@@ -239,8 +259,16 @@ else begin
 		robo.update_rob <= !robi.mc;
 		robo.cmt <= !robi.mc;
 		robo.cmt2 <= !robi.mc;
+		robo.myst <= FALSE;
+		robo.exec <= FALSE;
 		robo.res_ele <= robi.step;
 		robo.rob_q <= robi.rob_q;
+		robo.dec <= robi.dec;	// Should be true
+		robo.ir <= robi.ir;
+		robo.res.val <= 64'hDEADDEADEADEAD;
+		if (robi.ir[6:4]!=3'b101)	// not a modifier
+			if (robi.ir[35:32]!=LSM || !robi.mem_op)
+				count <= 6'd0;
 		case(robi.ir.r2.opcode)
 		BRK:	begin robo.cause <= robi.ir[21:14]; tMod(); end
 		NOP:	tMod();
@@ -314,24 +342,7 @@ else begin
 				OR:		begin	robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
 				XOR:	begin	robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
 `ifdef SUPPORT_MYST				
-				MYST:
-					begin
-						case(robi.id.val[5:0])
-						ADD:	begin	robo.res.val <= robi.ia.val + robi.ib.val; tMod(); end
-						SUB:	begin	robo.res.val <= robi.ia.val - robi.ib.val; tMod(); end
-						AND:	begin	robo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
-						OR:		begin	robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
-						XOR:	begin	robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
-						CMP:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1; tMod(); end
-						SEQ:	begin robo.res.val <= robi.ia.val == robi.ib.val; tMod(); end
-						SNE:	begin robo.res.val <= robi.ia.val != robi.ib.val; tMod(); end
-						SLT:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val); tMod(); end
-						SGE:	begin robo.res.val <= $signed(robi.ia.val) >= $signed(robi.ib.val); tMod(); end
-						SLTU:	begin robo.res.val <= robi.ia.val < robi.ib.val; tMod(); end
-						SGEU:	begin robo.res.val <= robi.ia.val >= robi.ib.val; tMod(); end
-						default:	tMod();
-						endcase
-					end
+				MYST:	begin robo.res.val <= {robi.id.val[35:29],robi.ir[28:8],robi.id.val[7:0]}; robo.myst <= TRUE; tMod(); end
 `endif					
 				BMMOR,BMMXOR,BMMTOR,BMMTXOR:	begin robo.res.val <= bmm_o; tMod(); end
 				SLL:	begin robo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
@@ -568,23 +579,7 @@ else begin
 		ORI:	begin robo.res.val <= robi.ia.val | robi.imm; tMod(); end
 		XORI:	begin robo.res.val <= robi.ia.val ^ robi.imm; tMod(); end
 `ifdef SUPPORT_MYST
-		MYSTI:
-			begin
-				case(robi.id.val[5:0])
-				ADDI:	begin robo.res.val <= robi.ia.val + robi.imm; tMod(); end
-				SUBFI:begin robo.res.val <= robi.imm - robi.ia.val; tMod(); end
-				ANDI:	begin robo.res.val <= robi.ia.val & robi.imm; tMod(); end
-				ORI:	begin robo.res.val <= robi.ia.val | robi.imm; tMod(); end
-				XORI:	begin robo.res.val <= robi.ia.val ^ robi.imm; tMod(); end
-				SEQI:	begin robo.res.val <= robi.ia.val == robi.imm; tMod(); end
-				SNEI:	begin robo.res.val <= robi.ia != robi.imm; tMod(); end
-				SLTI:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.imm); tMod(); end
-				SGTI:	begin robo.res.val <= $signed(robi.ia.val) > $signed(robi.imm); tMod(); end
-				SLTUI:	begin robo.res.val <= robi.ia.val < robi.imm; tMod(); end
-				SGTUI:	begin robo.res.val <= robi.ia.val > robi.imm; tMod(); end
-				default:	;
-				endcase
-			end
+		MYSTI:	begin robo.res.val <= {robi.id.val[35:20],robi.ir[19:8],robi.id.val[7:0]}; robo.myst <= TRUE; tMod(); end
 `endif
 		MULI,MULUI,MULSUI:
 				begin
@@ -614,7 +609,7 @@ else begin
 						robo.out <= TRUE;
 					end
 				end
-		MULFI:begin robo.res.val <= robi.ia.val[23:0] + robi.imm[15:0]; tMod(); end
+		MULFI:begin robo.res.val <= robi.ia.val[23:0] * robi.imm[15:0]; tMod(); end
 		SEQI:	begin robo.res.val <= robi.ia.val == robi.imm; tMod(); end
 		SNEI:	begin robo.res.val <= robi.ia != robi.imm; tMod(); end
 		SLTI:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.imm); tMod(); end
@@ -807,7 +802,7 @@ else begin
 					f2a_rst <= TRUE;
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic + {robi.imm,3'b0} + robi.imm : fnIncIP(robi.ip);
+					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
 					//ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.step <= 6'd0;
@@ -821,7 +816,7 @@ else begin
 					f2a_rst <= TRUE;
 					a2d_rst <= TRUE;
 					d2x_rst <= TRUE;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic + {robi.imm,3'b0} + robi.imm : fnIncIP(robi.ip);
+					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
 					//ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
 					ex_redirect.current_ip <= robi.ip;
 					ex_redirect.step <= 6'd0;
@@ -934,7 +929,14 @@ else begin
 				membufi.rid <= rob_exec;
 				membufi.step <= robi.step;
 				membufi.ir <= robi.ir;
-				membufi.ia <= robi.ia;
+				if (robi.ir[35:32]==LSM) begin
+					membufi.ia <= robi.ia + {count,4'd0};
+					count <= count + 2'd1;
+				end
+				else begin
+					membufi.ia <= robi.ia;
+					count <= 6'd0;
+				end
 				membufi.ib <= robi.ib;
 				membufi.ic <= robi.ic;
 				membufi.dato <= robi.ib;
@@ -951,7 +953,14 @@ else begin
 				membufi.rid <= rob_exec;
 				membufi.step <= robi.step;
 				membufi.ir <= robi.ir;
-				membufi.ia <= robi.ia;
+				if (robi.ir[35:32]==LSM) begin
+					membufi.ia <= robi.ia + {count,4'd0};
+					count <= count + 2'd1;
+				end
+				else begin
+					membufi.ia <= robi.ia;
+					count <= 6'd0;
+				end
 				membufi.ib <= robi.ib;
 				membufi.ic <= robi.ic;
 				membufi.dato <= robi.ib;
@@ -1163,15 +1172,32 @@ else begin
 					robo.wr_fu <= FALSE;
 					robo.out <= TRUE;
 				end
+`ifdef SUPPORT_EXEC
+			EXEC:
+				begin
+					robo.exec <= TRUE;
+					robo.res.val <= robi.ia.val;
+					tMod();
+				end
+`endif				
 			default:	;
 			endcase
 		EXI0,EXI1,EXI2:	tMod();
 		IMOD:
+			begin
+				robo.res <= robi.ia;
 				tMod();
+			end
 		BRMOD:
+			begin
+				robo.res <= robi.ia;
 				tMod();
+			end
 		STRIDE:
+			begin
+				robo.res <= robi.ia;
 				tMod();
+			end
 		8'hFF:
 			;//rob_exec <= rob_exec;
 `ifdef SUPPORT_VECTOR
@@ -1421,6 +1447,9 @@ else begin
 							tDoOp(64'd0);
 						end
 					end
+`ifdef SUPPORT_MYST				
+				MYST:	begin robo.res.val <= {robi.id.val[35:29],robi.ir[28:8],robi.id.val[7:0]}; robo.myst <= TRUE; tMod(); end
+`endif					
 				default:	;
 				endcase
 			end
@@ -1515,7 +1544,7 @@ else begin
 						robo.out <= TRUE;
 					end
 				end
-		VMULFI:	tDoOp(robi.ia.val[23:0] + robi.imm[15:0]);
+		VMULFI:	tDoOp(robi.ia.val[23:0] * robi.imm[15:0]);
 		VSEQI:	tDoOp(robi.ia.val == robi.imm);
 		VSNEI:	tDoOp(robi.ia != robi.imm);
 		VSLTI:	tDoOp($signed(robi.ia.val) < $signed(robi.imm));
@@ -1769,6 +1798,21 @@ else begin
 					end
 				endcase
 			end
+`ifdef SUPPORT_MYST
+		VMYSTI:	begin robo.res.val <= {robi.id.val[35:20],robi.ir[19:8],robi.id.val[7:0]}; robo.myst <= TRUE; tMod(); end
+`endif
+		VSYS:
+			case(robi.ir.r2.func)
+`ifdef SUPPORT_EXEC
+			EXEC:
+				begin
+					robo.exec <= TRUE;
+					robo.res.val <= robi.ia.val;
+					tMod();
+				end
+`endif				
+			default:	;			
+			endcase
 `endif
 		default:	;
 		endcase

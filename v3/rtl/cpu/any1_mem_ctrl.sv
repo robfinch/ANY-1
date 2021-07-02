@@ -148,9 +148,9 @@ Address iadr;
 reg keyViolation = 1'b0;
 
 MemoryRequest memreq;
-reg memreq_rd;
+reg memreq_rd = 0;
 MemoryResponse memresp;
-reg zero_data;
+reg zero_data = 0;
 
 Address ea;
 always_comb
@@ -670,24 +670,7 @@ else begin
 				end
 			LOAD,LOADZ:
 				case(memreq.func2)
-				CACHE2:
-					begin
-						ic_invline <= memreq.dat[2:0]==3'd1;
-						ic_invall	<= memreq.dat[2:0]==3'd2;
-						dc_invline <= memreq.dat[5:3]==3'd3;
-						dc_invall	<= memreq.dat[5:3]==3'd4;
-						memresp.step <= memreq.step;
-						if (memreq.dat[5:3]==3'd1)
-							dce <= TRUE;
-						if (memreq.dat[5:3]==3'd2)
-							dce <= FALSE;
-				    memresp.cmt <= TRUE;
-						memresp.tid <= memreq.tid;
-						memresp.fifo_wr <= TRUE;
-						memresp.res <= 128'd0;
-						ret();
-					end
-				LEA2:
+				LEA:
 					begin
 						memresp.tid <= memreq.tid;
 						memresp.step <= memreq.step;
@@ -706,6 +689,23 @@ else begin
 			  		goto (MEMORY3);
 					end
 				endcase
+			CACHE2:
+				begin
+					ic_invline <= memreq.dat[2:0]==3'd1;
+					ic_invall	<= memreq.dat[2:0]==3'd2;
+					dc_invline <= memreq.dat[5:3]==3'd3;
+					dc_invall	<= memreq.dat[5:3]==3'd4;
+					memresp.step <= memreq.step;
+					if (memreq.dat[5:3]==3'd1)
+						dce <= TRUE;
+					if (memreq.dat[5:3]==3'd2)
+						dce <= FALSE;
+			    memresp.cmt <= TRUE;
+					memresp.tid <= memreq.tid;
+					memresp.fifo_wr <= TRUE;
+					memresp.res <= 128'd0;
+					ret();
+				end
 			RTS2:
 				begin
 					memresp.ret <= TRUE;

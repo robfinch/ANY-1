@@ -145,7 +145,7 @@ begin
 		// instruction from being selected twice, a check of the exec index is
 		// made.
 		if (rob[n].dec && rob[n].v && !rob[n].cmt && !rob[n].out) begin
-			if (rob[n].iav && rob[n].ibv && rob[n].icv && rob[n].idv) begin		// Args are valid
+			if (rob[n].iav && rob[n].ibv && rob[n].icv && rob[n].idv && rob[n].itv) begin		// Args are valid
 				if (!fnPriorFC(n) && !fnAlreadyChosen(n)) begin
 					if (!(rob[n].mem_op && fnPriorLdSt(n))) begin	// and loads / stores are in order
 						wakeup_list[n] = 1'b1;

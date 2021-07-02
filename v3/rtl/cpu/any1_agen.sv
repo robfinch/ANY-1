@@ -67,8 +67,11 @@ else begin
 	STxVX:	ea <= imm + ia.val + ic.val;
 	CVLDSx:	ea <= imm + ia.val + ic.val * step;
 	CVSTSx:	ea <= imm + ia.val + ic.val * step;
+	LDM,STM:	ea <= ia.val;
+`ifdef SUPPORT_CALL_RET
 	CALL:	  ea <= ia.val;
 	RTS:		ea <= ia.val;
+`endif	
 	default:	ea <= 33'd0;
 	endcase
 end

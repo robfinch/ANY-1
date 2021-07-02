@@ -62,6 +62,7 @@ LDxZ,LDxXZ:
 	4'd15:	sel <= 32'h0000FFFF;
 	default:	sel <= 32'h00000000;
 	endcase
+LDM,STM:	sel <= 32'h0000FFFF;	
 CALL,RTS:
 	sel <= 32'h0000FFFF;
 default:	sel <= 32'h00000000;
