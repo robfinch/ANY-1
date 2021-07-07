@@ -16,3 +16,5 @@ int tbndx;
 int lpndx = 0;
 int64_t pagesize = 16384;
 bool rom_code = true;
+float num_bytes;
+int num_insns;

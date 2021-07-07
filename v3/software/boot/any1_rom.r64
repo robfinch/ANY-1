@@ -33,8 +33,12 @@ UART_TRB		equ		$00
 UART_STAT		equ		$04
 UART_CMD		equ		$08
 
-CSR_UIE     equ   $004
-ROMBASE		equ		$FFFFFFFFFFFC0000
+CSR_UIE     	equ   $004
+CSR_DCAUSE		equ		$4006
+CSR_DSCRATCH	equ		$4041
+FLT_WD				equ		$36
+
+ROMBASE		equ		$FFFFFFFFFFFC0000*2
 IOBASE		equ		$FFFFFFFFFF800000*2
 TEXTSCR		equ		$FFFFFFFFFF800000*2
 KEYBD		equ		$FFFFFFFFFF8E0000*2
@@ -57,46 +61,53 @@ _cursorY  equ   _cursorX + 1
 ;------------------------------------------------------------------------------
 {+
 	org		ROMBASE				; user mode exception
-	jmp		DBGRout
-	org 	ROMBASE+$C0				; machine mode exception
-	jmp		DBGRout
-	org		ROMBASE+$F2			; non-maskable interrupt
+	bra		DBGRout
+	org 	ROMBASE+$60*2				; machine mode exception
+	bra		DBGRout
+	org 	ROMBASE+$80*2				; debug mode exception
+	bra		DBGRout
+	org		ROMBASE+$F2*2			; non-maskable interrupt
 	bra		MachineStart    ; cannot use a jump here, takes too much room
 
 ;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
-	org		ROMBASE+$100
-	jmp		IRQRout
-	org 	ROMBASE+$1C0		; machine mode exception
-	jmp		IRQRout
-	org		ROMBASE+$1F2		; non-maskable interrupt
+	org		ROMBASE+$100*2
+	bra		IRQRout
+	org 	ROMBASE+$1C0*2		; machine mode exception
+	bra		IRQRout
+	org		ROMBASE+$1F2*2		; non-maskable interrupt
 	bra		MachineStart    ; cannot use a jump here, takes too much room
 
-	org		ROMBASE+$200
-	jmp		IRQRout
-	org 	ROMBASE+$2C0		; machine mode exception
-	jmp		IRQRout
-	org		ROMBASE+$2F2		; non-maskable interrupt
+	org		ROMBASE+$200*2
+	bra		IRQRout
+	org 	ROMBASE+$2C0*2		; machine mode exception
+	bra		IRQRout
+	org		ROMBASE+$2F2*2		; non-maskable interrupt
 	bra		MachineStart    ; cannot use a jump here, takes too much room
 
 ;------------------------------------------------------------------------------
 ; Reset starting address.
 ;------------------------------------------------------------------------------
-	org		ROMBASE+$300
+	org		ROMBASE+$300*2
 MachineStart:
 ;  ldi   $t1,#$81
 ;  sto   $t1,xbBridge1
   ldi   $t0,#$AA
-  stb   $t0,LEDS
   ldi   $a0,#$AA
+	ldi		$x29,#SCRATCHMEM
+	stm		[$x29],#%111111111111111111111111111111
+  stb   $t0,LEDS
   stb   $a0,LEDS
+	ldm		[$x29],#%111111111111111111111111111111
 
-	ldi		$sp,#SCRATCHMEM+$CDF8*2		  ; setup machine mode stack pointer
-	sub 	$sp,$sp,#8
+	ldi		$sp,#SCRATCHMEM+$CDF8*2		  ; setup debug mode stack pointer
+	sub 	$sp,$sp,#16
+	ldi		$t0,#SCRATCHMEM+$8000*2
+	csrrw	$x0,#CSR_DTCBPTR,$t0				; set TCB pointer
 	ldi   $a0,#10
 	ldi   $a1,#0
-	call  _Delay2s
-	call  dbg_HomeCursor
+	bal   $x1,_Delay2s
+	bal   $x1,dbg_HomeCursor
 	ldi		$a1,#DBGATTR		  ; set zorder $40, white text, blue background
 	sto		$a1,_DBGAttr
   ; clear debug screen
@@ -109,31 +120,31 @@ else
 endif
 .0001:
   sub   $t1,$t1,#1
-  sto   $a0,[$t0+$t1*8]
+  sto   $a0,[$t0+$t1*16]
   bne   $t1,$x0,.0001
 	ldi		$a1,#DBGATTR|$41
 	sto		$a1,TEXTSCR
-	sto		$a1,TEXTSCR+8
-	sto		$a1,TEXTSCR+16
-	sto		$a1,TEXTSCR+24
+	sto		$a1,TEXTSCR+8*2
+	sto		$a1,TEXTSCR+16*2
+	sto		$a1,TEXTSCR+24*2
 
 ;  ldi   $a0,#msgStart
   ;call  PutHexTetra
   ldi   $a0,#msgStart
-  call  PutString
+  bal   $x1,PutString
 
 ;  call  _ramtest2
 ;	csrrs $x0,#CSR_TRACECTRL,#1 ; turn on tracing
-  call  _pti_init
+  bal   $x1,_pti_init
   ldi   $a1,#$80000
   ldi   $a0,#$200000
-  call  _pti_read_block
+  bal   $x1,_pti_read_block
 
-	call  MMUInit					; initialize MMU for address space zero.
-	call  _FMTKInit
+	bal   $x1,MMUInit					; initialize MMU for address space zero.
+	bal   $x1,_FMTKInit
 	;call  ViaSetup
 ;	call  _SerialInit
-	call  _InitPIC
+	bal   $x1,_InitPIC
 	ldi   $t0,#5          ; set current input and output to serial port
 	stb   $t0,CURIN
 	stb   $t0,CUROUT
@@ -141,23 +152,19 @@ endif
 	csrrw $x0,#CSR_MSEMA,$t0  ; turn off semaphores
 	csrrw	$x0,#$181,$t0		    ; set ASID
 	csrrw $x0,#CSR_TASKID,$t0 ; clear task id
-	ldi		$t0,#$FFFFFFFFFFFC0000
-	csrrw $x0,#$5035,$t0		; set tvec for debug mode
-	ldi		$t0,#$FFFFFFFFFFFC0100
-	csrrw $x0,#$5034,$t0		; set tvec for interrupt mode
-	ldi		$t0,#$FFFFFFFFFFFC0200
-	csrrw $x0,#$5033,$t0		; set tvec for machine mode
-	ldi   $t0,#$FFFFFFFFFFFFFC1F  ; run user mode in register set #0
-	csrrw $x0,#CSR_RSSTACK,$t0
+	ldi		$t0,#$FFFFFFFFFFFC0000*2
+	csrrw $x0,#$4034,$t0		; set tvec for debug mode
+	ldi		$t0,#$FFFFFFFFFFFC0200*2
+	csrrw $x0,#$4033,$t0		; set tvec for machine mode
 	ldi		$t0,#UserStart
-	csrrw	$x0,#$5048,$t0	  ; set mepc
-	stt   $t0,MEPC1
+	csrrw	$x0,#$4048,$t0	  ; set mepc
+	sto   $t0,MEPC1
   ldi   $a0,#1            ; start task
   ldi   $a1,#0
   ldi   $a2,#0
   ldi   $a3,#UserStart2
   ldi   $a4,#$00
-  call  OSOCall
+  bal   $x1,OSOCall
   csrrw $x0,#CSR_TASKID,$a1
   csrrs $x0,#CSR_PMSTACK,#16 ; enable interrupts on return
 	csrrc $x0,#CSR_TRACECTRL,#0 ; turn off tracing
@@ -185,7 +192,7 @@ UserStart2:
   brk   #240
 
   mov   $s1,$a1         ; s1 = app id
-	ldi		$sp,#$A0080000-4  ; setup user mode stack pointer
+	ldi		$sp,#$A0080000*2-8*2  ; setup user mode stack pointer
 
   ldi   $a0,#12         ; start app
   ldi   $a1,#TinyBasicASR
@@ -207,7 +214,7 @@ UserStart2:
   mov   $gp,$a1
 
 UserStart3:
-	ldi		$sp,#$A0080000-8  	; setup user mode stack pointer
+	ldi		$sp,#$A0080000*2-8*2  	; setup user mode stack pointer
 	ldi		$a0,#24							; RequestIOFocus
 	mov   $a1,$s1
 	brk   #240
@@ -220,7 +227,7 @@ UserStart3:
 	ldi		$t2,#16							; send an XON just in case
 	ldi		$a3,#XON
 .0004:
-	call  Putch ;SerialPutChar
+	bal   $x1,Putch ;SerialPutChar
 	sub		$t2,$t2,#1
 	bne	  $t2,#0,.0004
 .0002:
@@ -237,13 +244,13 @@ UserStart3:
 ;  brk #240
 .noMbx:
 	ldi		$a0,#msgStart				; spit out a startup message
-	call  PutString
+	bal   $x1,PutString
 ;		ldi		a0,#1
 ;		ldi		a1,#24000
 ;		ldi		a2,#Monitor
 ;		brk #240
-	call  DumpReadyQueue
-	jmp		MonEntry
+	bal   $x1,DumpReadyQueue
+	bra		MonEntry
 
 		; Now a loop to recieve and echo back characters
 .0003:
@@ -325,7 +332,7 @@ msgIdleAnnounce:
 ;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
 ;  align 	code
-	align	64
+	align		16
 _Delay2s:
 ifdef TEST
   ldi     $a1,#10
@@ -336,7 +343,7 @@ endif
 	srl			$a2,$a1,#16
 	stb			$a2,LEDS
 	sub 		$a1,$a1,#1
-	bgt		  $a1,#0,.0001
+	bgeu	  $a1,#1,.0001
 	ret
 
 ;------------------------------------------------------------------------------
@@ -348,13 +355,15 @@ endif
 ; Returns:
 ;		$a0 = character, -1 if none available
 ;------------------------------------------------------------------------------
-  ; align cache
+	align		16
 Getch:
 	sub		$sp,$sp,#16
+	sto		$x1,[$sp]
 	sto		$a1,8[$sp]
 	ldi   $a1,#5  ;CURIN
-	call  fgetc
+	bal		$x1,fgetc
 	ldo		$a1,8[$sp]
+	ldo		$x1,[$sp]
 	add   $sp,$sp,#16
 	ret
 
@@ -365,31 +374,33 @@ Getch:
   ; align cache
 _putch:
   bra   dbg_Putch
-  ; align cache
+	align		16
 Putch:
   bra   dbg_Putch
 	sub		$sp,$sp,#24
+	sto		$x1,[$sp]
 	sto		$a3,8[$sp]
 	sto		$a1,16[$sp]
 	mov		$a3,$a0
 	ldi		$a1,#5  ;CUROUT    ; serial port
-	call	fputc
+	bal		$x1,fputc
+	ldo		$x1,[$sp]
 	ldo		$a3,8[$sp]
 	ldo		$a1,16[$sp]
 	add   $sp,$sp,#24
 	ret
 
-  ; align cache
+	align		16
 calcScreenPos:
   ldbu  $t0,_cursorY
   bgeu  $t3,#29,.0001
 .0002:
-  mulf  $t1,$t0,#56
+  mulf  $t1,$t0,#56*2
   ldbu  $t0,_cursorX
   bgeu  $t0,#56,.0003
 .0004:
   add   $t1,$t1,$t0
-  sll   $t1,$t1,#3
+  sll   $t1,$t1,#4			; 16 nybbles
   add   $t2,$t1,#TEXTSCR
   ret
 ; This is cool in ANY1. Storing a smalll constant to memory does not require
@@ -404,7 +415,7 @@ calcScreenPos:
   stb   $t0,_cursorX
   bra   .0004
 
-  ; align cache
+	align		16
 incScreenPos:
   ldbu  $t0,_cursorX
   add   $t0,$t0,#1
@@ -413,7 +424,11 @@ incScreenPos:
   ldbu  $t0,_cursorY
   add   $t0,$t0,#1
   bltu  $t0,#29,.0002
-  call  dbg_ScrollUp
+  sub		$sp,$sp,#8
+  sto		$x1,[$sp]
+  bal		$x1,dbg_ScrollUp
+  ldo		$x1,[$sp]
+  add		$sp,$sp,#8
   ret
 .0002:
   stb   $t0,_cursorY
@@ -422,16 +437,20 @@ incScreenPos:
   stb   $t0,_cursorX
   ret
   
-  ; align cache
+	align		16
 dbg_Putch:
+	sub		$sp,$sp,#8
+	sto		$x1,[$sp]
   beq  	$a0,#CR,.cr
   beq  	$a0,#LNFD,.lf
   ldo   $t3,_DBGAttr
   or    $t3,$a0,$t3
-  call  calcScreenPos
+  bal		$x1,calcScreenPos
   sto   $t3,[$t2]
-  call  incScreenPos
+  bal		$x1,incScreenPos
+.xit:
   ldo		$x1,[$sp]
+	add		$sp,$sp,#8
   ret
  .lf:
   stb   #0,_cursorX
@@ -439,36 +458,42 @@ dbg_Putch:
   add   $a0,$a0,#1
   bgeu  $a0,#29,dbg_ScrollUp
   stb   $a0,_cursorY
-  ret
+  bra		.xit
 .cr:
   stb   #0,_cursorX
-  ret
+  bra		.xit
 
-  ; align cache
+	align		16
 dbg_ScrollUp:
+	sub		$sp,$sp,#8
+	sto		$x1,[$sp]
   ldi   $t0,#TEXTSCR
 ifdef TEST
   ldi   $t1,#6
 else
-  ldi   $t1,#56*28
+  ldi   $t1,#56*28*2
 endif
 .0001:
-  ldo   $t2,56*8[$t0]
+  ldo   $t2,56*8*2[$t0]
   sub  	$t1,$t1,#1      ; placed here eliminates pipeline bubble
   sto   $t2,[$t0]
-  add   $t0,$t0,#8
+  add   $t0,$t0,#16
   bne   $t1,#0,.0001
+  bal		$x1,dbg_BlankLastLine
+  ldo		$x1,[$sp]
+	add		$sp,$sp,#8
+	ret
 
-  ; align cache
+	align		16
 dbg_BlankLastLine:
-  ldi   $t0,#TEXTSCR+56*28
-  ldi   $t1,#55
+  ldi   $t0,#TEXTSCR+56*28*2
+  ldi   $t1,#55*2
   ldi   $t2,_DBGAttr
   or    $t2,$t2,#' '
 .0001:
   sto   $t2,[$t0+$t1*8]
-  sub  	$t1,$t1,#1
-  bgeu  $t1,#1,.0001
+  sub  	$t1,$t1,#2
+  bgeu  $t1,#2,.0001
   ret
 
   ; align cache
@@ -497,23 +522,24 @@ dbg_HomeCursor:
   ; align cache
 fputc:
 	sub		$sp,$sp,#32
+	sto		$x1,[$sp]
 	sto		$a1,16[$sp]
 	sto		$a2,24[$sp]
 	seq   $t0,$a6,#'B'
 	beq   $t0,#0,.noBypass
-	call  SerialPutChar
+	bal		$x1,SerialPutChar
 	bra   .xit
 .noBypass:
 	; If the device is a UI device there may be multiple owning jobs. It doesn't
 	; do any good to check for ownership. Instead the I/O focus is checked to
 	; see if it's present.
-	call  GetUIFlag
+	bal		$x1,GetUIFlag
 	bne   $a1,#0,.checkOwner
   ldo   $a1,16[$sp]
-	call  WaitForIOFocus
+	bal		$x1,WaitForIOFocus
 	bra   .0001
 .checkOwner:
-  call  CheckDevOwner
+  bal		$x1,CheckDevOwner
   bne   $a0,#0,.notOwner
 .0001:
   ldo   $a1,16[$sp]
@@ -522,6 +548,7 @@ fputc:
 	brk   #240
 	mov   $a0,$a3
 .xit:
+	ldo		$x1,[$sp]
 	ldo		$a1,16[$sp]
 	ldo		$a2,24[$sp]
 	add   $sp,$sp,#32
@@ -549,19 +576,18 @@ fputc:
   ; align cache
 fgetc:
 	sub		$sp,$sp,#32
+	sto		$x1,[$sp]
 	sto		$a1,16[$sp]
 	sto		$a2,24[$sp]
-	call  GetUIFlag
-	tst   $a1
-	beq   .checkOwner
+	bal		$x1,GetUIFlag
+	beq   $a1,#0,.checkOwner
 	ldt		$a1,16[$sp]
-	call  WaitForIOFocus
+	bal		$x1,WaitForIOFocus
 	bra   .0001
 .checkOwner:
 	ldt		$a1,16[$sp]
-  call  CheckDevOwner
-  tst   $a0
-  bne   .notOwner
+  bal		$x1,CheckDevOwner
+  bne   $a0,#0,.notOwner
 .0001:
 	ldi		$a0,#26							; FMTK_IO
 	ldt		$a1,16[$sp]
@@ -569,6 +595,7 @@ fgetc:
 	brk   #240
 	mov   $a0,$a1
 .0002:
+	ldo		$x1,[$sp]
 	ldo		$a1,16[$sp]
 	ldo		$a2,24[$sp]
 	add   $sp,$sp,#32
@@ -607,93 +634,88 @@ Monitor:
 ;		call	DumpTimeoutList
 	ldi		  $s1,#0					; s1 = input pointer
 	ldi			$a0,#msgPrompt
-	call    PutString
+	bal   	$x1,PutString
 .0001:
-	call	    Getch						; wait until character pressed
-	tst     $a0        ; test return value
-	bmi	    .0001
-	seq     $a0,#LNFD  ; process line feed
-	seq.or  $a0,#CR    ; and carriage return
-	bt	    .procLine
-	seq		  $a0,#BS
-	bt	    .doBackspace
-	seq		  $a0,#DEL
-	bt	    .doDelete
+	bal   	$x1,Getch						; wait until character pressed
+	blt	    $a0,#0,.0001	; test return value
+	beq			$a0,#LNFD,.procLine	; process line feed
+	beq			$a0,#CR,.procLine	; and carriage return
+	beq	    $a0,#BS,.doBackspace
+	ldi			$t0,#DEL
+	beq		  $a0,$t0,.doDelete
 	stb		  $a0,INBUF[$s1]
-	add		  $s1,$s1,#1
-	call    Putch
-	jmp		  .0001
+	add		  $s1,$s1,#2
+	bal  		$x1,Putch
+	bra		  .0001
 .doDelete:
 	mov		  $s2,$s1
-	add		  $s2,$s2,#1
+	add		  $s2,$s2,#2
 .0002:
 	ldb		  $t0,INBUF[$s2]
-	stb		  $t0,INBUF-1[$s2]
-	add		  $s2,$s2,#1
+	stb		  $t0,INBUF-2[$s2]
+	add		  $s2,$s2,#2
 	add		  $t0,$s2,#INBUF
-	slt		  $t0,#INBUF+$7F
-	bt		  .0002
-	stb		  $x0,INBUF[$s2]
-	jmp		  .0001
+	slt		  $t1,$t0,#INBUF+$7F*2
+	bne		  $t1,#0,.0002
+	stb		  #0,INBUF[$s2]
+	bra		  .0001
 .doBackspace:
-  tst     $s1
-	beq		  .0001		        ; can't backspace anymore
-	call    Putch           ; show the backspace
-	sub		  $s1,$s1,#1
+	beq		  $s1,#0,.0001    ; can't backspace anymore
+	bal   	$x1,Putch       ; show the backspace
+	sub		  $s1,$s1,#2
 	mov		  $s2,$s1
 .0003:
-	ldb		  $t0,INBUF+1[$s2]
+	ldb		  $t0,INBUF+2[$s2]
 	stb		  $t0,INBUF[$s2]
-	add		  $s2,$s2,#1
+	add		  $s2,$s2,#2
 	add		  $t0,$s2,#INBUF
-	slt		  $t0,#INBUF+$7F
-	bt		  .0003
-	stb		  $x0,INBUF[$s2]
-	jmp		  .0001
+	slt		  $t1,$t0,#INBUF+$7F*2
+	bne		  $t1,#0,.0003
+	stb		  #0,INBUF[$s2]
+	bra		  .0001
 .procLine:
-	stb		  $x0,INBUF[$s1]
+	stb		  #0,INBUF[$s1]
 	ldi		  $s1,#0
 .skip:
-	ldb.	  $t0,INBUF[$s1]
-	beq		  .0005
-	seq		  $t0,#'>'
-	bf		  .0004
+	ldb	  	$t0,INBUF[$s1]
+	beq		  $t0,#0,.0005
+	ldi			$t1,#'>'
+	bne		  $t0,$t1,.0004
 .skip2:
-	add		  $s1,$s1,#1
-	jmp		  .skip
+	add		  $s1,$s1,#2
+	bra		  .skip
 .0004:
-	seq		  $t0,#' '
-	seq.or  $t0,#'\t'
-	bt		  .skip2
-	seq     $t0,#'X'  ; exit from monitor
-	bf      .notX
+	ldi			$t1,#' '
+	beq			$t0,$t1,.skip2
+	ldi			$t1,#'\t'
+	beq			$t0,$t1,.skip2
+	ldi			$t1,#'x'
+	bne     $t0,$t1,.notX
 	ldi     $a0,#E_Ok
-	jmp     OSExit
+	bra     OSExit
 .notX:
-	seq		  $t0,#'M'
-	bt	    doMem
-	seq     $t0,#'V'
-	bt      doVMem
-	seq     $t0,#'P'
-	bt      doPStat
-	seq		  $t0,#'B'
-	bt		  .0006
-	call    GetDecNum
-	tst     $a0
-	bne     .basSize
+	ldi			$t1,#'M'
+	beq			$t0,$t1,doMem
+	ldi			$t1,#'V'
+	beq     $t0,$t1,doVMem
+	ldi			$t1,#'P'
+	beq     $t0,$t1,doPState
+	ldi			$t1,#'B'
+	beq		  $t0,$t1,.0006
+	bal   	$x1,GetDecNum
+	bne     $a0,#0,.basSize
 	ldi     $a0,#32000
 .basSize:
 	ldi		  $a0,#12					; Start App
 	ldi     $a1,#TBASR
 	brk     #240
 	mov		  $s1,$a1					; save v1
-	ldi		  $a0,#msgCRLF
-	call    PutString
+	bal   	$x1,PutCRLF
 	mov		  $a0,$s1					; get back v1
-	call    PutHexByte
+	bal   	$x1,PutHexByte
 	ldi		  $a0,#msgTaskStart
-	call    PutString
-	call    DumpReadyQueue
+	bal   	$x1,PutString
+	bal   	$x1,DumpReadyQueue
 	; The monitor is running in machine mode. A return instruction is used to
 	; switch to user mode. The return address must be set to the desired user
 	; code address.
@@ -706,136 +728,131 @@ Monitor:
 	;ldi		$a0,#5					; Reschedule task
 	;ldi		$a1,#1					; sleep(0)
 	;brk #240
-	jmp		  Monitor
+	bra		  Monitor
 .0006:
-	seq		  $t0,#'D'
-	bf		  .0007
-	ldb		  $t0,INBUF+1[$s1]
-	seq		  $t0,#'T'
-	bf		  .noT
-	call    DumpTimeoutList
-	jmp		  Monitor
+	ldi			$t1,#'D'
+	bne		  $t0,$t1,.0007
+	ldb		  $t0,INBUF+2[$s1]
+	ldi			$t1,#'T'
+	bne		  $t0,$t1,.noT
+	bal   	$x1,DumpTimeoutList
+	bra		  Monitor
 .noT:
-	call	  DumpReadyQueue
+	bal   	$x1,DumpReadyQueue
 	;ldi		$a0,#15
 	;brk #240
-	jmp		  Monitor
+	bra		  Monitor
 .0007:
-	seq		  $t0,#'E'
-	bt		  EditMem
-	seq		  $t0,#'F'
-	bf		  .0009
-	ldb     $t0,INBUF+1[$s1]
-	sne     $t0,#'I'
-	bt      .notFind
-	add     $s1,$s1,#1
-	jmp     Find
+	ldi			$t1,#'E'
+	beq		  $t0,$t1,EditMem
+	ldi			$t1,#'F'
+	bne		  $t0,$t1,.0009
+	ldb     $t0,INBUF+2[$s1]
+	ldi			$t1,#'I'
+	bne			$t0,$t1,.notFind
+	add     $s1,$s1,#2
+	bra     Find
 .notFind:
-	jmp		  FillMem
+	bra		  FillMem
 .0009:
-	sne		  $t0,#'S'
-	bt		  .0010
+	ldi			$t1,#'S'
+	bne		  $t0,$t1,.0010
 	ldi		  $a0,#5					; sleep(0)
 	ldi		  $a1,#1
 	brk     #240
-	jmp		  Monitor
+	bra		  Monitor
 .0010:
-	sne		  $t0,#'K'
-	bt		  .0011
-	call    GetHexNum
+	ldi			$t1,#'K'
+	bne		  $t0,$t1,.0011
+	bal     $x1,GetHexNum
 	mov		  $a1,$a0					; a0 = pid
 	ldi		  $a0,#3					; kill task
 	brk     #240
-	jmp		  Monitor
+	bra		  Monitor
 .0011:
-	sne		  $t1,#'?'
-	bt		  .0012
+	ldi			$t1,#'?'
+	bne		  $t0,$t1,.0012
 	ldi		  $a0,#msgMonHelp
-	call    PutString
-	jmp		  Monitor
+	bal    	$x1,PutString
+	bra		  Monitor
 .0012:
 .0005:
-	jmp		  Monitor
+	bra		  Monitor
 
   ; align cache
 doMem:
-	sub	$sp,$sp,#8
-	add		$s1,$s1,#1
+	sub		$sp,$sp,#8
+	add		$s1,$s1,#2
 	ldb		$t0,INBUF[$s1]
 	sne   $t0,#'O'
 	bt    .0001
-	add		$s1,$s1,#1
+	add		$s1,$s1,#2
 .0001:
 	sto		$s1,[$sp]
 	ldi		$a0,#CR
-	call  Putch
+	bal   $x1,Putch
 	ldi		$a0,#INBUF
-	call  PutString
+	bal   $x1,PutString
 	ldo		$s1,[$sp]
 	add		$sp,$sp,#8
-	call  GetHexNum
+	bal   $x1,GetHexNum
 	mov		$s3,$a0
 	mov   $s5,$a0
-	add		$s1,$s1,#1
-	call	  GetHexNum
+	add		$s1,$s1,#2
+	bal   $x1,GetHexNum
 	add		$s4,$a0,$s3
 .loop2:
-	call	Getch						; check for ctrl-c
-	seq		$a0,#3
-	bt		Monitor
+	bal   $x1,Getch						; check for ctrl-c
+	beq		$a0,#3,Monitor
 	ldi		$a0,#CR
-	call	Putch
+	bal   $x1,Putch
 	mov		$a0,$s3
-	call	PutHexWord
+	bal   $x1,PutHexWord
 	ldi		$a0,#':'
-	call	Putch
+	bal   $x1,Putch
 	ldi		$s2,#7
 .loop:
 	ldi		$a0,#' '
-	call	Putch
-	tst   $cr0,$t0
-	bne   $cr0,.userMem
+	bal   $x1,Putch
+	bne   $t0,$x0,.userMem
 	ldi   $a0,#33         ; Fetch memory word
 	mov   $a1,$s3
 	brk   #240
 	mov   $a0,$a1
-	jmp   .0002
+	bra   .0002
 .userMem
 	ldb		$a0,[$s3]
 .0002:
-	call	PutHexByte
-	add		$s3,$s3,#1
-	sub.	$s2,$s2,#1
-	bge		.loop
-	sltu  $s3,$s4
-	bt	  .loop2
+	bal   $x1,PutHexByte
+	add		$s3,$s3,#2
+	sub		$s2,$s2,#1
+	bge		$s2,$x0,.loop
+	bltu  $s3,$s4,loop2
 ;	call  PutInlineString
 ;	db    ' ',' ',0
 	mov   $s3,$s5
 .0004:
 	ldbu  $a0,[$s3]
-	slt   $a0,#$20
-	bt    .unprintable
-	call  Putch
-	jmp   .0003
+	bltu  $a0,#$20,.unprintable
+	bal   $x1,Putch
+	bra   .0003
 .unprintable:
   ldi   $a0,#'.'
-  call  Putch
+  bal   $x1,Putch
 .0003:
-  add   $s3,$s3,#1
-  sltu  $s3,$s4
-  bt    .0004
+  add   $s3,$s3,#2
+  bltu  $s3,$s4,.0004
   ldi   $a0,#CR
-  call  Putch
+  bal   $x1,Putch
 	bra		Monitor		
 
   ; align cache
 EditMem:
 ;	csrrs $x0,#CSR_UIE,#1        ; enable gc interrupt
-	call  GetHexNum			; get address to edit
+	bal   $x1,GetHexNum			; get address to edit
 	mov		$s3,$a0
-	add		$s1,$s1,#1
-	call  GetHexNum			; get value to set
+	add		$s1,$s1,#2
+	bal   $x1,GetHexNum			; get value to set
 	stb		$s3,[$a0]			; update mem
 	bra		Monitor
 
@@ -847,27 +864,27 @@ EditMem:
   ; align cache
 doVMem:
   add   $s1,$s1,#1
-  call  GetDecNum
+  bal   $x1,GetDecNum
   ldi   $t1,#0
-  asl   $t0,$a0,#16
+  sll   $t0,$a0,#16
 .0001:
   and.  $a0,$t1,#3
   bne   .notLF
-  call  PutCRLF
+  bal   $x1,PutCRLF
 .notLF:
   mov   $a0,$t0
-  call  PutHexWord
+  bal   $x1,PutHexWord
   ldi   $a0,#':'
-  call  Putch
+  bal   $x1,Putch
   mvmap $a0,$x0,$t0
-  call  PutHexHalf
+  bal   $x1,PutHexHalf
   ldi   $a0,#' '
-  call  Putch
+  bal   $x1,Putch
   add   $t0,$t0,#1
   add   $t1,$t1,#1
   slt   $t1,#256
   bt    .0001
-  jmp   Monitor
+  bra   Monitor
 
 ;------------------------------------------------------------------------------
 ; >P
@@ -876,13 +893,13 @@ doVMem:
 
   ; align cache
 doPStat:
-  call  PutCRLF
+  bal   $x1,PutCRLF
   ldi   $t1,#0        ; $a1 = bit number
 .0001:
   ldi   $a0,#32       ; Get PAM bit pair
   brk   #240
   add   $a0,$a1,#'0'
-  call  Putch
+  bal   $x1,Putch
   add   $t1,$t1,#1
   slt   $a0,$t1,#MEMSZ
   bne   $a0,#0,.0001
@@ -895,17 +912,17 @@ doPStat:
 
   ; align cache
 FillMem:
-	call	GetHexNum			; get address
+	bal   $x1,GetHexNum			; get address
 	mov		$s3,$a0
-	add		$s1,$s1,#1
-	call	GetHexNum			; get length
+	add		$s1,$s1,#2
+	bal   $x1,GetHexNum			; get length
 	mov		$s4,$a0
-	add		$s1,$s1,#1
-	call	GetHexNum			; get byte to use
+	add		$s1,$s1,#2
+	bal   $x1,GetHexNum			; get byte to use
 .0001:
-	sub		$s4,$s4,#1
+	sub		$s4,$s4,#2
 	stb		$a0,[$s3+$s4]
-	bgeu	$s4,#1,.0001
+	bgeu	$s4,#2,.0001
 	bra		Monitor
 
 ;------------------------------------------------------------------------------
@@ -914,55 +931,49 @@ FillMem:
 
   ; align cache
 Find:
-  ldi   $a0,#CR
-  call  Putch
-  ldi   $a0,#LNFD
-  call  Putch
-  call  SkipSpaces
+  bal   $x1,PutCRLF
+  bal   $x1,SkipSpaces
   mov   $s2,$s1
 .fwe:
-  ldbu.   $t0,INBUF[$s2]
-  seq.or  $t0,#' '
-  seq.or  $t0,#CR    ; cmp power!
-  bt      .endOfWord
-  add     $s2,$s2,#1
-  jmp     .fwe
+  ldbu  $t0,INBUF[$s2]
+  seq		$t1,$t0,#' '
+  seq		$t2,$t0,#CR
+  or		$t1,$t1,$t2
+  bne		$t1,$x0,.endOfWord
+  add   $s2,$s2,#2
+  bra   .fwe
 .endOfWord:
   stb   $x0,INBUF[$s2]
   mov   $s2,$s1
   ldi   $a0,#0
   ldi   $a1,#0
 .loop:
-	call	Getch						; check for ctrl-c
-	seq   $a0,#3
-	bt	  Monitor
+	bal		$x1,Getch						; check for ctrl-c
+	beq	  $a0,#3,Monitor
 .0001:
   ldbu  $t0,[$a0]
-  ldbu. $t1,INBUF[$s2]
-  beq   .found
-  seq   $t0,$t1
-  bf    .next
-  add   $a0,$a0,#1
-  add   $s2,$s2,#1
-  jmp   .loop
+  ldbu 	$t1,INBUF[$s2]
+  beq   $t1,$x0,.found
+  seq   $t1,$t0,$t1
+  beq   $t1,$x0,.next
+  add   $a0,$a0,#2
+  add   $s2,$s2,#2
+  bra   .loop
 .next:
   mov   $s2,$s1         ; start over again with $s2
-  add   $a0,$a1,#1      ; start over again with $a0, but increment by one
+  add   $a0,$a1,#2      ; start over again with $a0, but increment by one byte
   ldi   $t2,#$80000     ; 512k
   mov   $a1,$a0         ; remember new starting pos.
-  slt   $cr0,$a0,$t2
-  bne   $cr0,.loop
-  jmp   .notFound
+  slt   $t1,$a0,$t2
+  bne   $t1,$t0,.loop
+  bra   .notFound
 .found:
-  call  PutHexTetra
-  call  PutCRLF
-  jmp   .next
+  bal   $x1,PutHexTetra
+  bal   $x1,PutCRLF
+  bra   .next
 .notFound:
-  ldi   $a0,#CR
-  call  Putch
-  ldi   $a0,#LNFD
-  call  Putch
-  jmp   Monitor
+  bal   $x1,PutCRLF
+  bra   Monitor
 
 ;------------------------------------------------------------------------------
 ; Skip over spaces and tabs in the input buffer.
@@ -972,10 +983,11 @@ Find:
 SkipSpaces:
 .skip2:
 	ldb		  $t0,INBUF[$s1]
-	seq		  $t0,#' '   ; space or
-	seq.or  $t0,#'\t'  ; tab - compare power use here
-	bf	    .done
-	add 		$s1,$s1,#1
+	seq		  $t1,$t0,#' '  ; space or
+	seq			$t2,$t0,#'\t'	; tab
+	or			$t1,$t1,$t2
+	beq			$t1,$x0,.done
+	add 		$s1,$s1,#2
 	bra	  	.skip2
 .done
   ret
@@ -986,64 +998,71 @@ SkipSpaces:
 
   ; align cache
 GetHexNum:
+	sub		$sp,$sp,#8
+	sto		$x1,[$sp]
 	ldi		$a0,#0							; a0 = num
-	call   	SkipSpaces
+	bal   $x1,SkipSpaces
 .next:
-	ldb		  $t0,INBUF[$s1]
-	sge     $t0,#'0'
-	sle.and	$t0,#'9'
-	bt		  .isDigit
-	sge		  $t0,#'A'
-	sle.and $t0,#'F'
-	bt		  .isHexUpper
-	sge		  $t0,#'a'
-	sle.and	$t0,#'f'
-	bt		.isHexLower
+	ldb		$t0,INBUF[$s1]
+	bltu	$t0,#'0',.0001
+	bltu	$t0,#'9'+1,.isDigit
+	bltu	$t0,#'A',.0001
+	bltu	$t0,#'F'+1,.isHexUpper
+	ldi		$t1,#'a'
+	bltu	$t0,$t1,.0001
+	ldi		$t1,#'f'+1
+	bltu	$t0,$t1,.isHexLower
 .0001:
+	ldo		$x1,[$sp]
+	add		$sp,$sp,#8
 	ret
 .isHexUpper:
-	asl		$a0,$a0,#4
+	sll		$a0,$a0,#4
 	sub		$t0,$t0,#'A'
 	add		$t0,$t0,#10
 	or		$a0,$a0,$t0
-	add		$s1,$s1,#1
-	jmp		.next
+	add		$s1,$s1,#2
+	bra		.next
 .isHexLower:
-	asl		$a0,$a0,#4
+	sll		$a0,$a0,#4
 	sub		$t0,$t0,#'a'
 	add		$t0,$t0,#10
 	or		$a0,$a0,$t0
-	add		$s1,$s1,#1
-	jmp		.next
+	add		$s1,$s1,#2
+	bra		.next
 .isDigit:
-	asl		$a0,$a0,#4
+	sll		$a0,$a0,#4
 	sub		$t0,$t0,#'0'
 	or		$a0,$a0,$t0
-	add		$s1,$s1,#1
-	jmp		.next
+	add		$s1,$s1,#2
+	bra		.next
 
 ;------------------------------------------------------------------------------
 ; Get a decimal number from the input buffer.
 ;------------------------------------------------------------------------------
   ; align cache
 GetDecNum:
-	ldi		$a0,#0							; a0 = num
-	call 	  SkipSpaces
+	sub			$sp,$sp,#8
+	sto			$x1,[$sp]
+	ldi			$a0,#0							; a0 = num
+	bal 	  $x1,SkipSpaces
 .next:
 	ldb		  $t0,INBUF[$s1]
-	sge     $t0,#'0'
-	sle.and $t0,#'9'
-	bt		  .isDigit
+	bltu		$t0,#'0',.0001
+	bltu		$t0,#'9'+1,.isDigit
 .0001:
+	ldo			$x1,[$sp]
+	add			$sp,$sp,#8
 	ret
 .isDigit:
-	asl		$t2,$a0,#1    ; multiply by 10
-	asl   $a0,$a0,#3    ; * 8
+	; mulf is not used to allow the number to be larger than 40 bits
+	sll		$t2,$a0,#1    ; multiply by 10
+	sll   $a0,$a0,#3    ; * 8
 	add   $a0,$a0,$t2   ; + *2
 	sub		$t0,$t0,#'0'
 	add		$a0,$a0,$t0
-	add		$s1,$s1,#1
-	jmp		.next
+	add		$s1,$s1,#2
+	bra		.next
 
 ;------------------------------------------------------------------------------
 ; Output an octabyte as a hex string.
@@ -1057,9 +1076,13 @@ GetDecNum:
 ;------------------------------------------------------------------------------
   ; align cache
 PutHexOcta:
+	sub		$sp,$sp,#8
+	sto		$x1,[$sp]
 	ror		$a0,$a0,#32
-	call	PutHexTetra
+	bal		$x1,PutHexTetra
 	rol   $a0,$a0,#32
+	ldo		$x1,[$sp]
+	add		$sp,$sp,#8
 
 ;------------------------------------------------------------------------------
 ; Output a word as a hex string.
@@ -1074,9 +1097,13 @@ PutHexOcta:
 
   ; align cache
 PutHexTetra:
+	sub		$sp,$sp,#8
+	sto		$x1,[$sp]
 	ror		$a0,$a0,#16
-	call	PutHexWyde
+	bal		$x1,PutHexWyde
 	rol		$a0,$a0,#16
+	ldo		$x1,[$sp]
+	add		$sp,$sp,#8
 
 ;------------------------------------------------------------------------------
 ; Output a half-word (16 bits) as a hex string.
@@ -1084,9 +1111,13 @@ PutHexTetra:
 
   ; align cache
 PutHexWyde:
+	sub		$sp,$sp,#8
+	sto		$x1,[$sp]
 	ror		$a0,$a0,#8
-	call	PutHexByte
+	bal		$x1,PutHexByte
 	rol		$a0,$a0,#8
+	ldo		$x1,[$sp]
+	add		$sp,$sp,#8
 
 ;------------------------------------------------------------------------------
 ; Output a byte as a hex string.
@@ -1094,9 +1125,13 @@ PutHexWyde:
 
   ; align cache
 PutHexByte:
+	sub		$sp,$sp,#8
+	sto		$x1,[$sp]
 	ror		$a0,$a0,#4		; put the high order nybble first
-	call	PutHexNybble
+	bal		$x1,PutHexNybble
 	rol		$a0,$a0,#4		; restore a0
+	ldo		$x1,[$sp]
+	add		$sp,$sp,#8
 
 ;------------------------------------------------------------------------------
 ; Output a nybble as a hex string.
@@ -1111,21 +1146,22 @@ PutHexByte:
 
   ; align cache
 PutHexNybble:
-	sub	$sp,$sp,#16
+	sub		$sp,$sp,#24
 	sto		$a0,0[$sp]
 	sto   $t0,8[$sp]
+	sto		$x1,16[$sp]
 	and		$a0,$a0,#15		; strip off high order bits
-	slt   $a0,#10
-	bt		.lt10
+	blt		$a0,#10,.lt10
 	sub		$a0,$a0,#10
 	add		$a0,$a0,#'A'-'0'
 .lt10:
 	add		$a0,$a0,#'0'
-	call	Putch
+	bal		$x1,Putch
 .0001:
 	ldo		$a0,0[$sp]
 	ldo   $t0,8[$sp]
-	add   $sp,$sp,#16
+	ldo		$x1,16[$sp]
+	add   $sp,$sp,#24
 	ret
 
 ;------------------------------------------------------------------------------
@@ -1134,29 +1170,65 @@ PutHexNybble:
 ; located as an inline parameter.
 ;------------------------------------------------------------------------------
 
-  ; align cache
-PutInlineString:
+PutInlineStringCA:				; chunk addressing
   ldo   $t1,[$sp]         ; pop return address
-  add   $sp,$sp,#8
-	sub		$sp,$sp,#8				
+  sub		$sp,$sp,#16				; make room for save area
 	sto		$a0,[$sp]				  ; save a0
-	add		$t1,$t1,#4  			; t1 = pointer to string
+	sto		$s1,8[$sp]				; and s1
+	sto		$s2,16[$sp]
+	mov		$s1,$t1						; s1 = pointer to string
+	mov		$s2,$t1						; s2 = pointer to string
 .0001:
-	ldb		$a0,[$t1]
-	add		$t1,$t1,#1				; advance pointer to next byte
+	ldb		$a0,[$s1]
+	add		$s1,$s1,#2				; advance pointer to next byte
 	beq 	$a0,#0,.done      ; branch if done
-	call	Putch							; output character
+	call	Putch							; output character, assume $tx destroyed
 	bra		.0001
 .done:
+	sub		$s2,$s1,$s2				; get count of nybbles
+	rem		$s2,$s2,#9				; figure mod 9
+	beq		$s2,#0,.remz
+	subf	$s2,$s2,#9				; number of nybbles to add 9-mod
+.remz:
+	add		$t1,$s1,$s2				; $t1 = return address
 	ldo		$a0,[$sp]				  ; restore a0
-	add   $sp,$sp,#8
+	ldo		$s1,8[$sp]				; restore $s1,$s2
+	ldo		$s2,16[$sp]
+	add   $sp,$sp,#24				; pop save area and return address
+  jmp   [$t1]
+
+PutInlineString:
+  ldo   $t1,[$sp]         ; pop return address
+  sub		$sp,$sp,#8				; make room for save area
+	sto		$a0,[$sp]				  ; save a0
+	sto		$s1,8[$sp]				; and s1
+	mov		$s1,$t1						; s1 = pointer to string
+.0001:
+	ldb		$a0,[$s1]
+	add		$s1,$s1,#2				; advance pointer to next byte
+	beq 	$a0,#0,.done      ; branch if done
+	call	Putch							; output character, assume $tx destroyed
+	bra		.0001
+.done:
+	mov		$t1,$s1						; $t1 = return address
+	ldo		$a0,[$sp]				  ; restore a0
+	ldo		$s1,8[$sp]				; restore $s1
+	add   $sp,$sp,#16				; pop save area and return address
   jmp   [$t1]
 
 ;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
 
 PutCRLF:
-	ldi		$a0,#msgCRLF
+	sub		$sp,$sp,#8
+	sto		$x1,[$sp]
+	ldi		$a0,#CR
+	bal		$x1,Putch
+	ldi		$a0,#LNFD
+	bal		$x1,Putch
+	ldo		$x1,[$sp]
+	add		$sp,$sp,#8
+	ret
 
 ;------------------------------------------------------------------------------
 ; PutString
@@ -1173,20 +1245,22 @@ PutCRLF:
 ;------------------------------------------------------------------------------
   ; align cache
 PutString:
-	sub		$sp,$sp,#16
+	sub		$sp,$sp,#24
 	sto		$a0,[$sp]				  ; save argument
 	sto   $s1,8[$sp]        ; and reg var
+	sto		$x1,16[$sp]
 	mov		$s1,$a0						; t1 = pointer to string
 .0001:
 	ldb		$a0,[$s1]
-	add		$s1,$s1,#1				; advance pointer to next byte
+	add		$s1,$s1,#2				; advance pointer to next byte
 	beq 	$a0,#0,.done     	; branch if done
-	call	Putch							; output character
+	bal		$x1,Putch							; output character
 	bra		.0001
 .done:
 	ldo		$a0,[$sp]				  ; restore argument
 	ldo   $s1,8[$sp]
-	add   $sp,$sp,#16
+	ldo		$x1,16[$sp]
+	add   $sp,$sp,#24
 	ret
 
 ;------------------------------------------------------------------------------
@@ -1197,19 +1271,19 @@ DumpTraceQueue:
 	ldi     $a6,#'X'        ; bypass='B' in fputc routine
 .dmpTrace:
 	ldi     $a0,#CR
-	call    Putch
+	bal			$x1,Putch
 	ldi     $a1,#14         ; processor trace queue status
-	peekq.  $a0,$a1
-	bmi     .dmpTraceEmpty  ; emptied out?
+	peekq  	$a0,$a1
+	blt     $a0,$x0,.dmpTraceEmpty  ; emptied out?
 	ldi     $a1,#15         ; processor trace queue data
-	popq.   $a0,$a1
-	call    PutHexOcta
-	jmp     .dmpTrace
+	popq   	$a0,$a1
+	bal			$x1,PutHexOcta
+	bra     .dmpTrace
 .dmpTraceEmpty:
 	ldi     $a0,#CR
-	call    Putch
+	bal			$x1,Putch
 .inf:
-  jmp     .inf
+  bra     .inf
   ret
 
 ;------------------------------------------------------------------------------
@@ -1244,92 +1318,86 @@ StackTbl:
 	code
 	align	16
 IRQRout:
-	csrrw	$t0,#$342,$x0			; get cause code
-	tst   $t0
-	bmi	  .isIRQ		        ; irq or brk #240?
-	seq   $t0,#2            ; illegal instruction?
-	bt    .illegal
-	and   $t2,$t0,#$FFFFFFFC
-	seq   $t2,#8
-	bt    .brk
+	csrrw	$t0,#CSR_DCAUSE,$x0		; get cause code
+	blt	  $t0,$x0,.isIRQ	      ; irq or brk #240?
+	beq		$t0,#2,.unimp					; unimplemented instruction?
+	and   $t2,$t0,#-4
+	beq		$t2,#8,.brk
 	; Some other cause
-.illegal:
-  stt   $t0,$4018
+.unimp:
+  sto   $t0,$4018
 	csrrc $x0,#CSR_TRACECTRL,#1 ; turn off tracing
 	ldi   $t0,#DumpTraceQueue
 	csrrw $x0,#CSR_MEPC,$t0
-	rte
+	bra		DBGxit
 .soc:
   jmp   .soc
 .brk:
   ; We reset the stack pointer at each callto the OS in case an error causes
   ; it to be messed up.
-  csrrw $t0,#CSR_RSSTACK,$x0   ; get register sets
-  and   $t0,$t0,#15       ; extract register set selection (will be 13,14, or 15)
-  asl   $t2,$t0,#2        ; $t2 = table index
-	ldt		$sp,StackTbl[$t2]	; setup machine mode stack pointer
+  csrrw $t0,#CSR_PMSTACK,$x0   ; get operating mode
+  and   $t0,$t0,#14       ; extract register set selection (will be 13,14, or 15)
+  sll   $t2,$t0,#3        ; $t2 = table index
+	ldo		$sp,StackTbl[$t2]	; setup machine mode stack pointer
 	jmp		OSECALL					  ; goto operating system calldispatcher
 .isIRQ:
-  csrrw $t0,#CSR_RSSTACK,$x0   ; get register sets
-  and   $t0,$t0,#15       ; extract register set selection (will be 13,14, or 15)
-  asl   $t2,$t0,#2        ; $t2 = table index
-	ldt		$sp,StackTbl[$t2]	; setup machine mode stack pointer
-	csrrw	$t0,#$342,$x0			; get cause code
+  csrrw $t0,#CSR_PMSTACK,$x0   ; get operating mode
+  and   $t0,$t0,#14       ; extract register set selection (will be 13,14, or 15)
+  sll   $t2,$t0,#3        ; $t2 = table index
+	ldo		$sp,StackTbl[$t2]	; setup machine mode stack pointer
+	csrrw	$t0,#CSR_DCAUSE,$x0			; get cause code
 
   ldt   $t1,IRQFlag     ; update IRQ flag for Tiny Basic
   add   $t1,$t1,#1
   stt   $t1,IRQFlag
   and   $t0,$t0,#$FF
   stt   $t0,IRQCause    ; update cause code for Tiny Basic
-  sub.  $t1,$t0,#1
-  beq   $cr0,.softwareIrq
-  sub.  $t1,$t1,#1
-  beq   $cr0,.timerIrq
-  sub.  $t1,$t1,#1      ; garbage collect interrupt?
-  beq   $cr0,.gcIrq
+  sub  	$t1,$t0,#1
+  beq   $t1,$x0,.softwareIrq
+  sub  	$t1,$t1,#1
+  beq   $t1,$x0,.timerIrq
+  sub  	$t1,$t1,#1      ; garbage collect interrupt?
+  beq   $t1,$x0,.gcIrq
 	and		$t4,$t0,#31			; interrupting device # is low order 5 bits of cause code
 	ldi   $t3,#5          ; try 5 times
 .devAgain:
 	mov   $t5,$t4
-	asl		$t5,$t5,#7				; 128 bytes per device func table
-	add		$t5,$t5,#DVF_Base+22*4	; load IRQ routine vector from device func table
-	ldo.	$t5,[$t5]
-	beq	  $cr0,.noIRQ	    ; make sure there's an address to go to
-	mov   $cn,$t5
-	jmp		[$cn]						; jump to the IRQ routine
+	sll		$t5,$t5,#8				; 128 bytes per device func table
+	add		$t5,$t5,#DVF_Base+22*8	; load IRQ routine vector from device func table
+	ldo		$t5,[$t5]
+	beq	  $t5,$x0,.noIRQ	    ; make sure there's an address to go to
+	jmp		[$t5]						; jump to the IRQ routine
 .noIRQ:
-  sub.  $t3,$t3,#1
-  bne   $cr0,.InitDev
+  sub  	$t3,$t3,#1
+  bne   $t3,$x0,.InitDev
 .softwareIrq:
 .timerIrq:
-  jmp   ERETx2
+  jmp   DBGxit							; ERETx2
 	; The device function tables may have been zeroed out, try initializing them.
 	; The following uses $a0-$a1, $t0-$t2
 .InitDev:
-	seq   $t4,#5
-	bf    .notSerial
+	bne		$t4,#5,.notSerial
 	ldi		$a0,#5							; serial device
 	ldi		$a1,#SerialFuncTbl
-	jal	  CopyDevFuncTbl
+	bal	  $x1,CopyDevFuncTbl
 	ldi		$a0,#5							; serial device
 	ldi   $a1,#SerialDCB
-	jal   CopyDevDCB
-	jmp   .devAgain
+	bal   $x1,CopyDevDCB
+	bra   .devAgain
 .notSerial:
-	ldi		$a0,#15							; VIA device
-	seq   $t4,$a0
-	bf    .notVia
+	bne		$t4,#15,.notVia		; VIA device?
 	ldi		$a1,#ViaFuncTbl
-	jal	  CopyDevFuncTbl
+	bal	  $x1,CopyDevFuncTbl
 	ldi		$a0,#15							; VIA device
 	ldi		$a1,#ViaDCB
-	jal	  CopyDevDCB
-	jmp   .devAgain
+	bal	  $x1,CopyDevDCB
+	bra   .devAgain
 .notVia:
-  jmp   ERETx2
+  bra   DBGxit					; ERETx2
 .gcIrq:
 ;	ldi		$sp,#$7F800-4		; setup interrupt mode stack pointer
-  call gcIncrement
+  bal 	$x1,gcIncrement
+  bra		DBGxit
 ERETx2:
 ;  mDI
 ;  csrrc $x0,#$7C0,#31   ; select machine regs only
@@ -1355,11 +1423,83 @@ ERETx2:
 
   ; align cache
 DBGRout:
-  rex   #3,x0
+	csrrw	$x0,#CSR_DSCRATCH,$x30		; save x30 inscratch
+	csrrd	$x30,#CSR_DTCBPTR					; get pointer to TCB
+	stm		16[$x30],#%011111111111111111111111111111	; save registers
+	csrrd	$t0,#CSR_DSCRATCH					; get back original x30
+	sto		$t0,480[$x30]							; and save it too
+	; Free up some working registers
+;	sto		$x1,16[$x29]
+;	sto		$x2,32[$x29]
+;	sto		$x3,48[$x29]
+;	sto		$x4,64[$x29]
+;	sto		$x5,80[$x29]
+;	sto		$x6,96[$x29]
+;	sto		$x7,112[$x29]
+;	sto		$x8,128[$x29]
+;	sto		$x9,144[$x29]
+;	sto		$x10,160[$x29]
+;	sto		$x11,176[$x29]
+;	sto		$x12,192[$x29]
+;	sto		$x13,208[$x29]
+;	sto		$x14,224[$x29]
+;	sto		$x15,240[$x29]
+;	sto		$x16,256[$x29]
+;	sto		$x17,272[$x29]
+;	sto		$x18,288[$x29]
+;	sto   $x19,304[$x29]
+;	sto		$x20,320[$x29]
+;	sto		$x21,336[$x29]
+;	sto		$x22,352[$x29]
+;	sto		$x23,368[$x29]
+;	sto		$x24,384[$x29]
+;	sto		$x25,400[$x29]
+;	sto		$x26,416[$x29]
+;	sto		$x27,432[$x29]
+;	sto		$x28,448[$x29]
+;	sto		$x30,480[$x29]
+	csrrd	$x1,#CSR_DCAUSE
+	seq		$x2,$x1,#FLT_WD
+	bne		$x2,$x0,DBGxit
+  bra		IRQRout
+  rex   #3,$x0
+DBGxit:
+	csrrd	$x30,#CSR_DTCBPTR
+	ldm		16[$x30],#%111111111111111111111111111111
+;	ldo		$x1,16[$x29]
+;	ldo		$x2,32[$x29]
+;	ldo		$x3,48[$x29]
+;	ldo		$x4,64[$x29]
+;	ldo		$x5,80[$x29]
+;	ldo		$x6,96[$x29]
+;	ldo		$x7,112[$x29]
+;	ldo		$x8,128[$x29]
+;	ldo		$x9,144[$x29]
+;	ldo		$x10,160[$x29]
+;	ldo		$x11,176[$x29]
+;	ldo		$x12,192[$x29]
+;	ldo		$x13,208[$x29]
+;	ldo		$x14,224[$x29]
+;	ldo		$x15,240[$x29]
+;	ldo		$x16,256[$x29]
+;	ldo		$x17,272[$x29]
+;	ldo		$x18,288[$x29]
+;	ldo   $x19,304[$x29]
+;	ldo		$x20,320[$x29]
+;	ldo		$x21,336[$x29]
+;	ldo		$x22,352[$x29]
+;	ldo		$x23,368[$x29]
+;	ldo		$x24,384[$x29]
+;	ldo		$x25,400[$x29]
+;	ldo		$x26,416[$x29]
+;	ldo		$x27,432[$x29]
+;	ldo		$x28,448[$x29]
+;	ldo		$x30,480[$x29]
   rte
 	nop
 	nop
   nop
+END_OF_BOOT:
 
 	rodata
 	align	2
@@ -1446,7 +1586,7 @@ flt10:
 
 ;.include "fltToString.r64"
 ;.include "bios-mem.r64"
-;.include "bios-pam.r64"
+.include "bios-pam.r64"
 ;.include "bios-tlb.r64"
 ;.include "ramtest.r64"
 

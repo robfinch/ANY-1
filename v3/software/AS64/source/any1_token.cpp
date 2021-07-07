@@ -611,7 +611,15 @@ int any1_NextToken()
 								tbndx++;
 								return token = tk_bra;
             }
-            if ((inptr[1]=='r' || inptr[1]=='R') && 
+						if ((inptr[1] == 'a' || inptr[1] == 'A') &&
+							(inptr[2] == 'l' || inptr[2] == 'L') &&
+							isspaceOrDot(inptr[3])) {
+							inptr += 3;
+							tokenBuffer[tbndx] = tk_bal;
+							tbndx++;
+							return token = tk_bal;
+						}
+						if ((inptr[1]=='r' || inptr[1]=='R') &&
                 (inptr[2]=='z' || inptr[2]=='Z') &&
                  isspaceOrDot(inptr[3])) {
                 inptr += 3;
@@ -1992,6 +2000,15 @@ int any1_NextToken()
 				}
 				if ((inptr[1] == 'a' || inptr[1] == 'A') &&
 					(inptr[2] == 'l' || inptr[2] == 'L') &&
+					(inptr[3] == 'r' || inptr[3] == 'R') &&
+					isspaceOrDot(inptr[4])) {
+					inptr += 4;
+					tokenBuffer[tbndx] = tk_jalr;
+					tbndx++;
+					return token = tk_jalr;
+				}
+				if ((inptr[1] == 'a' || inptr[1] == 'A') &&
+					(inptr[2] == 'l' || inptr[2] == 'L') &&
 					isspaceOrDot(inptr[3])) {
 					inptr += 3;
 					tokenBuffer[tbndx] = tk_jal;
@@ -2105,6 +2122,14 @@ int any1_NextToken()
 					tbndx++;
 					return token = tk_ldtu;
 				}  
+				if ((inptr[1] == 'd' || inptr[1] == 'D') &&
+					(inptr[2] == 'm' || inptr[2] == 'M') &&
+					isspaceOrDot(inptr[3])) {
+					inptr += 3;
+					tokenBuffer[tbndx] = tk_ldm;
+					tbndx++;
+					return token = tk_ldm;
+				}
 				if ((inptr[1]=='d' || inptr[1]=='D') &&
 					(inptr[2]=='p' || inptr[2]=='P') &&
 					isspaceOrDot(inptr[3])) {
@@ -2920,7 +2945,13 @@ int any1_NextToken()
 								tbndx++;
 								return token = tk_sei;
             }
-            if ((inptr[1]=='x' || inptr[1]=='X') && (inptr[2]=='b' || inptr[2]=='B') && isspaceOrDot(inptr[3])) {
+						if ((inptr[1] == 't' || inptr[1] == 'T') && (inptr[2] == 'm' || inptr[2] == 'M') && isspaceOrDot(inptr[3])) {
+							inptr += 3;
+							tokenBuffer[tbndx] = tk_stm;
+							tbndx++;
+							return token = tk_stm;
+						}
+						if ((inptr[1]=='x' || inptr[1]=='X') && (inptr[2]=='b' || inptr[2]=='B') && isspaceOrDot(inptr[3])) {
                 inptr += 3;
 								tokenBuffer[tbndx] = tk_sxb;
 								tbndx++;

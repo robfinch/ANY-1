@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2020  Robert Finch, Stratford
+//   \\__/ o\    (C) 2020-2021  Robert Finch, Stratford
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -56,6 +56,7 @@ enum {
      tk_aslx,
      tk_asr,
      tk_asri,
+     tk_bal,
 		 tk_band,
      tk_begin_expand,
 	 tk_bbc,
@@ -262,6 +263,7 @@ enum {
 	 tk_isptr,
 	 tk_itof,
      tk_jal,
+     tk_jalr,
      tk_jci,
      tk_jhi,
      tk_jgr,
@@ -283,6 +285,7 @@ enum {
 		 tk_ldh,
      tk_ldi,
      tk_ldis,
+       tk_ldm,
 			 tk_ldo,
 			 tk_ldor,
 			 tk_ldou,
@@ -482,6 +485,7 @@ enum {
 	 tk_stcb,
      tk_stcmp,
 			tk_stf,
+      tk_stm,
      tk_stmov,
      tk_stop,
 			 tk_strconst,

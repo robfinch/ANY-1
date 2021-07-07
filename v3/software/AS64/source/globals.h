@@ -23,5 +23,7 @@ extern int tbndx;
 extern int lpndx;
 extern int fEmitCode;
 extern int ifLevel;
+extern float num_bytes;
+extern int num_insns;
 
 

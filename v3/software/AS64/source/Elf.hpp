@@ -237,6 +237,8 @@ public:
         memset(bytes,0,sizeof(bytes));
     };
     void AddBitPair(int64_t bp) {
+      if (index > 64000000)
+        return;
       if (storebyte) {
         if (bt_ndx == 0)
           bytes[index] = bp & 3LL;
@@ -255,6 +257,8 @@ public:
           end = address;
     };
     void AddNybble(int64_t bp) {
+      if (index > 64000000)
+        return;
       if (storebyte) {
         if (bt_ndx == 0)
           bytes[index] = bp & 15LL;
@@ -273,7 +277,9 @@ public:
         end = address;
     };
     void AddByte(int64_t byt) {
-    	if (storebyte)
+      if (index > 64000000)
+        return;
+      if (storebyte)
         	bytes[index] = byt & 255LL;
         if (index==0)
             start = address;

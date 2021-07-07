@@ -103,8 +103,6 @@ int tlsndx;
 int bssndx;
 SYM *lastsym;
 int isInitializationData;
-float num_bytes;
-int num_insns;
 int num_cinsns;
 int num_lbranch;
 int htblmax;
