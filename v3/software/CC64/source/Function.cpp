@@ -921,11 +921,11 @@ void Function::GenerateReturn(Statement* stmt)
 	}
 
 	if (!IsInline) {
-		if (toAdd > 65536) {
+		if (toAdd > 0) {
 			GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));
 			toAdd = 0;
 		}
-		GenerateMonadic(currentFn->IsLeaf ? op_rtl : op_ret, 0, MakeImmediate(toAdd));
+		GenerateZeradic(currentFn->IsLeaf ? op_ret : op_ret);// , MakeImmediate(toAdd));
 	}
 	else
 		GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));

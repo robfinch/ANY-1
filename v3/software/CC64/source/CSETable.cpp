@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2017-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2017-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -325,9 +325,9 @@ void CSETable::InitializeTempRegs()
 				continue;
 			if (1 || !IsLValue(exptr) || (exptr->p[0]->i > 0))
 			{
-				if (exptr->tp) {
+				if (exptr->tp || true) {
 					initstack();
-					ap = cg.GenerateExpression(exptr, am_reg | am_imm | am_mem | am_fpreg | am_preg, exptr->tp->size);
+					ap = cg.GenerateExpression(exptr, am_reg | am_imm | am_mem | am_fpreg | am_preg, exptr->tp ? exptr->tp->size : sizeOfWord);
 					ap2 = csp->isfp ? makefpreg(csp->reg) : csp->isPosit ? compiler.of.makepreg(csp->reg) : makereg(csp->reg);
 					if (csp->isfp | csp->isPosit) {
 						ap2->type = ap->type;

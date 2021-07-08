@@ -42,6 +42,9 @@ class PeepList;
 class Var;
 
 typedef struct tagCase {
+	bool first;
+	bool done;
+	int label;
 	int64_t val;
 	Statement* stmt;
 } Case;
@@ -1629,7 +1632,10 @@ public:
 	void GenerateCompound();
 	void GenerateCase();
 	void GenerateDefault();
-	void GenerateSwitchSearch(Case* cases, Operand*, Operand*, int, int, int, int, int);
+	int CountSwitchCasevals();
+	int CountSwitchCases();
+	bool IsTabularSwitch(int64_t numcases, int64_t min, int64_t max, bool nkd);
+	void GenerateSwitchSearch(Case* cases, Operand*, Operand*, int, int, int, int, int, bool);
 	void GenerateTry();
 	void GenerateThrow();
 	void GenerateCheck();

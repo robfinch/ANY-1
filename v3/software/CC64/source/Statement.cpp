@@ -1713,40 +1713,139 @@ int case_cmp(const void* a, const void* b) {
 	return 1;
 }
 
-void Statement::GenerateSwitchSearch(Case *cases, Operand* ap, Operand* ap2, int midlab, int lo, int hi, int xitlab, int deflab)
+void Statement::GenerateSwitchSearch(Case *cases, Operand* ap, Operand* ap2, int midlab, int lo, int hi, int xitlab, int deflab, bool is_unsigned)
 {
 	int hilab, lolab;
 	int mid;
-	int lab1;
+	int lab1, lab2;
+	Operand* ap3;
 
-	if (hi < lo + 2) {
+	if (hi - lo < 3) {
 		GenerateLabel(midlab);
 		lab1 = nextlabel++;
-		GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo].val));
-		GenerateTriadic(op_bne, 0, ap, ap2, MakeCodeLabel(lab1));
-		cases[lo].stmt->GenMixedSource();
-		cases[lo].stmt->Generate();
-		GenerateMonadic(op_bra, 0, MakeCodeLabel(xitlab));
+		lab2 = nextlabel++;
+		if (!cases[lo].done) {
+			cases[lo].done = true;
+			if (cases[lo].val >= -32 && cases[lo].val < 32) {
+				ap3 = MakeImmediate(cases[lo].val);
+				GenerateTriadic(op_bne, 0, ap, ap3, MakeCodeLabel(lab2));
+			}
+			else {
+				GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo].val));
+				GenerateTriadic(op_bne, 0, ap, ap2, MakeCodeLabel(lab2));
+			}
+			if (opt_size && cases[lo].done) {
+				GenerateMonadic(op_bra, 0, MakeCodeLabel(cases[lo].label));
+			}
+			else {
+				cases[lo].stmt->GenMixedSource();
+				cases[lo].stmt->Generate();
+				GenerateMonadic(op_bra, 0, MakeCodeLabel(xitlab));
+			}
+		}
+		GenerateLabel(lab2);
+		if (cases[lo + 1].val >= -32 && cases[lo + 1].val < 32) {
+			ap3 = MakeImmediate(cases[lo + 1].val);
+			GenerateTriadic(op_bne, 0, ap, ap3, MakeCodeLabel(cases[lo+2].done ? (deflab > 0 ? deflab : xitlab) : lab1));
+		}
+		else {
+			GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo + 1].val));
+			GenerateTriadic(op_bne, 0, ap, ap2, MakeCodeLabel(cases[lo+2].done ? (deflab > 0 ? deflab : xitlab) : lab1));
+		}
+		if (opt_size && cases[lo+1].done) {
+			GenerateMonadic(op_bra, 0, MakeCodeLabel(cases[lo+1].label));
+		}
+		else {
+			cases[lo + 1].stmt->GenMixedSource();
+			cases[lo + 1].stmt->Generate();
+			GenerateMonadic(op_bra, 0, MakeCodeLabel(xitlab));
+		}
 		GenerateLabel(lab1);
-		GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo+1].val));
-		GenerateTriadic(op_bne, 0, ap, ap2, MakeCodeLabel(deflab));
-		cases[lo+1].stmt->GenMixedSource();
-		cases[lo+1].stmt->Generate();
-		GenerateMonadic(op_bra, 0, MakeCodeLabel(xitlab));
+		if (!cases[lo+2].done) {
+			cases[lo + 2].done = true;
+			GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo+2].val));
+			if (cases[lo + 2].val == cases[lo+1].val && opt_size) {
+				GenerateTriadic(op_beq, 0, ap, ap2, MakeCodeLabel(cases[lo+1].label));
+				GenerateMonadic(op_bra, 0, MakeCodeLabel(deflab > 0 ? deflab : xitlab));
+			}
+			else {
+				if (opt_size) {
+					GenerateTriadic(op_beq, 0, ap, ap2, MakeCodeLabel(cases[lo + 2].label));
+					GenerateMonadic(op_bra, 0, MakeCodeLabel(deflab > 0 ? deflab : xitlab));
+				}
+				else {
+					GenerateTriadic(op_bne, 0, ap, ap2, MakeCodeLabel(deflab > 0 ? deflab : xitlab));
+					cases[lo + 2].stmt->GenMixedSource();
+					cases[lo + 2].stmt->Generate();
+					GenerateMonadic(op_bra, 0, MakeCodeLabel(xitlab));
+				}
+			}
+		}
 		return;
 	}
 	hilab = nextlabel++;
 	lolab = nextlabel++;
-	mid = (lo + hi) >> 1;
+	mid = ((lo + hi) >> 1);
 	GenerateLabel(midlab);
-	GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[mid].val));
-	GenerateTriadic(op_bgt, 0, ap, ap2, MakeCodeLabel(hilab));
-	GenerateTriadic(op_blt, 0, ap, ap2, MakeCodeLabel(lolab));
+	if (cases[mid].val >= -32 && cases[mid].val < 32) {
+		ap3 = MakeImmediate(cases[mid].val);
+		GenerateTriadic(is_unsigned ? op_bgtu : op_bgt, 0, ap, ap3, MakeCodeLabel(hilab));
+		GenerateTriadic(is_unsigned ? op_bltu : op_blt, 0, ap, ap3, MakeCodeLabel(lolab));
+	}
+	else {
+		GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[mid].val));
+		GenerateTriadic(is_unsigned ? op_bgtu : op_bgt, 0, ap, ap2, MakeCodeLabel(hilab));
+		GenerateTriadic(is_unsigned ? op_bltu : op_blt, 0, ap, ap2, MakeCodeLabel(lolab));
+	}
+	if (opt_size)
+		GenerateLabel(cases[mid].label);
 	cases[mid].stmt->GenMixedSource();
 	cases[mid].stmt->Generate();
+	cases[mid].done = true;
 	GenerateMonadic(op_bra, 0, MakeCodeLabel(xitlab));
-	GenerateSwitchSearch(cases, ap, ap2, hilab, mid, hi, xitlab, deflab);
-	GenerateSwitchSearch(cases, ap, ap2, lolab, lo, mid, xitlab, deflab);
+	GenerateSwitchSearch(cases, ap, ap2, hilab, mid, hi, xitlab, deflab, is_unsigned);
+	GenerateSwitchSearch(cases, ap, ap2, lolab, lo, mid, xitlab, deflab, is_unsigned);
+}
+
+// Count the number of switch values. There may be more than one value per case.
+
+int Statement::CountSwitchCasevals()
+{
+	int numcases;
+	Statement* stmt;
+	int64_t* bf;
+
+	numcases = 0;
+	for (stmt = s1; stmt != nullptr; stmt = stmt->next) {
+		if (stmt->s2)
+			;
+		else {
+			if (stmt->stype == st_case) {
+				bf = (int64_t*)stmt->casevals;
+				if (bf != nullptr)
+					numcases = numcases + bf[0];
+			}
+		}
+	}
+	return (numcases);
+}
+
+int Statement::CountSwitchCases()
+{
+	int numcases;
+	Statement* stmt;
+
+	numcases = 0;
+	for (stmt = s1; stmt != nullptr; stmt = stmt->next) {
+		if (stmt->s2)
+			;
+		else {
+			if (stmt->stype == st_case) {
+				numcases++;
+			}
+		}
+	}
+	return (numcases);
 }
 
 // A binary search approach is used if there are more than two case statements.
@@ -1764,22 +1863,15 @@ void Statement::GenerateLinearSwitch()
 	int numcases;
 	int defc;
 	Case* cases;
+	bool is_unsigned;
 
-	numcases = 0;
-	defcase = nullptr;
-	for (stmt = s1; stmt != nullptr; stmt = stmt->next) {
-		if (stmt->s2)
-			defcase = stmt->s2;
-		else {
-			if (stmt->stype == st_case) {
-				bf = (int64_t*)stmt->casevals;
-				if (bf != nullptr)
-					numcases = numcases + bf[0];
-			}
-		}
-	}
+	// Count the number of switch values.
+	numcases = CountSwitchCasevals();
+
+	// Fill in an array of case values and corresponding statements.
 	cases = new Case [numcases];
 	jj = 0;
+	defcase = nullptr;
 	for (stmt = s1; stmt != nullptr; stmt = stmt->next) {
 		if (stmt->s2) {
 			defcase = s2;
@@ -1789,14 +1881,19 @@ void Statement::GenerateLinearSwitch()
 				bf = stmt->casevals;
 				if (bf) {
 					for (nn = 1; nn <= bf[0]; nn++) {
+						cases[jj].first = nn==1;
+						cases[jj].done = false;
+						cases[jj].label = nextlabel;
 						cases[jj].stmt = stmt->s1;
 						cases[jj].val = bf[nn];
 						jj++;
 					}
+					nextlabel++;
 				}
 			}
 		}
 	}
+
 	curlab = nextlabel++;
 	initstack();
 	if (exp == NULL) {
@@ -1804,17 +1901,18 @@ void Statement::GenerateLinearSwitch()
 		return;
 	}
 	ap = cg.GenerateExpression(exp, am_reg, exp->GetNaturalSize());
+	is_unsigned = ap->isUnsigned;
 	//        if( ap->preg != 0 )
 	//                GenerateDiadic(op_mov,0,makereg(1),ap);
 	//		ReleaseTempRegister(ap);
 	if (numcases > 2) {
 		qsort(&cases[0], numcases, sizeof(Case), case_cmp);
 		midlab = nextlabel++;
-		deflab = nextlabel++;
+		deflab = defcase!=nullptr ? nextlabel++ : 0;
 		ap2 = GetTempRegister();
-		GenerateSwitchSearch(cases, ap, ap2, midlab, 0, numcases - 1, breaklab, deflab);
-		GenerateLabel(deflab);
+		GenerateSwitchSearch(cases, ap, ap2, midlab, 0, numcases - 1, breaklab, deflab, is_unsigned);
 		if (defcase != nullptr) {
+			GenerateLabel(deflab);
 			defcase->GenMixedSource();
 			defcase->Generate();
 		}
@@ -1876,7 +1974,7 @@ void Statement::GenerateLinearSwitch()
 }
 
 
-// generate all cases for a switch statement.
+// Generate case for a switch statement.
 //
 void Statement::GenerateCase()
 {
@@ -1889,32 +1987,18 @@ void Statement::GenerateCase()
 	stmt->GenMixedSource();
 	GenerateLabel((int)stmt->label);
 	stmt->s1->Generate();
-	/*
-	for (stmt = this; stmt != (Statement *)NULL; stmt = stmt->next)
-	{
-		if (stmt->s1 != (Statement *)NULL)
-			stmt->s1->Generate();
-//		else if (stmt->next == (Statement *)NULL)
-//			GenerateLabel((int)stmt->label);
-	}
-	*/
 }
 
 void Statement::GenerateDefault()
 {
 	Statement* stmt = this;
 
-	//	for (stmt = this; stmt != (Statement *)NULL; stmt = stmt->next)
-	//	{
 	stmt->GenMixedSource();
 	// Still need to generate the label for the benefit of a tabular switch
 	// even if there is no code.
 	GenerateLabel((int)stmt->label);
 	if (stmt->s1 != (Statement*)NULL)
 		stmt->s1->Generate();
-	//		else if (stmt->next == (Statement *)NULL)
-	//			GenerateLabel((int)stmt->label);
-	//	}
 }
 
 static int casevalcmp(const void *a, const void *b)
@@ -1930,6 +2014,13 @@ static int casevalcmp(const void *a, const void *b)
 		return 1;
 }
 
+// Compute if the switch should be tabular
+// The switch is tabular if the value density is greater than 33%.
+
+bool Statement::IsTabularSwitch(int64_t numcases, int64_t minv, int64_t maxv, bool nkd)
+{
+	return (numcases * 100 / max((maxv - minv), 1) > 33 && (maxv - minv) > (nkd ? 6 : 10));
+}
 
 // Currently inline in GenerateSwitch()
 void Statement::GenerateTabularSwitch()
@@ -1945,6 +2036,7 @@ void Statement::GenerateSwitch()
 	Statement *st, *defcase;
 	int oldbreak;
 	int tablabel;
+	int numcases, numcasevals;
 	int64_t *bf;
 	int64_t nn;
 	int64_t mm, kk;
@@ -1956,14 +2048,20 @@ void Statement::GenerateSwitch()
 	bf = (int64_t *)label;
 	minv = 0x7FFFFFFFL;
 	maxv = 0;
-	struct scase casetab[512];
+	struct scase* casetab;
 	OCODE* ip;
+	bool is_unsigned;
 
 	st = s1;
 	mm = 0;
 	deflbl = 0;
 	defcase = nullptr;
 	curlab = nextlabel++;
+
+	numcases = CountSwitchCases();
+	numcasevals = CountSwitchCasevals();
+	casetab = new struct scase[numcasevals + 1];
+
 	// Determine minimum and maximum values in all cases
 	// Record case values and labels.
 	for (st = s1; st != (Statement *)NULL; st = st->next)
@@ -1994,16 +2092,16 @@ void Statement::GenerateSwitch()
 	// check case density
 	// If there are enough cases
 	// and if the case is dense enough use a computed jump
-	if (mm * 100 / max((maxv - minv), 1) > 50 && (maxv - minv) > (nkd ? 6 : 10)) {
+	if (IsTabularSwitch((int64_t)numcasevals, minv, maxv, nkd)) {
 		if (deflbl == 0)
 			deflbl = nextlabel++;
-		for (nn = mm; nn < 512; nn++) {
-			casetab[nn].label = deflbl;
-			casetab[nn].val = maxv + 1;
-			casetab[nn].pass = pass;
-		}
+		// Use last entry for default
+		casetab[numcasevals].label = deflbl;
+		casetab[numcasevals].val = maxv + 1;
+		casetab[numcasevals].pass = pass;
+		mm = 0;
 		for (kk = minv; kk <= maxv; kk++) {
-			for (nn = 0; nn < mm; nn++) {
+			for (nn = 0; nn < numcases; nn++) {
 				if (casetab[nn].val == kk)
 					goto j1;
 			}
@@ -2014,27 +2112,27 @@ void Statement::GenerateSwitch()
 			mm++;
 		j1:;
 		}
-		qsort(&casetab[0], mm, sizeof(struct scase), casevalcmp);
-		tablabel = caselit(casetab, mm);
+		qsort(&casetab[0], numcases+1, sizeof(struct scase), casevalcmp);
+		tablabel = caselit(casetab, numcases+1);
 		initstack();
 		ap = cg.GenerateExpression(exp, am_reg, exp->GetNaturalSize());
+		is_unsigned = ap->isUnsigned;
 		if (!nkd) {
 			//GenerateDiadic(op_ldi, 0, ap1, MakeImmediate(minv));
 			//GenerateTriadic(op_blt, 0, ap, ap1, MakeCodeLabel(defcase ? deflbl : breaklab));
 			//GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(maxv + 1));
 			//GenerateTriadic(op_bge, 0, ap, ap2, MakeCodeLabel(defcase ? deflbl : breaklab));
 			ap2 = GetTempRegister();
-			ap3 = GetTempRegister();
-			GenerateTriadic(op_sge, 0, ap2, ap, MakeImmediate(minv));
-			GenerateTriadic(op_sle, 0, ap3, ap, MakeImmediate(maxv));
-			GenerateTriadic(op_and, 0, ap2, ap2, ap3);
+			GenerateTriadic(op_sub, 0, ap, ap, MakeImmediate(minv));
+			if (maxv - minv >= 0 && maxv - minv < 64)
+				GenerateTriadic(op_bgtu, 0, ap2, MakeImmediate(maxv - minv), MakeCodeLabel(defcase ? deflbl : breaklab));
+			else {
+				GenerateTriadic(op_sleu, 0, ap2, ap, MakeImmediate(maxv - minv));
+				GenerateDiadic(op_beq, 0, ap2, MakeCodeLabel(defcase ? deflbl : breaklab));
+			}
 			//ip = currentFn->pl.tail;
 			//ip->insn2 = Instruction::Get(op_and);
-			GenerateDiadic(op_beq, 0, ap2, MakeCodeLabel(defcase ? deflbl : breaklab));
-			ReleaseTempRegister(ap3);
 			ReleaseTempRegister(ap2);
-			if (minv != 0)
-				GenerateTriadic(op_sub, 0, ap, ap, MakeImmediate(minv));
 			GenerateTriadic(op_sll, 0, ap, ap, MakeImmediate(4));
 			GenerateDiadic(op_ldo, 0, ap, compiler.of.MakeIndexedCodeLabel(tablabel, ap->preg));
 			GenerateMonadic(op_jmp, 0, MakeIndirect(ap->preg));
@@ -2053,11 +2151,13 @@ void Statement::GenerateSwitch()
 		s1->Generate();
 		GenerateLabel(breaklab);
 		ReleaseTempRegister(ap);
+		delete[] casetab;
 		return;
 	}
 	GenerateLinearSwitch();
 	GenerateLabel(breaklab);
 	breaklab = oldbreak;
+	delete[] casetab;
 }
 
 void Statement::GenerateTry()
