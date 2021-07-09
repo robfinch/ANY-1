@@ -61,8 +61,8 @@ Operand* ANY1CodeGenerator::MakeBoolean(Operand* ap)
 	ip = currentFn->pl.tail;
 	if (ip->opcode & 0x8000)
 		return (ap1);
-	GenerateDiadic(op_not, 0, ap1, ap);
-	GenerateDiadic(op_not, 0, ap1, ap1);
+	GenerateTriadic(op_sne, 0, ap1, ap, makereg(regZero));
+	ap1->isBool = true;
 	return (ap1);
 }
 
@@ -98,17 +98,11 @@ Operand* ANY1CodeGenerator::GenerateSafeLand(ENODE *node, int flags, int op)
 	else
 		ap5 = ap2;
 
-	if (ap4->mode == am_reg)
-		ap4->MakeLegal(am_creg, sizeOfWord);
-	if (ap5->mode == am_reg)
-		ap5->MakeLegal(am_creg, sizeOfWord);
-	ip = currentFn->pl.tail;
-	ip->insn2 = Instruction::Get(op);
-
-	ReleaseTempReg(ap1);
+	GenerateTriadic(op_and, 0, ap4, ap4, ap5);
+	ReleaseTempReg(ap2);
 	//ap2->MakeLegal(flags, sizeOfWord);
-	ap2->isBool = true;
-	return (ap2);
+	ap1->isBool = true;
+	return (ap1);
 }
 
 
@@ -216,9 +210,9 @@ Operand* ANY1CodeGenerator::GenerateBitfieldExtract(Operand* ap, Operand* offset
 		int bit_offset = offset->offset->i;
 
 		mask = 0;
-		while (--width)	mask = mask + mask + 1;
+		while (width-- >= 0)	mask = mask + mask + 1;
 		if (bit_offset > 0)
-			GenerateTriadic(op_lsr, 0, ap1, ap, offset);
+			GenerateTriadic(op_srl, 0, ap1, ap, offset);
 		GenerateTriadic(op_and, 0, ap1, ap1, MakeImmediate((int64_t)mask));
 		if (isSigned)
 			SignExtendBitfield(ap1, mask);
@@ -257,9 +251,9 @@ Operand* ANY1CodeGenerator::GenerateBitfieldExtract(Operand* ap, ENODE* offset, 
 
 		mask = 0;
 		wd = ap3->offset->i;
-		while (--wd)	mask = mask + mask + 1;
+		while (wd-- >= 0)	mask = mask + mask + 1;
 		if (ap2->offset->i > 0)
-			GenerateTriadic(op_lsr, 0, ap1, ap, ap2);
+			GenerateTriadic(op_srl, 0, ap1, ap, ap2);
 		GenerateTriadic(op_and, 0, ap1, ap1, MakeImmediate((int64_t)mask));
 		if (isSigned)
 			SignExtendBitfield(ap1, mask);
@@ -607,17 +601,23 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 		ReleaseTempReg(ap1);
 		return (ap3);
 	case en_land_safe:
-		ap1 = cg.GenerateExpression(node->p[0], am_creg, size);
-		ap2 = cg.GenerateExpression(node->p[1], am_creg, size);
-		ip = currentFn->pl.tail;
-		ip->insn2 = Instruction::Get(op_and);
-		return(ap2);
+		size = node->GetNaturalSize();
+		ap3 = GetTempVectorRegister();
+		ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
+		ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size);
+		GenerateTriadic(op_and, 0, ap3, ap1, ap2);
+		ReleaseTempReg(ap2);
+		ReleaseTempReg(ap1);
+		return(ap3);
 	case en_lor_safe:
-		ap1 = cg.GenerateExpression(node->p[0], am_creg, size);
-		ap2 = cg.GenerateExpression(node->p[1], am_creg, size);
-		ip = currentFn->pl.tail;
-		ip->insn2 = Instruction::Get(op_or);
-		return(ap2);
+		size = node->GetNaturalSize();
+		ap3 = GetTempVectorRegister();
+		ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
+		ap2 = cg.GenerateExpression(node->p[1], am_reg, size);
+		GenerateTriadic(op_or, 0, ap3, ap1, ap2);
+		ReleaseTempReg(ap2);
+		ReleaseTempReg(ap1);
+		return(ap3);
 	default:	// en_land, en_lor
 		//ap1 = GetTempRegister();
 		//ap2 = cg.GenerateExpression(node,am_reg,8);
@@ -698,6 +698,242 @@ void ANY1CodeGenerator::GenerateBranchFalse(Operand* ap, int label)
 	GenerateTriadic(op_beq, 0, ap, makereg(regZero), MakeDataLabel(label,regZero));
 }
 
+void ANY1CodeGenerator::GenerateBeq(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (ap2->mode == am_imm && ap2->offset->i >= -128 && ap2->offset->i < 128)
+		GenerateTriadic(op_beqi, 0, ap1, ap2, MakeCodeLabel(label));
+	else if (((ap2->mode == am_imm && ap2->offset->i == 0) || (ap2->mode == am_reg && ap2->preg == regZero)) && ap1->preg >= regFirstArg && ap1->preg < regFirstArg + 4)
+		GenerateDiadic(op_beqz, 0, ap1, MakeCodeLabel(label));
+	else {
+		if (ap2->mode == am_reg && ap1->mode == am_reg)
+			GenerateTriadic(op_beq, 0, ap1, ap2, MakeCodeLabel(label));
+		else {
+			if (ap2->mode == am_imm && ap2->offset->i < 32 && ap2->offset->i >= -32)
+				GenerateTriadic(op_beq, 0, ap1, ap2, MakeCodeLabel(label));
+			else {
+				ap3 = GetTempRegister();
+				GenerateTriadic(op_seq, 0, ap3, ap1, ap2);
+				GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+				ReleaseTempReg(ap3);
+			}
+		}
+	}
+}
+
+void ANY1CodeGenerator::GenerateBne(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (((ap2->mode == am_imm && ap2->offset->i == 0) || (ap2->mode == am_reg && ap2->preg == regZero)) && ap1->preg >= regFirstArg && ap1->preg < regFirstArg + 4) {
+		GenerateDiadic(op_bnez, 0, ap1, MakeCodeLabel(label));
+	}
+	else {
+		if (ap2->mode == am_reg && ap1->mode == am_reg)
+			GenerateTriadic(op_bne, 0, ap1, ap2, MakeCodeLabel(label));
+		else {
+			if (ap2->mode == am_imm && ap2->offset->i < 32 && ap2->offset->i >= -32)
+				GenerateTriadic(op_bne, 0, ap1, ap2, MakeCodeLabel(label));
+			else {
+				ap3 = GetTempRegister();
+				GenerateTriadic(op_sne, 0, ap3, ap1, ap2);
+				GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+				ReleaseTempReg(ap3);
+			}
+		}
+	}
+}
+
+void ANY1CodeGenerator::GenerateBlt(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (ap2->mode == am_imm) {
+		ap3 = GetTempRegister();
+		if (ap2->offset->i >= -32 && ap2->offset->i < 32)
+			GenerateTriadic(op_blt, 0, ap1, ap2, MakeCodeLabel(label));
+		else {
+			GenerateTriadic(op_slt, 0, ap3, ap1, ap2);
+			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+		}
+		ReleaseTempReg(ap3);
+	}
+	else
+		GenerateTriadic(op_blt, 0, ap1, ap2, MakeCodeLabel(label));
+}
+
+void ANY1CodeGenerator::GenerateBge(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (ap2->mode == am_imm) {
+		ap3 = GetTempRegister();
+		if (ap2->offset->i >= -32 && ap2->offset->i < 32)
+			GenerateTriadic(op_bge, 0, ap1, ap2, MakeCodeLabel(label));
+		else {
+			GenerateTriadic(op_sge, 0, ap3, ap1, ap2);
+			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+		}
+		ReleaseTempReg(ap3);
+	}
+	else
+		GenerateTriadic(op_bge, 0, ap1, ap2, MakeCodeLabel(label));
+}
+
+void ANY1CodeGenerator::GenerateBle(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (ap2->mode == am_imm) {
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_sge, 0, ap3, ap2, ap1);
+		GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+	}
+	else
+		GenerateTriadic(op_bge, 0, ap2, ap1, MakeCodeLabel(label));
+}
+
+void ANY1CodeGenerator::GenerateBgt(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (ap2->mode == am_imm) {
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_slt, 0, ap3, ap2, ap1);
+		GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+	}
+	else
+		GenerateTriadic(op_blt, 0, ap2, ap1, MakeCodeLabel(label));
+}
+
+void ANY1CodeGenerator::GenerateBltu(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (ap2->mode == am_imm) {
+		// Don't generate any code if testing against unsigned zero.
+		// An unsigned number can't be less than zero so the branch will
+		// always be false. Spit out a warning, its probably coded wrong.
+		if (ap2->offset->i == 0)
+			error(ERR_UBLTZ);	//GenerateDiadic(op_bltu,0,ap1,makereg(0),MakeCodeLabel(label));
+		if (ap2->offset->i >= 0 && ap2->offset->i < 64) {
+			GenerateTriadic(op_bltu, 0, ap1, ap2, MakeCodeLabel(label));
+		}
+		else {
+			ap3 = GetTempRegister();
+			GenerateTriadic(op_sltu, 0, ap3, ap1, ap2);
+			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+			ReleaseTempReg(ap3);
+		}
+	}
+	else {
+		GenerateTriadic(op_bltu, 0, ap1, ap2, MakeCodeLabel(label));
+	}
+}
+
+void ANY1CodeGenerator::GenerateBgeu(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (ap2->mode == am_imm) {
+		if (ap2->offset->i == 0) {
+			// This branch is always true
+			error(ERR_UBGEQ);
+			GenerateMonadic(op_bra, 0, MakeCodeLabel(label));
+		}
+		else {
+			if (ap2->offset->i >= 0 && ap2->offset->i < 64)
+				GenerateTriadic(op_bgeu, 0, ap1, ap2, MakeCodeLabel(label));
+			else {
+				ap3 = GetTempRegister();
+				GenerateTriadic(op_sgeu, 0, ap3, ap1, ap2);
+				GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+				ReleaseTempReg(ap3);
+			}
+		}
+	}
+	else {
+		GenerateTriadic(op_bgeu, 0, ap1, ap2, MakeCodeLabel(label));
+	}
+}
+
+void ANY1CodeGenerator::GenerateBleu(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (ap2->mode == am_imm) {
+		if (ap2->offset->i >= 0 && ap2->offset->i < 64)
+			GenerateTriadic(op_bleu, 0, ap1, ap2, MakeCodeLabel(label));
+		else {
+			ap3 = GetTempRegister();
+			GenerateTriadic(op_sleu, 0, ap3, ap1, ap2);
+			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+			ReleaseTempReg(ap3);
+		}
+	}
+	else {
+		GenerateTriadic(op_bleu, 0, ap1, ap2, MakeCodeLabel(label));
+	}
+}
+
+void ANY1CodeGenerator::GenerateBgtu(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	if (ap2->mode == am_imm) {
+		ap3 = GetTempRegister();
+		GenerateLoadConst(ap3, ap2);
+		GenerateTriadic(op_sltu, 0, ap3, ap3, ap1);
+		GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+	}
+	else
+		GenerateTriadic(op_bltu, 0, ap2, ap1, MakeCodeLabel(label));
+}
+
+void ANY1CodeGenerator::GenerateBand(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	ap3 = GetTempRegister();
+	GenerateTriadic(op_and, 0, ap3, ap1, ap2);
+	GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+	ReleaseTempReg(ap3);
+}
+
+void ANY1CodeGenerator::GenerateBor(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	ap3 = GetTempRegister();
+	GenerateTriadic(op_or, 0, ap3, ap1, ap2);
+	GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+	ReleaseTempReg(ap3);
+}
+
+void ANY1CodeGenerator::GenerateBnand(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	ap3 = GetTempRegister();
+	GenerateTriadic(op_and, 0, ap3, ap1, ap2);
+	GenerateDiadic(op_beqz, 0, ap3, MakeCodeLabel(label));
+	ReleaseTempReg(ap3);
+}
+
+void ANY1CodeGenerator::GenerateBnor(Operand* ap1, Operand* ap2, int label)
+{
+	Operand* ap3;
+
+	ap3 = GetTempRegister();
+	GenerateTriadic(op_or, 0, ap3, ap1, ap2);
+	GenerateDiadic(op_beqz, 0, ap3, MakeCodeLabel(label));
+	ReleaseTempReg(ap3);
+}
+
 bool ANY1CodeGenerator::GenerateBranch(ENODE *node, int op, int label, int predreg, unsigned int prediction, bool limit)
 {
 	int size, sz;
@@ -708,20 +944,13 @@ bool ANY1CodeGenerator::GenerateBranch(ENODE *node, int op, int label, int predr
 		return (false);
 	size = node->GetNaturalSize();
 	ip = currentFn->pl.tail;
-	ap3 = GetTempRegister();
   if (op==op_flt || op==op_fle || op==op_fgt || op==op_fge || op==op_feq || op==op_fne) {
     ap1 = cg.GenerateExpression(node->p[0],am_fpreg,size);
 	  ap2 = cg.GenerateExpression(node->p[1],am_fpreg,size);
   }
   else {
-		if (op == op_nand || op == op_nor || op == op_and || op == op_or) {
-			ap1 = cg.GenerateExpression(node->p[0], am_creg, size);
-			ap2 = cg.GenerateExpression(node->p[1], am_creg, size);
-		}
-		else {
-			ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
-			ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size);
-		}
+		ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
+		ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size);
   }
 	if (limit && currentFn->pl.Count(ip) > 10) {
 		currentFn->pl.tail = ip;
@@ -781,195 +1010,81 @@ bool ANY1CodeGenerator::GenerateBranch(ENODE *node, int op, int label, int predr
 	case op_fle:	op = op_fble; sz = 'd'; break;
 	case op_fgt:	op = op_fbgt; sz = 'd'; break;
 	case op_fge:	op = op_fbge; sz = 'd'; break;
-	/*
-		GenerateTriadic(op_fcmp,'q',ap3,ap1,ap2);
-		GenerateTriadic(op_bbs,0,ap3,MakeImmediate(0),MakeCodeLabel(label));
-		goto xit;
-	case op_fne:
-		GenerateTriadic(op_fcmp,'q',ap3,ap1,ap2);
-		GenerateTriadic(op_bbc,0,ap3,MakeImmediate(0),MakeCodeLabel(label));
-		goto xit;
-	case op_flt:
-		GenerateTriadic(op_fcmp,'q',ap3,ap1,ap2);
-		GenerateTriadic(op_bbs,0,ap3,MakeImmediate(1),MakeCodeLabel(label));
-		goto xit;
-	case op_fle:
-		GenerateTriadic(op_fcmp,'q',ap3,ap1,ap2);
-		GenerateTriadic(op_bbs,0,ap3,MakeImmediate(2),MakeCodeLabel(label));
-		goto xit;
-	case op_fgt:
-		GenerateTriadic(op_fcmp,'q',ap3,ap1,ap2);
-		GenerateTriadic(op_bbc,0,ap3,MakeImmediate(2),MakeCodeLabel(label));
-		goto xit;
-	case op_fge:
-		GenerateTriadic(op_fcmp,'q',ap3,ap1,ap2);
-		GenerateTriadic(op_bbc,0,ap3,MakeImmediate(1),MakeCodeLabel(label));
-		goto xit;
-	*/
 	}
-	if (op==op_fbne || op==op_fbeq || op==op_fblt || op==op_fble || op==op_fbgt || op==op_fbge) {
-		switch(op) {
 
-		case op_fbne:
-			GenerateTriadic(op_fsne, 0, makecreg(1), ap1, ap2);
-			GenerateDiadic(op_bt, 0, makecreg(1), MakeCodeLabel(label));
-			break;
+	switch(op) {
 
-		case op_fbeq:
-			GenerateTriadic(op_fseq, 0, makecreg(1), ap1, ap2);
-			GenerateDiadic(op_bt, 0, makecreg(1), MakeCodeLabel(label));
-			break;
+	case op_fbne:
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_fcmp, 0, ap3, ap1, ap2);
+		GenerateTriadic(op_bbs, 0, ap3, MakeImmediate(8), MakeCodeLabel(label));
+		//GenerateTriadic(op_fsne, 0, ap3, ap1, ap2);
+		//GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+		break;
 
-		case op_fblt:
-			GenerateTriadic(op_fslt, 0, makecreg(1), ap1, ap2);
-			GenerateDiadic(op_bt, 0, makecreg(1), MakeCodeLabel(label));
-			break;
+	case op_fbeq:
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_fcmp, 0, ap3, ap1, ap2);
+		GenerateTriadic(op_bbs, 0, ap3, MakeImmediate(0), MakeCodeLabel(label));
+		//GenerateTriadic(op_fseq, 0, ap3, ap1, ap2);
+		//GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+		break;
 
-		case op_fble:
-			GenerateTriadic(op_fsle, 0, makecreg(1), ap1, ap2);
-			GenerateDiadic(op_bt, 0, makecreg(1), MakeCodeLabel(label));
-			break;
+	case op_fblt:
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_fcmp, 0, ap3, ap1, ap2);
+		GenerateTriadic(op_bbs, 0, ap3, MakeImmediate(1), MakeCodeLabel(label));
+		//GenerateTriadic(op_fslt, 0, ap3, ap1, ap2);
+		//GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+		break;
 
-		case op_fbgt:
-			GenerateTriadic(op_fslt, 0, makecreg(1), ap2, ap1);
-			GenerateDiadic(op_bt, 0, makecreg(1), MakeCodeLabel(label));
-			break;
+	case op_fble:
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_fcmp, 0, ap3, ap1, ap2);
+		GenerateTriadic(op_bbs, 0, ap3, MakeImmediate(2), MakeCodeLabel(label));
+		//GenerateTriadic(op_fsle, 0, ap3, ap1, ap2);
+		//GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+		break;
 
-		case op_fbge:
-			GenerateTriadic(op_fsle, 0, makecreg(1), ap2, ap1);
-			GenerateDiadic(op_bt, 0, makecreg(1), MakeCodeLabel(label));
-			break;
-		}
-	}
-	else {
-		switch(op) {
+	case op_fbgt:
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_fcmp, 0, ap3, ap1, ap2);
+		GenerateTriadic(op_bbs, 0, ap3, MakeImmediate(10), MakeCodeLabel(label));
+		//GenerateTriadic(op_fslt, 0, ap3, ap2, ap1);
+		//GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+		break;
 
-		case op_band:
-			ip = currentFn->pl.tail;
-			ip->insn2 = Instruction::Get(op_and);
-			GenerateDiadic(op_bt, 0, makecreg(0), MakeCodeLabel(label));
-			break;
-		
-		case op_bor:
-			ip = currentFn->pl.tail;
-			ip->insn2 = Instruction::Get(op_or);
-			GenerateDiadic(op_bt, 0, makecreg(0), MakeCodeLabel(label));
-			break;
+	case op_fbge:
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_fcmp, 0, ap3, ap1, ap2);
+		GenerateTriadic(op_bbs, 0, ap3, MakeImmediate(11), MakeCodeLabel(label));
+		//GenerateTriadic(op_fsle, 0, ap3, ap2, ap1);
+		//GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+		break;
 
-		case op_bnand:
-			ip = currentFn->pl.tail;
-			ip->insn2 = Instruction::Get(op_and);
-			GenerateDiadic(op_bf, 0, makecreg(0), MakeCodeLabel(label));
-			break;
-
-		case op_bnor:
-			ip = currentFn->pl.tail;
-			ip->insn2 = Instruction::Get(op_or);
-			GenerateDiadic(op_bf, 0, makecreg(0), MakeCodeLabel(label));
-			break;
-
-		case op_beq:
-			if (ap2->mode == am_imm && ap2->offset->i >= -128 && ap2->offset->i < 128)
-				GenerateTriadic(op_beqi, 0, ap1, ap2, MakeCodeLabel(label));
-			else if (((ap2->mode == am_imm && ap2->offset->i == 0) || (ap2->mode==am_reg && ap2->preg==regZero)) && ap1->preg >= regFirstArg && ap1->preg < regFirstArg+4)
-				GenerateDiadic(op_beqz, 0, ap1, MakeCodeLabel(label));
-			else {
-				if (ap2->mode==am_reg && ap1->mode==am_reg)
-					GenerateTriadic(op_beq, 0, ap1, ap2, MakeCodeLabel(label));
-				else {
-					if (ap2->mode == am_imm && ap2->offset->i < 32 && ap2->offset->i >= -32)
-						GenerateTriadic(op_beq, 0, ap1, ap2, MakeCodeLabel(label));
-					else {
-						GenerateTriadic(op_seq, 0, ap3, ap1, ap2);
-						GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-					}
-				}
-			}
-			break;
-
-		case op_bne:
-			if (((ap2->mode == am_imm && ap2->offset->i == 0) || (ap2->mode == am_reg && ap2->preg == regZero)) && ap1->preg >= regFirstArg && ap1->preg < regFirstArg + 4) {
-				GenerateDiadic(op_bnez, 0, ap1, MakeCodeLabel(label));
-			}
-			else {
-				if (ap2->mode == am_reg && ap1->mode == am_reg)
-					GenerateTriadic(op_bne, 0, ap1, ap2, MakeCodeLabel(label));
-				else {
-					if (ap2->mode == am_imm && ap2->offset->i < 32 && ap2->offset->i >= -32)
-						GenerateTriadic(op_bne, 0, ap1, ap2, MakeCodeLabel(label));
-					else {
-						GenerateTriadic(op_sne, 0, ap3, ap1, ap2);
-						GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-					}
-				}
-			}
-			break;
-
-		case op_blt:
-			GenerateTriadic(op_slt, 0, ap3, ap1, ap2);
-			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-			break;
-
-		case op_ble:
-			GenerateTriadic(op_sle, 0, ap3, ap1, ap2);
-			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-			break;
-
-		case op_bgt:
-			GenerateTriadic(op_sgt, 0, ap3, ap1, ap2);
-			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-			break;
-
-		case op_bge:
-			GenerateTriadic(op_sge, 0, ap3, ap1, ap2);
-			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-			break;
-
-		case op_bltu:
-			if (ap2->mode==am_imm) {
-				// Don't generate any code if testing against unsigned zero.
-				// An unsigned number can't be less than zero so the branch will
-				// always be false. Spit out a warning, its probably coded wrong.
-				if (ap2->offset->i == 0)
-					error(ERR_UBLTZ);	//GenerateDiadic(op_bltu,0,ap1,makereg(0),MakeCodeLabel(label));
-			}
-			GenerateTriadic(op_sltu, 0, ap3, ap1, ap2);
-			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-			break;
-
-		case op_bleu:
-			GenerateTriadic(op_sleu, 0, ap3, ap1, ap2);
-			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-			break;
-
-		case op_bgtu:
-			GenerateTriadic(op_sgtu, 0, ap3, ap1, ap2);
-			GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-			break;
-
-		case op_bgeu:
-			if (ap2->mode == am_imm) {
-				if (ap2->offset->i == 0) {
-					// This branch is always true
-					error(ERR_UBGEQ);
-					GenerateMonadic(op_bra, 0, MakeCodeLabel(label));
-				}
-				else {
-					GenerateTriadic(op_sgeu, 0, ap3, ap1, ap2);
-					GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-				}
-			}
-			else {
-				GenerateTriadic(op_sgeu, 0, ap3, ap1, ap2);
-				GenerateTriadic(op_bne, 0, ap3, makereg(regZero), MakeCodeLabel(label));
-			}
-			break;
-		}
-		//GenerateDiadic(op,sz,ap1,ap2,MakeCodeLabel(label));
+	case op_band:	GenerateBand(ap1, ap2, label); break;
+	case op_bor:	GenerateBor(ap1, ap2, label);	break;
+	case op_bnand:	GenerateBnand(ap1, ap2, label);	break;
+	case op_bnor:	GenerateBnor(ap1, ap2, label);	break;
+	case op_beq:	GenerateBeq(ap1, ap2, label); break;
+	case op_bne:	GenerateBne(ap1, ap2, label); break;
+	case op_blt:	GenerateBlt(ap1, ap2, label); break;
+	case op_ble:	GenerateBle(ap1, ap2, label); break;
+	case op_bgt:	GenerateBgt(ap1, ap2, label); break;
+	case op_bge:	GenerateBge(ap1, ap2, label);	break;
+	case op_bltu:	GenerateBltu(ap1, ap2, label);	break;
+	case op_bleu:	GenerateBleu(ap1, ap2, label);  break;
+	case op_bgtu:	GenerateBgtu(ap1, ap2, label);	break;
+	case op_bgeu:	GenerateBgeu(ap1, ap2, label);	break;
 	}
   ReleaseTempReg(ap2);
   ReleaseTempReg(ap1);
-	ReleaseTempReg(ap3);
 	return (true);
 }
 

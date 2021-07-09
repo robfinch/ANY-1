@@ -148,6 +148,8 @@ int main(int argc, char **argv)
 	uctran_off = 0;
 	optimize =1;
 	exceptions=1;
+	cpu.SupportsBBC = false;
+	cpu.SupportsBBS = true;
 	cpu.SupportsPop = false;
 	cpu.SupportsPush = false;
 	cpu.SupportsLink = false;

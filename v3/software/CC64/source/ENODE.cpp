@@ -1729,25 +1729,9 @@ Operand *ENODE::GenerateBinary(int flags, int size, int op)
 					switch (op) {
 					case op_and:
 						GenerateTriadic(op, 0, ap3, ap1, MakeImmediate(ap2->offset->i));
-						/*
-						if (ap2->offset->i & 0xFFFF0000LL)
-						GenerateDiadic(op_andq1,0,ap3,MakeImmediate((ap2->offset->i >> 16) & 0xFFFFLL));
-						if (ap2->offset->i & 0xFFFF00000000LL)
-						GenerateDiadic(op_andq2,0,ap3,MakeImmediate((ap2->offset->i >> 32) & 0xFFFFLL));
-						if (ap2->offset->i & 0xFFFF000000000000LL)
-						GenerateDiadic(op_andq3,0,ap3,MakeImmediate((ap2->offset->i >> 48) & 0xFFFFLL));
-						*/
 						break;
 					case op_or:
 						GenerateTriadic(op, 0, ap3, ap1, MakeImmediate(ap2->offset->i));
-						/*
-						if (ap2->offset->i & 0xFFFF0000LL)
-						GenerateDiadic(op_orq1,0,ap3,MakeImmediate((ap2->offset->i >> 16) & 0xFFFFLL));
-						if (ap2->offset->i & 0xFFFF00000000LL)
-						GenerateDiadic(op_orq2,0,ap3,MakeImmediate((ap2->offset->i >> 32) & 0xFFFFLL));
-						if (ap2->offset->i & 0xFFFF000000000000LL)
-						GenerateDiadic(op_orq3,0,ap3,MakeImmediate((ap2->offset->i >> 48) & 0xFFFFLL));
-						*/
 						break;
 					// If there is a pointer plus a constant we really wanted an address calc.
 					case op_add:
@@ -1759,24 +1743,7 @@ Operand *ENODE::GenerateBinary(int flags, int size, int op)
 						else
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
 						break;
-						// Most ops handle a max 16 bit immediate operand. If the operand is over 16 bits
-						// it has to be loaded into a register.
 					default:
-						//if (ap2->offset->i < -32768LL || ap2->offset->i > 32767LL) {
-							//ap4 = GetTempRegister();
-							//GenerateTriadic(op_or, 0, ap4, makereg(regZero), MakeImmediate(ap2->offset->i));
-							/*
-							if (ap2->offset->i & 0xFFFF0000LL)
-							GenerateDiadic(op_orq1,0,ap4,MakeImmediate((ap2->offset->i >> 16) & 0xFFFFLL));
-							if (ap2->offset->i & 0xFFFF00000000LL)
-							GenerateDiadic(op_orq2,0,ap4,MakeImmediate((ap2->offset->i >> 32) & 0xFFFFLL));
-							if (ap2->offset->i & 0xFFFF000000000000LL)
-							GenerateDiadic(op_orq3,0,ap4,MakeImmediate((ap2->offset->i >> 48) & 0xFFFFLL));
-							*/
-							//GenerateTriadic(op, 0, ap3, ap1, ap4);
-							//ReleaseTempReg(ap4);
-						//}
-						//else
 						GenerateTriadic(op, 0, ap3, ap1, ap2);
 					}
 				}

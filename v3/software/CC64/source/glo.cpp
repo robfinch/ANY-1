@@ -74,14 +74,14 @@ int address_bits = 32;
 int maxVL = 64;
 int nregs = 128;
 
-int64_t sizeOfWord = 16;
-int sizeOfFP = 16;
-int sizeOfFPS = 8;
-int sizeOfFPD = 16;
-int sizeOfFPT = 24;
-int sizeOfFPQ = 32;
-int sizeOfPtr = 16;
-int sizeOfPosit = 16;
+int64_t sizeOfWord = 8;
+int sizeOfFP = 8;
+int sizeOfFPS = 4;
+int sizeOfFPD = 8;
+int sizeOfFPT = 12;
+int sizeOfFPQ = 16;
+int sizeOfPtr = 8;
+int sizeOfPosit = 8;
 
 std::ifstream *ifs;
 txtoStream ofs;

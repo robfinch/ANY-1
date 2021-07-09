@@ -1110,6 +1110,20 @@ public:
 	void GenerateBranchTrue(Operand* ap, int label);
 	void GenerateBranchFalse(Operand* ap, int label);
 	bool GenerateBranch(ENODE *node, int op, int label, int predreg, unsigned int prediction, bool limit);
+	void GenerateBeq(Operand*, Operand*, int);
+	void GenerateBne(Operand*, Operand*, int);
+	void GenerateBlt(Operand*, Operand*, int);
+	void GenerateBle(Operand*, Operand*, int);
+	void GenerateBgt(Operand*, Operand*, int);
+	void GenerateBge(Operand*, Operand*, int);
+	void GenerateBltu(Operand*, Operand*, int);
+	void GenerateBleu(Operand*, Operand*, int);
+	void GenerateBgtu(Operand*, Operand*, int);
+	void GenerateBgeu(Operand*, Operand*, int);
+	void GenerateBand(Operand*, Operand*, int);
+	void GenerateBor(Operand*, Operand*, int);
+	void GenerateBnand(Operand*, Operand*, int);
+	void GenerateBnor(Operand*, Operand*, int);
 	Operand* GenerateEq(ENODE* node);
 	Operand* GenerateNe(ENODE* node);
 	Operand* GenerateLt(ENODE* node);
@@ -1635,15 +1649,20 @@ public:
 	int CountSwitchCasevals();
 	int CountSwitchCases();
 	bool IsTabularSwitch(int64_t numcases, int64_t min, int64_t max, bool nkd);
+	bool IsOneHotSwitch();
 	void GetMinMaxSwitchValue(int64_t* min, int64_t* max);
-	void GenerateSwitchSearch(Case* cases, Operand*, Operand*, int, int, int, int, int, bool);
+	void GenerateSwitchSearch(Case* cases, Operand*, Operand*, int, int, int, int, int, bool, bool);
+	void GenerateSwitchLo(Case* cases, Operand*, Operand*, int, int, int, bool, bool);
+	void GenerateSwitchLop1(Case* cases, Operand*, Operand*, int, int, int, bool, bool);
+	void GenerateSwitchLop2(Case* cases, Operand*, Operand*, int, int, int, bool, bool);
+	void GenerateNakedTabularSwitch(int64_t, Operand*, int);
 	void GenerateTry();
 	void GenerateThrow();
 	void GenerateCheck();
 	void GenerateFuncBody();
 	void GenerateSwitch();
 	void GenerateLinearSwitch();
-	void GenerateTabularSwitch();
+	void GenerateTabularSwitch(int64_t, int64_t, Operand*, bool, int, int);
 	void Generate();
 	void CheckReferences(int* sp, int* bp, int* gp, int* gp1);
 	void CheckCompoundReferences(int* sp, int* bp, int* gp, int* gp1);
@@ -1817,6 +1836,8 @@ class CPU
 {
 public:
 	int nregs;
+	bool SupportsBBS;
+	bool SupportsBBC;
 	bool SupportsPush;
 	bool SupportsPop;
 	bool SupportsLink;

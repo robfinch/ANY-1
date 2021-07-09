@@ -409,17 +409,17 @@ enum e_hint {
 
 /*      alignment sizes         */
 
-#define AL_BYTE			2
-#define AL_CHAR         4
-#define AL_SHORT        8
-#define AL_LONG         16
-#define AL_POINTER      16
-#define AL_FLOAT        16
-#define AL_DOUBLE       16
-#define AL_POSIT				16
-#define AL_QUAD			32
-#define AL_STRUCT       4
-#define AL_TRIPLE       24
+#define AL_BYTE			1
+#define AL_CHAR         2
+#define AL_SHORT        4
+#define AL_LONG         8
+#define AL_POINTER      8
+#define AL_FLOAT        8
+#define AL_DOUBLE       8
+#define AL_POSIT				8
+#define AL_QUAD			16
+#define AL_STRUCT       2
+#define AL_TRIPLE       12
 
 #define TRUE	1
 #define FALSE	0
