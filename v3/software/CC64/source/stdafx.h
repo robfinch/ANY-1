@@ -27,7 +27,7 @@
 #include <inttypes.h>
 #endif
 
-
+#include <stdexcept>
 #include <iostream>
 #include <fstream>
 #include <iomanip>

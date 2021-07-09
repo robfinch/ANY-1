@@ -398,14 +398,18 @@ void Operand::MakeLegal(int flags, int size)
 		case am_indx2:
 			ap2 = GetTempRegister();
 			cg.GenerateLoad(ap2, this, size, size);
-			cg.MakeBoolean(ap2);
+			ap1 = cg.MakeBoolean(ap2);
+			GenerateDiadic(op_mov, 0, this, ap1);
+			ReleaseTempReg(ap1);
 			ReleaseTempReg(ap2);
 			return;
 		case am_imm:
-			GenerateTriadic(op_sne, 0, makecreg(0), makereg(regZero), this);
+			GenerateTriadic(op_sne, 0, this, makereg(regZero), this);
 			return;
 		case am_reg:
-			cg.MakeBoolean(this);
+			ap1 = cg.MakeBoolean(this);
+			GenerateDiadic(op_mov, 0, this, ap1);
+			ReleaseTempReg(ap1);
 			return;
 		}
 	}

@@ -224,8 +224,8 @@ Instruction *Instruction::GetMapping(int op)
 
 int Instruction::store(txtoStream& ofs)
 {
-	if (strnicmp(mnem, ";empty", 6)==0)
-		printf("hi");
+//	if (strnicmp(mnem, ";empty", 6)==0)
+//		printf("hi");
 	ofs.write(mnem);
 	return (strlen(mnem));
 }

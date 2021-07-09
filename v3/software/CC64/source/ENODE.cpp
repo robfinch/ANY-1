@@ -1450,7 +1450,7 @@ Operand *ENODE::GenerateShift(int flags, int size, int op)
 
 	ap3 = GetTempRegister();
 	ap1 = cg.GenerateExpression(p[0], am_reg, size);
-	ap2 = cg.GenerateExpression(p[1], am_reg | am_ui6, 8);
+	ap2 = cg.GenerateExpression(p[1], am_reg | am_ui6, sizeOfWord);
 	GenerateTriadic(op, size, ap3, ap1, ap2);
 	// Rotates automatically sign extend
 	if ((op == op_rol || op == op_ror) && ap2->isUnsigned)

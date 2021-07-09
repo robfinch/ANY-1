@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2012-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2012-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -2027,6 +2027,32 @@ void Statement::GenerateTabularSwitch()
 {
 }
 
+void Statement::GetMinMaxSwitchValue(int64_t* minv, int64_t* maxv)
+{
+	Statement* st;
+	int64_t* bf;
+	int nn;
+
+	*minv = 0x7FFFFFFFFFFFFFFFLL;
+	*maxv = 0LL;
+	for (st = s1; st != (Statement*)NULL; st = st->next)
+	{
+		if (st->s2) {
+			;
+		}
+		else {
+			bf = st->casevals;
+			if (bf) {
+				for (nn = bf[0]; nn >= 1; nn--) {
+					*minv = min(bf[nn], *minv);
+					*maxv = max(bf[nn], *maxv);
+				}
+			}
+		}
+	}
+}
+
+
 //
 // Analyze and generate best switch statement.
 //
@@ -2036,7 +2062,7 @@ void Statement::GenerateSwitch()
 	Statement *st, *defcase;
 	int oldbreak;
 	int tablabel;
-	int numcases, numcasevals;
+	int numcases, numcasevals, maxcasevals;
 	int64_t *bf;
 	int64_t nn;
 	int64_t mm, kk;
@@ -2046,24 +2072,28 @@ void Statement::GenerateSwitch()
 	oldbreak = breaklab;
 	breaklab = nextlabel++;
 	bf = (int64_t *)label;
-	minv = 0x7FFFFFFFL;
-	maxv = 0;
 	struct scase* casetab;
 	OCODE* ip;
 	bool is_unsigned;
 
 	st = s1;
-	mm = 0;
 	deflbl = 0;
 	defcase = nullptr;
 	curlab = nextlabel++;
 
 	numcases = CountSwitchCases();
 	numcasevals = CountSwitchCasevals();
-	casetab = new struct scase[numcasevals + 1];
+	GetMinMaxSwitchValue(&minv, &maxv);
+	maxcasevals = maxv - minv;
+	if (maxcasevals > 1000000) {
+		error(ERR_TOOMANYCASECONSTANTS);
+		return;
+	}
+	casetab = new struct scase[maxcasevals + 1];
 
 	// Determine minimum and maximum values in all cases
 	// Record case values and labels.
+	mm = 0;
 	for (st = s1; st != (Statement *)NULL; st = st->next)
 	{
 		if (st->s2) {
@@ -2076,8 +2106,6 @@ void Statement::GenerateSwitch()
 			bf = st->casevals;
 			if (bf) {
 				for (nn = bf[0]; nn >= 1; nn--) {
-					minv = min(bf[nn], minv);
-					maxv = max(bf[nn], maxv);
 					st->label = (int64_t*)curlab;
 					casetab[mm].label = curlab;
 					casetab[mm].val = bf[nn];
@@ -2096,12 +2124,12 @@ void Statement::GenerateSwitch()
 		if (deflbl == 0)
 			deflbl = nextlabel++;
 		// Use last entry for default
-		casetab[numcasevals].label = deflbl;
-		casetab[numcasevals].val = maxv + 1;
-		casetab[numcasevals].pass = pass;
-		mm = 0;
+		casetab[maxcasevals].label = deflbl;
+		casetab[maxcasevals].val = maxv + 1;
+		casetab[maxcasevals].pass = pass;
+		// Inherit mm from above
 		for (kk = minv; kk <= maxv; kk++) {
-			for (nn = 0; nn < numcases; nn++) {
+			for (nn = 0; nn < maxcasevals; nn++) {
 				if (casetab[nn].val == kk)
 					goto j1;
 			}
@@ -2112,8 +2140,8 @@ void Statement::GenerateSwitch()
 			mm++;
 		j1:;
 		}
-		qsort(&casetab[0], numcases+1, sizeof(struct scase), casevalcmp);
-		tablabel = caselit(casetab, numcases+1);
+		qsort(&casetab[0], maxcasevals+1, sizeof(struct scase), casevalcmp);
+		tablabel = caselit(casetab, maxcasevals+1);
 		initstack();
 		ap = cg.GenerateExpression(exp, am_reg, exp->GetNaturalSize());
 		is_unsigned = ap->isUnsigned;
@@ -2466,7 +2494,7 @@ void Statement::Generate()
 			stmt->GenerateCase();
 			break;
 		case st_default:
-			stmt->GenerateDoUntil();
+			stmt->GenerateDefault();
 			break;
 		case st_empty:
 			break;

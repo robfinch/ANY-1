@@ -2110,12 +2110,12 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
   case en_udiv:   ap1 = node->GenDivMod(flags,size,op_divu); goto retpt;
   case en_mod:    ap1 = node->GenDivMod(flags,size,op_rem); goto retpt;
   case en_umod:   ap1 = node->GenDivMod(flags,size,op_remu); goto retpt;
-  case en_asl:    ap1 = node->GenerateShift(flags,size,op_asl); goto retpt;
-  case en_shl:    ap1 = node->GenerateShift(flags,size,op_asl); goto retpt;
-  case en_shlu:   ap1 = node->GenerateShift(flags,size,op_asl); goto retpt;
-  case en_asr:	ap1 = node->GenerateShift(flags,size,op_asr); goto retpt;
-  case en_shr:	ap1 = node->GenerateShift(flags,size,op_asr); goto retpt;
-  case en_shru:   ap1 = node->GenerateShift(flags,size,op_lsr); goto retpt;
+  case en_asl:    ap1 = node->GenerateShift(flags,size,op_sll); goto retpt;
+  case en_shl:    ap1 = node->GenerateShift(flags,size,op_sll); goto retpt;
+  case en_shlu:   ap1 = node->GenerateShift(flags,size,op_sll); goto retpt;
+  case en_asr:	ap1 = node->GenerateShift(flags,size,op_sra); goto retpt;
+  case en_shr:	ap1 = node->GenerateShift(flags,size,op_sra); goto retpt;
+  case en_shru:   ap1 = node->GenerateShift(flags,size,op_srl); goto retpt;
 	case en_rol:   ap1 = node->GenerateShift(flags,size,op_rol); goto retpt;
 	case en_ror:   ap1 = node->GenerateShift(flags,size,op_ror); goto retpt;
 	case en_bitoffset:

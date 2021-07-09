@@ -23,6 +23,7 @@
 //                                                                          
 // ============================================================================
 //
+#include <stdexcept>
 #include "stdafx.h"
 #include <stdlib.h>
 #include <malloc.h>
@@ -44,8 +45,16 @@ void *allocx(int sz)
 
 void *MBlk::alloc(int sz)
 {
+  MBlk* p;
+  std::exception e;
+
 //  dfs.printf("Enter MBlk::alloc()\n");
-	MBlk *p = (MBlk *)new char[sz+sizeof(MBlk)+15];
+  try {
+    p = (MBlk*)new char[sz + sizeof(MBlk) + 15];
+  }
+  catch (std::exception& e) {
+    printf("hi");
+  }
 	if (p==0)
 	   return p;
 	ZeroMemory((void *)p,sz+sizeof(MBlk));

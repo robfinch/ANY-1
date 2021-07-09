@@ -1635,6 +1635,7 @@ public:
 	int CountSwitchCasevals();
 	int CountSwitchCases();
 	bool IsTabularSwitch(int64_t numcases, int64_t min, int64_t max, bool nkd);
+	void GetMinMaxSwitchValue(int64_t* min, int64_t* max);
 	void GenerateSwitchSearch(Case* cases, Operand*, Operand*, int, int, int, int, int, bool);
 	void GenerateTry();
 	void GenerateThrow();
