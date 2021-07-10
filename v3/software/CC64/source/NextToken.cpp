@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2012-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2012-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -50,6 +50,19 @@ int             lstackptr = 0;  /* substitution stack pointer */
 static char numstr[100];
 static char *numstrptr;
 static char backup_token = 0;
+
+void push_ellipsis()
+{
+  if (token_sp < 5) {
+    ch_stack[token_sp] = '.';
+    token_stack[token_sp] = ellipsis;
+    rval128_stack[token_sp] = rval128;
+    rval_stack[token_sp] = rval;
+    ival_stack[token_sp] = ival;
+    id_stack[token_sp] = nullptr;
+    token_sp++;
+  }
+}
 
 void push_token()
 {
@@ -477,13 +490,19 @@ void getnum()
                 getbase(10);
 j1:
                 if(lastch == '.') {
-                        getch();
-                        rval = (double)ival;    /* float the integer part */
+                  if (lptr[0] == '.' && lptr[1] == '.') {
+                    lptr--;
+                    lastch = '.';
+                    goto j2;
+                  }
+                  getch();
+                  rval = (double)ival;    /* float the integer part */
 						Float128::IntToFloat(&rval128, (__int64)ival);
             pval64 = pval64.Posit64::IntToPosit(ival);
                         getfrac();      /* add the fractional part */
                         lastst = rconst;
                         }
+j2:
                 if (lastch == 'p' || lastch == 'P') {
                   getch();
                   isPosit = true;

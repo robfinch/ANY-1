@@ -714,6 +714,7 @@ int Declaration::ParseSpecifier(TABLE* table, SYM** sym, e_sc sc)
 	ClassDeclaration cd;
 	StructDeclaration sd;
 	bool rv;
+	int rv2;
 
 	dfs.printf("<ParseSpecifier>\n");
 	isUnsigned = FALSE;
@@ -848,7 +849,7 @@ int Declaration::ParseSpecifier(TABLE* table, SYM** sym, e_sc sc)
 				goto lxit;
 
 			case kw_struct:
-				if (ParseStruct(table, bt_struct, &sp)) {
+				if (rv2 = ParseStruct(&tagtable, bt_struct, &sp)) {
 					*sym = sp;
 					return (1);
 				}
@@ -856,7 +857,7 @@ int Declaration::ParseSpecifier(TABLE* table, SYM** sym, e_sc sc)
 				goto lxit;
 
 			case kw_union:
-				if (ParseStruct(table, bt_union, &sp)) {
+				if (rv2 = ParseStruct(&tagtable, bt_union, &sp)) {
 					*sym = sp;
 					return (1);
 				}
@@ -1448,8 +1449,16 @@ void Declaration::ParseAssign(SYM *sp)
 		sp->defval = ep2;
 	}
 	else {
+		if (sp) {
+			if (sp->tp->isArray) {
+				doinit(sp);
+				return;
+			}
+		}
 		NextToken();
 		ep1 = exp.MakeAutoNameNode(sp);
+		if (ep1 == nullptr)
+			return;
 		ep1->sym = sp;
 		tp1 = exp.CondDeref(&ep1, sp->tp);
 		//tp1 = exp.nameref(&ep1, TRUE);
@@ -1807,6 +1816,11 @@ int Declaration::declare(SYM *parent,TABLE *table,e_sc al,int ilc,int ztype)
 				sp->name = declid;
 				//if (funcdecl > 0)
 				//	sp->fi = MakeFunction(sp->id, sp, isPascal, isInline);
+			}
+			// Not sure about this case: exit((void *)(void)); returned no name
+			// Setting to declid "fixes" this.
+			else if (sp->name->length() == 0) {
+				sp->name = declid;
 			}
 			SetType(sp);
 			fp = FindSymbol(sp, table);

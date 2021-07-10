@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2012-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2012-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -274,7 +274,7 @@ int64_t inittriple(int opt)
 	return (12LL);
 }
 
-int64_t InitializePointer(TYP *tp2)
+int64_t InitializePointer(TYP *tp2, int opt)
 {   
 	SYM *sp;
 	ENODE *n = nullptr;
@@ -283,6 +283,10 @@ int64_t InitializePointer(TYP *tp2)
 	bool need_end = false;
 	Expression exp;
 
+	if (opt==0) {
+		GenerateLong(0);
+		return (sizeOfPtr);
+	}
 	sp = nullptr;
 	if (lastst == begin) {
 		need_end = true;

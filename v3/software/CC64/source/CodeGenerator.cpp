@@ -513,7 +513,8 @@ Operand* CodeGenerator::GenerateRegvarDereference(ENODE* node, TYP* tp, bool isR
 	//		ap1->mode = node->p[0]->tp->val_flag ? am_reg : am_ind;
 	ap1->preg = node->rg;
 	ap1->tp = node->tp;
-	ap1->isUnsigned = node->tp->isUnsigned;
+	if (node->tp)
+		ap1->isUnsigned = node->tp->isUnsigned;
 	ap1->MakeLegal(flags, size);
 	Leave("Genderef", 3);
 	return (ap1);

@@ -321,6 +321,8 @@ ENODE* Expression::ParseAggregate(ENODE** node)
 			}
 		}
 		tptr = ParseNonCommaExpression(&pnode);
+		if (pnode == nullptr)
+			return (nullptr);
 		if (!pnode->constflag)
 			cnst = false;
 		if (tptr2 != nullptr && tptr->type != tptr2->type)
@@ -1535,6 +1537,8 @@ ENODE* Expression::MakeAutoNameNode(SYM* sp)
 {
 	ENODE* node;
 
+	if (sp == nullptr)
+		return (nullptr);
 	if (sp->tp->IsVectorType())
 		node = makeinode(en_autovcon, sp->value.i);
 	else if (sp->tp->type == bt_vector_mask)

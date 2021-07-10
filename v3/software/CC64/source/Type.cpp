@@ -33,7 +33,7 @@ extern int64_t initquad(int opt);
 extern int64_t initfloat(int opt);
 extern int64_t inittriple(int opt);
 extern int64_t initPosit(int opt);
-int64_t InitializePointer(TYP *);
+int64_t InitializePointer(TYP *, int opt);
 extern short int brace_level;
 TYP *typ_vector[100];
 short int typ_sp = 0;
@@ -673,7 +673,7 @@ j1:
 			if (tp->val_flag)
 				nbytes = tp->InitializeArray(sizes[max(base-brace_level,0)]);
 			else
-				nbytes = InitializePointer(tp);
+				nbytes = InitializePointer(tp, opt);
 			break;
 		case bt_exception:
 		case bt_ulong:
@@ -739,9 +739,17 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 	char *p;
 	char *str;
 	int64_t pos = 0;
-	int64_t n;
+	int64_t n, nh;
 	ENODE* cnode;
 	int64_t fill = 0;
+	int64_t poscount = 0;
+	Value* values;
+	int64_t* buckets;
+	int64_t* bucketshi;
+	int npos = 0;
+	bool recval;
+	bool spitout;
+
 	/*
 	typedef struct _tagSP {
 		std::streampos poses;
@@ -761,68 +769,287 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 	*/
 	// Fill in the elements as encountered.
 	nbytes = 0;
+	values = new Value[100];
+	buckets = new int64_t[100];
+	ZeroMemory(buckets, 100 * sizeof(int64_t));
+	bucketshi = new int64_t[100];
+	ZeroMemory(bucketshi, 100 * sizeof(int64_t));
+	npos = 0;
+	recval = false;
 //	if (lastst == begin)
 	{
 //		NextToken();               /* skip past the brace */
 		for (n = 0; lastst != end; n++) {
 /*
 			ofs.seekp(poses[n].poses);
+*/
 			if (lastst == openbr) {
 				NextToken();
+				if (npos > 98) {
+					return (nbytes);
+					//error(TOO_MANY_DESIGNATORS);
+				}
 				n = GetConstExpression(&cnode);
-				ofs.seekp(poses[n].poses);
+//				ofs.seekp(poses[n].poses);
 				//fill = min(1000000, n - pos + 1);
+				if (lastst == ellipsis) {
+					NextToken();
+					nh = GetConstExpression(&cnode);
+				}
+				else
+					nh = n;
 				needpunc(closebr,50);
 				needpunc(assign,50);
+				buckets[npos] = n;
+				bucketshi[npos] = nh;
+				recval = true;
 			}
-*/
+
 			// Allow char array initialization like { "something", "somethingelse" }
 			if (lastst == sconst && (GetBtp()->type == bt_char || GetBtp()->type == bt_uchar
 				|| GetBtp()->type == bt_ichar || GetBtp()->type == bt_iuchar)) {
 				if (fill > 0) {
 					while (fill > 0) {
 						fill--;
-						GenerateChar(0);
+						spitout = false;
+						for (n = 0; n < npos; n++) {
+							if (pos >= buckets[n] && pos <= bucketshi[n]) {
+								p = (char*)values[n].sp->c_str();
+								while (*p) {
+									GenerateChar(*p++);
+								}
+								GenerateChar(0);
+								spitout = true;
+							}
+						}
+						if (!spitout)
+							GenerateChar(0);
 						pos++;
 					}
 				}
 				str = GetStrConst();
+				if (recval) {
+					values[npos].sp = new std::string(str);
+					npos++;
+				}
 				nbytes = strlen(str) * 2 + 2;
-				p = str;
-				while (*p)
-					GenerateChar(*p++);
-				GenerateChar(0);
+				spitout = false;
+				for (n = 0; n < npos; n++) {
+					if (pos >= buckets[n] && pos <= bucketshi[n]) {
+						p = (char*)values[n].sp->c_str();
+						while (*p) {
+							GenerateChar(*p++);
+						}
+						GenerateChar(0);
+						spitout = true;
+					}
+				}
+				if (!spitout) {
+					p = str;
+					while (*p) {
+						GenerateChar(*p++);
+					}
+					GenerateChar(0);
+				}
 				free(str);
 				pos++;
 			}
 			else if (lastst == asconst && GetBtp()->type == bt_byte) {
 				while (fill > 0) {
 					fill--;
-					GenerateByte(0);
+					spitout = false;
+					for (n = 0; n <= npos; n++) {
+						if (pos >= buckets[n] && pos <= bucketshi[n]) {
+							p = (char*)values[n].sp->c_str();
+							while (*p) {
+								GenerateByte(*p++);
+							}
+							GenerateByte(0);
+							spitout = true;
+						}
+					}
+					if (!spitout)
+						GenerateByte(0);
 					pos++;
 				}
 				str = GetStrConst();
+				if (recval) {
+					values[npos].sp = new std::string(str);
+					npos++;
+				}
 				nbytes = strlen(str) * 1 + 1;
-				p = str;
-				while (*p)
-					GenerateByte(*p++);
-				GenerateByte(0);
+				spitout = false;
+				for (n = 0; n < npos; n++) {
+					if (pos >= buckets[n] && pos <= bucketshi[n]) {
+						p = (char*)values[n].sp->c_str();
+						while (*p) {
+							GenerateByte(*p++);
+						}
+						GenerateByte(0);
+						spitout = true;
+					}
+				}
+				if (!spitout) {
+					p = str;
+					while (*p)
+						GenerateByte(*p++);
+					GenerateByte(0);
+				}
 				free(str);
 				pos++;
 			}
 			else {
-				if (fill > 0) {
-					while (fill > 0) {
-						fill--;
-						nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+				switch (GetBtp()->type) {
+				case bt_array:
+					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+					pos++;
+					break;
+				case bt_byte:
+				case bt_ubyte:
+					if (recval) {
+						values[npos].value.i = GetIntegerExpression(nullptr);
+						npos++;
+					}
+					spitout = false;
+					for (n = 0; n < npos; n++) {
+						if (pos >= buckets[n] && pos <= bucketshi[n]) {
+							GenerateByte(values[n].value.i);
+							nbytes += 1;
+							spitout = true;
+							pos++;
+						}
+					}
+					if (!spitout && !recval) {
+						GenerateByte(GetIntegerExpression(nullptr));
+						nbytes += 1;
 						pos++;
 					}
-				}
-				else {
-					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), 1);
+					break;
+				case bt_char:
+				case bt_uchar:
+				case bt_ichar:
+					if (recval) {
+						values[npos].value.i = GetIntegerExpression(nullptr);
+						npos++;
+					}
+					spitout = false;
+					for (n = 0; n < npos; n++) {
+						if (pos >= buckets[n] && pos <= bucketshi[n]) {
+							GenerateChar(values[n].value.i);
+							nbytes += 2;
+							spitout = true;
+							pos++;
+						}
+					}
+					if (!spitout && !recval) {
+						GenerateChar(GetIntegerExpression(nullptr));
+						nbytes += 2;
+						pos++;
+					}
+					break;
+				case bt_class:
+					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
 					pos++;
+					break;
+				case bt_double:
+				case bt_float:
+					if (recval) {
+						values[npos].f128 = GetFloatExpression(nullptr);
+						npos++;
+					}
+					spitout = false;
+					for (n = 0; n < npos; n++) {
+						if (pos >= buckets[n] && pos <= bucketshi[n]) {
+							GenerateFloat(&values[n].f128);
+							nbytes += 8;
+							spitout = true;
+							pos++;
+						}
+					}
+					if (!spitout && !recval) {
+						GenerateFloat(GetFloatExpression(nullptr));
+						nbytes += 8;
+						pos++;
+					}
+					break;
+				case bt_enum:
+					if (recval) {
+						values[npos].value.i = GetIntegerExpression(nullptr);
+						npos++;
+					}
+					spitout = false;
+					for (n = 0; n < npos; n++) {
+						if (pos >= buckets[n] && pos <= bucketshi[n]) {
+							GenerateChar(values[n].value.i);
+							nbytes += 2;
+							spitout = true;
+							pos++;
+						}
+					}
+					if (!spitout && !recval) {
+						GenerateChar(GetIntegerExpression(nullptr));
+						nbytes += 2;
+						pos++;
+					}
+					break;
+				case bt_long:
+				case bt_ulong:
+					if (recval) {
+						values[npos].value.i = GetIntegerExpression(nullptr);
+						npos++;
+					}
+					spitout = false;
+					for (n = 0; n < npos; n++) {
+						if (pos >= buckets[n] && pos <= bucketshi[n]) {
+							GenerateLong(values[n].value.i);
+							nbytes += 8;
+							spitout = true;
+							pos++;
+						}
+					}
+					if (!spitout && !recval) {
+						GenerateLong(GetIntegerExpression(nullptr));
+						nbytes += 8;
+						pos++;
+					}
+					break;
+				case bt_short:
+				case bt_ushort:
+					if (recval) {
+						values[npos].value.i = GetIntegerExpression(nullptr);
+						npos++;
+					}
+					spitout = false;
+					for (n = 0; n < npos; n++) {
+						if (pos >= buckets[n] && pos <= bucketshi[n]) {
+							GenerateHalf(values[n].value.i);
+							nbytes += 4;
+							spitout = true;
+							pos++;
+						}
+					}
+					if (!spitout && !recval) {
+						GenerateHalf(GetIntegerExpression(nullptr));
+						nbytes += 4;
+						pos++;
+					}
+					break;
+				default:
+					if (fill > 0) {
+						while (fill > 0) {
+							fill--;
+							nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+							pos++;
+						}
+					}
+					else {
+						nbytes += GetBtp()->Initialize(nullptr, GetBtp(), 1);
+						pos++;
+					}
+					break;
 				}
 			}
+			recval = false;
 			// Allow an extra comma at the end of the list of values
 			if (lastst == comma) {
 				NextToken();
@@ -839,6 +1066,139 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 			else
 				error(ERR_PUNCT);
 		}
+		while (nbytes < maxsz) {
+			GenerateByte(0);
+			nbytes++;
+		}
+		/*
+			switch (GetBtp()->type) {
+			case bt_array:
+				nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+				pos++;
+				break;
+			case bt_byte:
+			case bt_ubyte:
+				spitout = false;
+				for (n = 0; n < npos; n++) {
+					if (pos >= buckets[n] && pos <= bucketshi[n]) {
+						GenerateByte(values[n].value.i);
+						nbytes += 1;
+						spitout = true;
+						pos++;
+					}
+				}
+				if (!spitout) {
+					GenerateByte(0);
+					nbytes += 1;
+					pos++;
+				}
+				break;
+			case bt_char:
+			case bt_uchar:
+			case bt_ichar:
+				spitout = false;
+				for (n = 0; n < npos; n++) {
+					if (pos >= buckets[n] && pos <= bucketshi[n]) {
+						GenerateChar(values[n].value.i);
+						nbytes += 2;
+						spitout = true;
+						pos++;
+					}
+				}
+				if (!spitout) {
+					GenerateChar(0);
+					nbytes += 2;
+					pos++;
+				}
+				break;
+			case bt_class:
+				nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+				pos++;
+				break;
+			case bt_double:
+			case bt_float:
+				spitout = false;
+				for (n = 0; n < npos; n++) {
+					if (pos >= buckets[n] && pos <= bucketshi[n]) {
+						GenerateFloat(&values[n].f128);
+						nbytes += 8;
+						spitout = true;
+						pos++;
+					}
+				}
+				if (!spitout) {
+					GenerateFloat(rval128.Zero());
+					nbytes += 8;
+					pos++;
+				}
+				break;
+			case bt_enum:
+				spitout = false;
+				for (n = 0; n < npos; n++) {
+					if (pos >= buckets[n] && pos <= bucketshi[n]) {
+						GenerateChar(values[n].value.i);
+						nbytes += 2;
+						spitout = true;
+						pos++;
+					}
+				}
+				if (!spitout) {
+					GenerateChar(0);
+					nbytes += 2;
+					pos++;
+				}
+				break;
+			case bt_long:
+			case bt_ulong:
+				spitout = false;
+				for (n = 0; n < npos; n++) {
+					if (pos >= buckets[n] && pos <= bucketshi[n]) {
+						GenerateLong(values[n].value.i);
+						nbytes += 8;
+						spitout = true;
+						pos++;
+						break;
+					}
+				}
+				if (!spitout) {
+					GenerateLong(0);
+					nbytes += 8;
+					pos++;
+				}
+				break;
+			case bt_short:
+			case bt_ushort:
+				spitout = false;
+				for (n = 0; n < npos; n++) {
+					if (pos >= buckets[n] && pos <= bucketshi[n]) {
+						GenerateHalf(values[n].value.i);
+						nbytes += 4;
+						spitout = true;
+						pos++;
+					}
+				}
+				if (!spitout) {
+					GenerateHalf(0);
+					nbytes += 4;
+					pos++;
+				}
+				break;
+			default:
+				if (fill > 0) {
+					while (fill > 0) {
+						fill--;
+						nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+						pos++;
+					}
+				}
+				else {
+					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), 1);
+					pos++;
+				}
+				break;
+			}
+			*/
+//		}
 //		NextToken();               /* skip closing brace */
 	}
 	//else if (lastst == sconst && (GetBtp()->type == bt_char || GetBtp()->type == bt_uchar)) {
@@ -864,6 +1224,8 @@ xit:
 	delete[] poses;
 	return (numele * size);
 	*/
+	delete[] values;
+	delete[] buckets;
 	return (nbytes);
 }
 
@@ -883,7 +1245,7 @@ int64_t TYP::InitializeStruct()
 			GenerateByte(0);
 			nbytes++;
 		}
-		nbytes += sp->tp->Initialize(nullptr, sp->tp,1);
+		nbytes += sp->tp->Initialize(nullptr, sp->tp, 1);
 		if (lastst == comma)
 			NextToken();
 		else if (lastst == end || lastst==semicolon) {
@@ -1003,8 +1365,8 @@ int64_t TYP::InitializeUnion()
 				while (lastst == comma && count < sp->tp->numele) {
 					NextToken();
 					val = GetConstExpression(&node);
-					nbytes = node->esize;
-					nbytes = GenerateT(tp, node);
+					//nbytes = node->esize;
+					nbytes += GenerateT(tp, node);
 					count++;
 				}
 				if (count >= sp->tp->numele)
@@ -1145,10 +1507,13 @@ int TYP::Alignment()
 int TYP::walignment()
 {
 	SYM *sp;
+	int64_t retval = 0;
 
 	//printf("DIAG: type NULL in alignment()\r\n");
-	if (this == NULL)
-		return imax(AL_BYTE, worstAlignment);
+	if (this == NULL) {
+		retval = imax(AL_BYTE, worstAlignment);
+		goto xit;
+	}
 	switch (type) {
 	case bt_byte:	case bt_ubyte:		return imax(AL_BYTE, worstAlignment);
 	case bt_char:   case bt_uchar:     return imax(AL_CHAR, worstAlignment);
@@ -1157,8 +1522,10 @@ int TYP::walignment()
 	case bt_long:   case bt_ulong:     return imax(AL_LONG, worstAlignment);
 	case bt_enum:           return imax(AL_CHAR, worstAlignment);
 	case bt_pointer:
-		if (val_flag)
-			return imax(GetBtp()->Alignment(), worstAlignment);
+		if (val_flag) {
+			retval = imax(GetBtp()->Alignment(), worstAlignment);
+			goto xit;
+		}
 		else {
 			return (imax(sizeOfPtr, worstAlignment));
 			//				return (imax(AL_POINTER,worstAlignment));
@@ -1172,6 +1539,8 @@ int TYP::walignment()
 	case bt_union:
 		sp = (SYM *)sp->GetPtr(lst.GetHead());
 		worstAlignment = alignment;
+		if (worstAlignment == 0)
+			worstAlignment = 2;
 		while (sp != NULL) {
 			if (sp->tp && sp->tp->alignment) {
 				worstAlignment = imax(worstAlignment, sp->tp->alignment);
@@ -1180,9 +1549,12 @@ int TYP::walignment()
 				worstAlignment = imax(worstAlignment, sp->tp->walignment());
 			sp = sp->GetNextPtr();
 		}
-		return (worstAlignment);
+		retval = worstAlignment;
+		goto xit;
 	default:                return (imax(AL_CHAR, worstAlignment));
 	}
+xit:
+	return (retval);
 }
 
 

@@ -832,7 +832,7 @@ j1:
 		tp = CondDeref(node,tp);
 		dfs.printf("deref tp:%p ",(char *)tp);
 	}
-	if (nt)
+	if (nt==TRUE)
 		NextToken();
 xit:
 	(*node)->sym = sp;
@@ -1203,7 +1203,10 @@ TYP *Expression::ParsePrimaryExpression(ENODE **node, int got_pa)
 			Leave("ParsePrimary", pnode->tp->type);
   else
 		Leave("ParsePrimary", 0);
-  return (pnode->tp);
+	if (pnode)
+		return (pnode->tp);
+	else
+		return (nullptr);
 }
 
 //
