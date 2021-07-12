@@ -654,7 +654,7 @@ else begin
 		end
 	MEMORY2:
 		begin
-			memresp.cause <= 16'h0;
+			memresp.cause <= {8'h00,FLT_NONE};
 			memresp.badAddr <= 33'd0;
 			memresp.ret <= FALSE;
 			memresp.call <= memreq.func==M_CALL;
@@ -755,7 +755,7 @@ else begin
       	tPMAEA();
       if (adr_o[31:16]==IO_KEY_ADR) begin
       	memresp.step <= memreq.step;
-      	memresp.cause <= 16'h0;
+      	memresp.cause <= {8'h00,FLT_NONE};
       	memresp.cmt <= TRUE;
       	memresp.res <= io_keys[adr_o[12:2]];
       	memresp.fifo_wr <= TRUE;
@@ -768,7 +768,7 @@ else begin
 	KEYCHK_ERR:
 		begin
 			memresp.step <= memreq.step;
-	    memresp.cause <= 16'h8031;	// KEY fault
+	    memresp.cause <= {8'h80,FLT_KEY};	// KEY fault
 	    memresp.cmt <= TRUE;
 			memresp.tid <= memreq.tid;
 		  memresp.badAddr <= ea;
@@ -1307,7 +1307,7 @@ input Address ba;
 begin
 	memresp.step <= memreq.step;
 	memresp.cmt <= TRUE;
-  memresp.cause <= 16'h8004;
+  memresp.cause <= {8'h80,FLT_TLBMISS};
 	memresp.tid <= memreq.tid;
   memresp.badAddr <= ba;
   memresp.fifo_wr <= TRUE;
@@ -1320,9 +1320,9 @@ task tEA;
 input Address iea;
 begin
   if (MUserMode && (memreq.func==STORE || memreq.func==M_CALL) && !ea_acr[1])
-    memresp.cause <= 16'h8032;
+    memresp.cause <= {8'h80,FLT_WRV};
   else if (MUserMode && (memreq.func==LOAD || memreq.func==LOADZ || memreq.func==RTS2) && !ea_acr[2])
-    memresp.cause <= 16'h8033;
+    memresp.cause <= {8'h80,FLT_RDV};
 	if (!MUserMode || iea[AWID-1:24]=={AWID-24{1'b1}})
 		dadr <= iea;
 	else
@@ -1333,12 +1333,12 @@ endtask
 task tPMAEA;
 begin
   if (keyViolation && omode == 3'd0)
-    memresp.cause <= 16'h8031;
+    memresp.cause <= {8'h80,FLT_KEY};
   // PMA Check
   for (n = 0; n < 8; n = n + 1)
     if (adr_o[31:4] >= PMA_LB[n] && adr_o[31:4] <= PMA_UB[n]) begin
       if ((memreq.func==STORE && !PMA_AT[n][1]) || ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==RTS2) && !PMA_AT[n][2]))
-		    memresp.cause <= 16'h803D;
+		    memresp.cause <= {8'h80,FLT_PMA};
 		  dcachable <= PMA_AT[n][3];
     end
 end
@@ -1351,7 +1351,7 @@ begin
   for (n = 0; n < 8; n = n + 1)
     if (adr_o[31:4] >= PMA_LB[n] && adr_o[31:4] <= PMA_UB[n]) begin
       if (!PMA_AT[n][0]) begin
-        memresp.cause <= 16'h803D;
+        memresp.cause <= {8'h80,FLT_PMA};
         tDeactivateBus();
     	end
     end

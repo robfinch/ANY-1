@@ -37,16 +37,29 @@
 
 import any1_pkg::*;
 
-module any1_scheduler(clk, rob, rob_que, robo, wakeup_list, selection);
+module any1_scheduler(clk, rob, rob_que, wakeup_list, selection);
 input clk;
 input sReorderEntry [ROB_ENTRIES-1:0] rob;
 input [5:0] rob_que;
-input sReorderEntry robo;
 // Wakeup list, one bit for each instruction.
 output reg [ROB_ENTRIES-1:0] wakeup_list;
 output reg [6:0] selection;
 
 integer n;
+
+function [5:0] fnNext;
+input [5:0] q;
+begin
+	fnNext = q >= ROB_ENTRIES - 1 ? 6'd0 : q - 2'd1;
+end
+endfunction
+
+function Address fnIPInc;
+input Address pc;
+begin
+	fnIPInc = {pc[AWID-1:24],pc[23:-1] + 4'd9};
+end
+endfunction
 
 // Prevent the scheduler from choosing the same rob slot twice in a row.
 // Works for up to the previous three slots.
@@ -146,10 +159,13 @@ begin
 		// made.
 		if (rob[n].dec && rob[n].v && !rob[n].cmt && !rob[n].out) begin
 			if (rob[n].iav && rob[n].ibv && rob[n].icv && rob[n].idv && rob[n].itv) begin		// Args are valid
-				if (!fnPriorFC(n) && !fnAlreadyChosen(n)) begin
-					if (!(rob[n].mem_op && fnPriorLdSt(n))) begin	// and loads / stores are in order
-						wakeup_list[n] = 1'b1;
-						any_woke = TRUE;
+				// If it's a modifier the next instruction must be loaded in the queue.
+				if (!rob[n].is_mod || (rob[fnNext(n)].ip==fnIPInc(rob[n].ip) && rob[fnNext(n)].rob_q==rob[n].rob_q + 2'd1 && rob[fnNext(n)].v && rob[fnNext(n)].dec)) begin
+					if (!fnPriorFC(n) && !fnAlreadyChosen(n)) begin
+						if (!(rob[n].mem_op && fnPriorLdSt(n))) begin	// and loads / stores are in order
+							wakeup_list[n] = 1'b1;
+							any_woke = TRUE;
+						end
 					end
 				end
 			end

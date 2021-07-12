@@ -38,6 +38,8 @@ BGE: takb = 	$signed(a.val) >= $signed(b.val);
 BLTU:  takb = a.val <  b.val;
 BGEU:  takb = a.val >= b.val;
 BBS:	takb = a.val[b.val[5:0]];
+BEQZ:	takb <= a.val=={VALUE_SIZE{1'b0}};
+BNEZ:	takb <= a.val!={VALUE_SIZE{1'b0}};
 default:  takb = 1'b0;
 endcase
 

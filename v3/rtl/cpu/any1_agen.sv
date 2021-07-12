@@ -57,23 +57,24 @@ if (rst)
 	ea <= 32'd0;
 else begin
 	case(ir.ld.opcode)
-	LDx,LDxZ:		ea <= imm + ia.val;
-	LDxX,LDxXZ:	ea <= imm + ia.val + (ib.val << ir.nld.Sc);
-	STx:	ea <= imm + ia.val;
-	STxX:	ea <= imm + ia.val + (ic.val << Sc);
-	LDSx:	ea <= imm + ia.val + ic.val * step;
-	STSx:	ea <= imm + ia.val + ic.val * step;
-	LDxVX:	ea <= imm + ia.val + ic.val;
-	STxVX:	ea <= imm + ia.val + ic.val;
-	CVLDSx:	ea <= imm + ia.val + ic.val * step;
-	CVSTSx:	ea <= imm + ia.val + ic.val * step;
-	LDM,STM:	ea <= ia.val;
+	LDx,LDxZ:		ea[31:0] <= imm + ia.val;
+	LDxX,LDxXZ:	ea[31:0] <= imm + ia.val + (ib.val << ir.nld.Sc);
+	STx:	ea[31:0] <= imm + ia.val;
+	STxX:	ea[31:0] <= imm + ia.val + (ic.val << Sc);
+	LDSx:	ea[31:0] <= imm + ia.val + ic.val * step;
+	STSx:	ea[31:0] <= imm + ia.val + ic.val * step;
+	LDxVX:	ea[31:0] <= imm + ia.val + ic.val;
+	STxVX:	ea[31:0] <= imm + ia.val + ic.val;
+	CVLDSx:	ea[31:0] <= imm + ia.val + ic.val * step;
+	CVSTSx:	ea[31:0] <= imm + ia.val + ic.val * step;
+	SYS:		ea[31:0] <= ia.val;	// CSAVE / CRESTORE
 `ifdef SUPPORT_CALL_RET
-	CALL:	  ea <= ia.val;
-	RTS:		ea <= ia.val;
+	CALL:	  ea[31:0] <= ia.val;
+	RTS:		ea[31:0] <= ia.val;
 `endif	
 	default:	ea <= 33'd0;
 	endcase
+	ea[-1] <= 1'b0;
 end
 
 endmodule

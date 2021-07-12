@@ -98,15 +98,11 @@ parameter DIVU	= 6'h11;
 parameter DIVSU	= 6'h12;
 parameter MULSU =	6'h16;
 parameter DIF		= 6'h18;
-parameter SLL		= 6'h19;
-parameter SLLI	= 6'h1A;
 parameter MULF	= 6'h1C;
 parameter MULSUH= 6'h1D;
 parameter MULUH = 6'h1E;
 parameter MYST	= 6'h1F;
 parameter CMP		= 6'h20;
-parameter SRL		= 6'h21;
-parameter SRLI	= 6'h22;
 parameter SEQ		= 6'h26;
 parameter SNE		= 6'h27;
 parameter MIN		= 6'h28;
@@ -125,6 +121,16 @@ parameter VSRLV	= 6'h39;
 parameter VEX		= 6'h3A;
 parameter VEINS	= 6'h3B;
 parameter RW_COEFF = 6'h3E;
+parameter SLL		= 7'h40;
+parameter SRL		= 7'h41;
+parameter SRA		= 7'h42;
+parameter ROL		= 7'h43;
+parameter ROR		= 7'h44;
+parameter SLLI	= 7'h48;
+parameter SRLI	= 7'h49;
+parameter SRAI	= 7'h4A;
+parameter ROLI	= 7'h4B;
+parameter RORI  = 7'h4C;
 
 // R1 ops
 parameter CTLZ	= 6'h00;
@@ -180,7 +186,8 @@ parameter F1		= 8'h34;
 parameter F2		= 8'h35;
 parameter F3		= 8'h36;
 parameter F4		= 8'h37;
-
+parameter LINK	= 8'h3C;
+parameter UNLINK= 8'h3D;
 parameter NOP  	= 8'h3F;
 
 parameter CSR		= 8'h0F;
@@ -207,6 +214,8 @@ parameter RTE		= 6'h13;
 parameter MVSEG	= 6'h1D;
 parameter TLBRW	= 6'h1E;
 parameter SYNC	= 6'h1F;
+parameter CSAVE = 6'd20;
+parameter CRESTORE = 6'd21;
 
 parameter BLT		= 8'h48;
 parameter BGE		= 8'h49;
@@ -239,9 +248,12 @@ parameter LDxX	= 8'h61;
 parameter LDxZ	= 8'h64;
 parameter LDxXZ	= 8'h65;
 parameter LDM		= 8'h6F;
-parameter STx		= 8'h70;
-parameter STxX	= 8'h71;
+parameter STx		= 8'h68;
+parameter STxX	= 8'h69;
 parameter STM		= 8'h7F;
+
+parameter BEQZ	= 8'h78;
+parameter BNEZ	= 8'h79;
 
 parameter JAL		= 8'h40;
 parameter BAL		= 8'h41;
@@ -391,6 +403,8 @@ parameter CSR_DCR0	= 16'h4000;
 parameter CSR_DHARTID = 16'h4001;
 parameter CSR_DTVEC = 16'h403?;
 parameter CSR_DPMSTACK	= 16'h4040;
+parameter CSR_DSTUFF0	= 16'h4042;
+parameter CSR_DSTUFF1	= 16'h4043;
 parameter CSR_DSTATUS	= 16'h4044;
 parameter CSR_DVSTEP= 16'h4046;
 parameter CSR_DVTMP	= 16'h4047;
@@ -419,10 +433,15 @@ parameter FLT_FP_ASSIST = 8'h0E;
 parameter FLT_RESERVED = 8'h2F;
 */
 parameter FLT_NONE	= 8'h00;
+parameter FLT_TLBMISS = 8'h04;
 parameter FLT_IADR	= 8'h22;
 parameter FLT_CHK		= 8'h27;
+parameter FLT_KEY		= 8'h31;
+parameter FLT_WRV		= 8'h32;
+parameter FLT_RDV		= 8'h33;
 parameter FLT_WD		= 8'h36;
 parameter FLT_UNIMP	= 8'h37;
+parameter FLT_PMA		= 8'h3D;
 parameter FLT_NMI		= 8'hFE;
 
 // Instruction fetch
@@ -743,6 +762,8 @@ typedef struct packed
 	logic Rbvec;
 	logic Rcvec;
 	logic Rtvec;
+	logic Rbseg;
+	logic Rtseg;
 	logic Ramask;
 	logic Rbmask;
 	logic [2:0] Vm;
@@ -779,11 +800,23 @@ typedef struct packed
 typedef struct packed
 {
 	logic [5:0] rid;
-	Instruction ir;
-	Value ia;
-	logic rfwr;
-	logic [5:0] Rt;
+	logic [5:0] step;
+	Address ip;
+	logic out;
+	logic out2;
+	logic cmt;
+	logic cmt2;
+	logic vcmt;
+	logic update;
+	logic wr_fu;
+	logic takb;
+	logic vrfwr;
 	Value res;
+	Value ia;
+	Value ib;
+	logic update_c;
+	logic update_d;
+	logic [15:0] cause;
 } sExecuteOut;
 
 typedef struct packed
@@ -839,7 +872,9 @@ typedef struct packed
 	Address ip;
 	Instruction ir;
 	Instruction irmod;
+	Instruction lsm_mask;
 	logic is_vec;
+	logic is_mod;
 	logic ui;							// unimplemented instruction
 	logic jump;
 	Address jump_tgt;
@@ -849,6 +884,7 @@ typedef struct packed
 	logic branch;
 	logic call;
 	logic mem_op;
+	logic lsm;
 	logic exec;
 	logic myst;
 	logic [5:0] count;		// LDM / STM count
@@ -872,6 +908,8 @@ typedef struct packed
 	logic Rbvec;
 	logic Rcvec;
 	logic Rdvec;
+	logic Rbseg;
+	logic Rtseg;
 	logic [5:0] pRt;			// physical Rt
 	logic [5:0] step;			// vector step
 	logic step_v;

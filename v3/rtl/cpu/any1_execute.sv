@@ -37,16 +37,16 @@
 
 import any1_pkg::*;
 
-module any1_execute(rst,clk,robi,robo,mulreci,divreci,membufi,fpreci,rob_exec,ex_redirect,
-	f2a_rst,a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,out,tid,
+module any1_execute(rst,clk,robi,execo,mulreci,divreci,membufi,fpreci,rob_exec,ex_redirect,
+	a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,out,tid,
 	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q,
 	ld_vtmp, vtmp, new_vtmp, graphi, rd_trace, trace_dout,
-	gr_target, gr_clip, clip_en, lsm_mask
+	gr_target, gr_clip, clip_en, lsm_mask, exvec, tcbptr,
 	);
 input rst;
 input clk;
 input sReorderEntry robi;
-output sReorderEntry robo;
+output sExecuteOut execo;
 output sALUrec mulreci;
 output sALUrec divreci;
 output sALUrec fpreci;
@@ -56,7 +56,6 @@ input [5:0] rob_exec;
 output reg [47:0] rob_x;
 input [47:0] rob_q;
 output sRedirect ex_redirect;
-output reg f2a_rst;
 output reg a2d_rst;
 output reg d2x_rst;
 input ex_takb;
@@ -81,6 +80,8 @@ input Rect gr_target;
 input Rect gr_clip;
 input clip_en;
 input [35:0] lsm_mask;
+output reg [3:0] exvec;
+input Address tcbptr;
 
 integer m,n;
 
@@ -91,12 +92,22 @@ begin
 end
 endfunction
 
+function Address fnIncIP5;
+input Address ptr;
+begin
+	fnIncIP5 = {ptr[AWID-1:24],ptr[23:-1] + 4'd5};
+end
+endfunction
+
+wire [7:0] vs = VALUE_SIZE;
 wire d_vsllv = (robi.ir.r2.opcode==VR2) && robi.ir.r2.func==VSLLV;
 wire d_vsrlv = (robi.ir.r2.opcode==VR2) && robi.ir.r2.func==VSRLV;
 
 wire [127:0] sll_out = {robi.ib.val,robi.ia.val} << robi.ic.val[5:0];
 wire [127:0] sll_out2 = {64'd0,robi.ia.val} << robi.ib.val[5:0];
 wire [127:0] srl_out2 = {robi.ia.val,64'd0} >> robi.ib.val[5:0];
+wire [127:0] slli_out2 = {64'd0,robi.ia.val} << robi.imm[5:0];
+wire [127:0] srli_out2 = {robi.ia.val,64'd0} >> robi.imm[5:0];
 
 wire brMispredict = ex_takb != robi.predict_taken;//exbufi.predict_taken;
 
@@ -191,18 +202,19 @@ fpCompare u1 (
 	
 reg [5:0] last_tid;
 reg [5:0] count;			// count for STM
+reg membufi_wr1;
 
 always @(posedge clk)
 if (rst) begin
 	rob_x <= 48'd0;
 	//rob_exec <= 6'd0;
-	robo <= 1'd0;
-	f2a_rst <= TRUE;
+	execo <= 1'd0;
 	a2d_rst <= TRUE;
 	d2x_rst <= TRUE;
 	mulreci.wr <= FALSE;
 	divreci.wr <= FALSE;
 	membufi.wr <= FALSE;
+	membufi_wr1 <= FALSE;
 	ex_redirect.wr <= FALSE;
 	ex_redirect.redirect_ip <= RSTIP;
 	ex_redirect.current_ip <= RSTIP;
@@ -214,27 +226,43 @@ if (rst) begin
 	count <= 6'd0;
 end
 else begin
-	f2a_rst <= FALSE;
 	a2d_rst <= FALSE;
 	d2x_rst <= FALSE;
 	mulreci.wr <= FALSE;
 	divreci.wr <= FALSE;
-	membufi.wr <= FALSE;
+	// Create a two cycle wide write pulse.
+	membufi_wr1 <= membufi.wr;
+//	if (membufi_wr1)
+		membufi.wr <= FALSE;
 	fpreci.wr <= FALSE;
 	ex_redirect.wr <= FALSE;
 	restore_rfsrc <= FALSE;
 	set_wfi <= FALSE;
-	robo.update_rob <= FALSE;
-	robo.wr_fu <= FALSE;
-	robo.out <= FALSE;
-	robo.out2 <= FALSE;
+	execo.update <= FALSE;
+	execo.wr_fu <= FALSE;
+	execo.out <= FALSE;
+	execo.out2 <= FALSE;
 	rd_trace <= FALSE;
 
 	$display("Execute");
 
+	exvec <= 4'd0;
 	if (robi.v==VAL && !robi.cmt && rob_exec != 6'd63) begin
+		execo.rid <= robi.rid;
+		execo.ip <= robi.ip;
+		execo.step <= robi.step;
+		execo.ia <= robi.ia;
+		execo.cause <= robi.cause;
+		execo.out <= FALSE;
+		execo.takb <= FALSE;
+		execo.wr_fu <= FALSE;
+		execo.update <= FALSE;
+		execo.update_c <= FALSE;
+		execo.update_d <= FALSE;
 		last_tid <= tid;
+		exvec <= 4'd1;
 		if (robi.dec) begin
+			exvec <= 4'd2;
 		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, robi.ip, robi.ir,
 			robi.ia.val,robi.iav?"v":" ",robi.ib.val,robi.ibv?"v":" ",
 			robi.ic.val,robi.icv?"v":" ",robi.id.val,robi.idv?"v":" ",
@@ -242,91 +270,139 @@ else begin
 
 		// If the instruction is exceptioned, then ignore executing it.
 		if (robi.ui || robi.cause != 16'h0000) begin
-			robo.cmt <= TRUE;
-			robo.cmt2 <= TRUE;
-			robo.out <= TRUE;
+			exvec <= 4'd4;
+			execo.cmt <= TRUE;
+			execo.cmt2 <= TRUE;
+			execo.out <= TRUE;
 		end
 		else if (!robi.out) begin
-		robo.out <= TRUE;
+			exvec <= 4'd3;
+		execo.out <= TRUE;
 		//robi.res.tag <= robi.ir.tag;
-		robo.rid <= robi.rid;
-		robo.btag <= 4'd0;
-		robo.takb <= FALSE;
-		robo.vmask <= -64'd1;
-		robo.jump_tgt <= 32'd0;
-		robo.wr_fu <= TRUE;
-		robo.out2 <= FALSE;
-		robo.update_rob <= !robi.mc;
-		robo.cmt <= !robi.mc;
-		robo.cmt2 <= !robi.mc;
-		robo.myst <= FALSE;
-		robo.exec <= FALSE;
-		robo.res_ele <= robi.step;
-		robo.rob_q <= robi.rob_q;
-		robo.dec <= robi.dec;	// Should be true
-		robo.ir <= robi.ir;
-		robo.res.val <= 64'hDEADDEADEADEAD;
+		execo.step <= robi.step;
+		execo.takb <= FALSE;
+		execo.wr_fu <= TRUE;
+		execo.update <= !robi.mc;
+		execo.cmt <= !robi.mc;
+		execo.cmt2 <= !robi.mc;
+		execo.res.val <= 64'hDEADDEADEADEAD;
 		if (robi.ir[6:4]!=3'b101)	// not a modifier
 			if (robi.ir[35:32]!=LSM || !robi.mem_op)
 				count <= 6'd0;
-		case(robi.ir.r2.opcode)
-		BRK:	begin robo.cause <= robi.ir[21:14]; tMod(); end
+		casez(robi.ir.r2.opcode)
+		8'h7?:
+			case(robi.ir[3:0])
+			4'd0:
+				case(robi.ir[12:8])
+				5'd0:
+					case(robi.ir[19:13])
+					7'd120:	; // RTI (handled at WRITEBACK)
+					7'd121:		// PFI
+						begin
+			      	if (irq_i != 1'b0)
+					    	execo.cause <= 16'h8000|cause_i;
+					    tMod();
+				  	end
+		  		7'd123:		begin set_wfi <= TRUE; tMod(); end	// WFI
+					default:	begin execo.cause <= robi.ir[19:13]; tMod(); end	// BRK
+					endcase
+				default:
+					tLoad(2'b00);
+				endcase
+			4'd1:	tLoad(2'b00);
+			4'd2:	tStore(2'b00);
+			4'd3:	tStore(2'b00);
+			4'd4:
+				case(robi.ir[19:18])
+				2'd0:	tJalr();
+				2'd1:	begin execo.res.val <= robi.ia.val; tMod(); end	// MOV
+				2'd2: begin execo.res.val <= robi.ia.val + robi.ib.val; tMod(); end	// ADD
+				2'd3: begin execo.res.val <= robi.ia.val & robi.ib.val; tMod(); end	// AND
+				endcase
+			4'd5:	begin execo.res.val <= robi.ia.val + robi.imm; tMod(); end
+			4'd6:	begin execo.res.val <= robi.ia.val & robi.imm; tMod(); end
+			4'd7:	begin execo.res.val <= robi.ia.val | robi.imm; tMod(); end
+			4'd8:	tBranch();
+			4'd9:	tBranch();
+			4'd10:	tBal(TRUE);
+			4'd11:	begin execo.res.val <= robi.imm; tMod(); end	// LDI
+			4'd12:
+				case(robi.ir[19:18])
+				2'd0:	begin execo.res.val <= robi.ia.val << robi.imm[4:0]; tMod(); end
+				2'd1:	begin execo.res.val <= robi.ia.val >> robi.imm[4:0]; tMod(); end
+				2'd2:	begin execo.res.val <= robi.ia.val[VALUE_SIZE-1] ? ~({VALUE_SIZE{1'b1}} >> robi.imm[4:0]) | robi.ia.val >> robi.imm[4:0] : robi.ia.val >> robi.imm[4:0]; tMod(); end
+				2'd3:
+					begin
+						case({robi.ir[17:16],robi.ir[12:11]})
+						4'd0:	begin execo.res.val <= robi.ia.val - robi.ib.val; tMod(); end
+						4'd1: begin execo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
+						4'd2: begin execo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+						4'd3: begin execo.res.val <= ~(robi.ia.val & robi.ib.val); tMod(); end
+						4'd4: begin execo.res.val <= ~(robi.ia.val | robi.ib.val); tMod(); end
+						default:	;
+						endcase
+					end
+				endcase
+			4'd14:	tLoad(2'b00);
+			4'd15:	tStore(2'b00);
+			default:	;
+			endcase
+		BRK:	begin execo.cause <= robi.ir[21:14]; tMod(); end
 		NOP:	tMod();
 		R3:
 			begin
 				case(robi.ir.r2.func)
-				SLLP:	begin robo.res.val <= sll_out[63:0]; tMod(); end
+				SLLP:	begin execo.res.val <= sll_out[63:0]; tMod(); end
 				PTRDIF:	
 					begin
 						//robi.res.tag <= TAG_INT;
-						robo.res.val <= ((robi.ia.val < robi.ib.val) ? robi.ib.val - robi.ia.val : robi.ia.val - robi.ib.val) >> robi.ic.val[4:0];
+						execo.res.val <= ((robi.ia.val < robi.ib.val) ? robi.ib.val - robi.ia.val : robi.ia.val - robi.ib.val) >> robi.ic.val[4:0];
 						tMod();
 					end
 				CHK:
 					case(robi.ir.r2.func)
 					3'd0:
 						if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.ib.val)) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd1:
 						if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.ib.val)) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd2:
 						if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.ib.val)) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd3:
 						if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.ib.val)) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd4:
 						if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.ib.val))) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd5:
 						if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.ib.val))) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd6:
 						if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.ib.val))) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd7:
 						if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.ib.val))) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					default:
 						begin
-							robo.ui <= TRUE;
 							tMod();
 						end
 					endcase
@@ -336,23 +412,29 @@ else begin
 		R2:
 			begin
 				case(robi.ir.r2.func)
-				ADD:	begin	robo.res.val <= robi.ia.val + robi.ib.val; tMod(); end
-				SUB:	begin	robo.res.val <= robi.ia.val - robi.ib.val; tMod(); end
-				AND:	begin	robo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
-				OR:		begin	robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
-				XOR:	begin	robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+				ADD:	begin	execo.res.val <= robi.ia.val + robi.ib.val; tMod(); end
+				SUB:	begin	execo.res.val <= robi.ia.val - robi.ib.val; tMod(); end
+				AND:	begin	execo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
+				OR:		begin	execo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
+				XOR:	begin	execo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
 `ifdef SUPPORT_MYST				
-				MYST:	begin robo.res.val <= {robi.id.val[35:29],robi.ir[28:8],robi.id.val[7:0]}; robo.myst <= TRUE; tMod(); end
+				MYST:	begin execo.res.val <= {robi.id.val[35:29],robi.ir[28:8],robi.id.val[7:0]}; execo.myst <= TRUE; tMod(); end
 `endif					
-				BMMOR,BMMXOR,BMMTOR,BMMTXOR:	begin robo.res.val <= bmm_o; tMod(); end
-				SLL:	begin robo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
-				SLLI:	begin robo.res.val <= robi.ia.val << {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]}; tMod(); end
-				SRL:	begin robo.res.val <= robi.ia.val >> robi.ib.val[5:0]; tMod(); end
-				SRLI:	begin robo.res.val <= robi.ia.val >> {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]}; tMod(); end
+				BMMOR,BMMXOR,BMMTOR,BMMTXOR:	begin execo.res.val <= bmm_o; tMod(); end
+				SLL:	begin execo.res.val <= sll_out2[VALUE_SIZE-1:0]; tMod(); end
+				SLLI:	begin execo.res.val <= slli_out2[VALUE_SIZE-1:0]; tMod(); end
+				SRL:	begin execo.res.val <= srl_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tMod(); end
+				SRLI:	begin execo.res.val <= srli_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tMod(); end
+				ROL:	begin execo.res.val <= sll_out2[VALUE_SIZE-1:0]|sll_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tMod(); end
+				ROLI:	begin execo.res.val <= slli_out2[VALUE_SIZE-1:0]|slli_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tMod(); end
+				ROR:	begin execo.res.val <= srl_out2[VALUE_SIZE-1:0]|srl_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tMod(); end
+				RORI:	begin execo.res.val <= srli_out2[VALUE_SIZE-1:0]|srli_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tMod(); end
+				SRA:	begin execo.res.val <= robi.ia.val[VALUE_SIZE-1] ? ~({VALUE_SIZE{1'b1}} >> robi.ib.val[5:0]) | srl_out2[VALUE_SIZE*2-1:VALUE_SIZE] : srl_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tMod(); end
+				SRAI:	begin execo.res.val <= robi.ia.val[VALUE_SIZE-1] ? ~({VALUE_SIZE{1'b1}} >> robi.imm[5:0]) | srli_out2[VALUE_SIZE*2-1:VALUE_SIZE] : srli_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tMod(); end
 				DIF:
 					begin
-						robo.res <= $signed(robi.ia.val) < $signed(robi.ib.val) ?
-						robo.ib.val - robi.ia.val : robi.ia.val - robi.ib.val;
+						execo.res <= $signed(robi.ia.val) < $signed(robi.ib.val) ?
+							robi.ib.val - robi.ia.val : robi.ia.val - robi.ib.val;
 						tMod();
 					end
 				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
@@ -363,10 +445,10 @@ else begin
 						mulreci.b <= robi.ib;
 						mulreci.wr <= TRUE;
 						tMod();
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				DIV,DIVU,DIVSU:
 					begin
@@ -376,45 +458,45 @@ else begin
 						divreci.b <= robi.ib;
 						divreci.wr <= TRUE;
 						tMod();
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
-				MULF:	begin robo.res.val <= robi.ia.val[23:0] * robi.ib.val[15:0]; tMod(); end
-				CMP:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1; tMod(); end
-				SEQ:	begin robo.res.val <= robi.ia.val == robi.ib.val; tMod(); end
-				SNE:	begin robo.res.val <= robi.ia.val != robi.ib.val; tMod(); end
-				SLT:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val); tMod(); end
-				SGE:	begin robo.res.val <= $signed(robi.ia.val) >= $signed(robi.ib.val); tMod(); end
-				SLTU:	begin robo.res.val <= robi.ia.val < robi.ib.val; tMod(); end
-				SGEU:	begin robo.res.val <= robi.ia.val >= robi.ib.val; tMod(); end
+				MULF:	begin execo.res.val <= robi.ia.val[23:0] * robi.ib.val[15:0]; tMod(); end
+				CMP:	begin execo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1; tMod(); end
+				SEQ:	begin execo.res.val <= robi.ia.val == robi.ib.val; tMod(); end
+				SNE:	begin execo.res.val <= robi.ia.val != robi.ib.val; tMod(); end
+				SLT:	begin execo.res.val <= $signed(robi.ia.val) < $signed(robi.ib.val); tMod(); end
+				SGE:	begin execo.res.val <= $signed(robi.ia.val) >= $signed(robi.ib.val); tMod(); end
+				SLTU:	begin execo.res.val <= robi.ia.val < robi.ib.val; tMod(); end
+				SGEU:	begin execo.res.val <= robi.ia.val >= robi.ib.val; tMod(); end
 				default:	;
 				endcase
 			end
 		R1:
 			begin
 				case(robi.ir.r2.func)
-				ABS:	begin robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia; tMod(); end
-				NABS:	begin robo.res.val <= robi.ia[63] ? robi.ia : -robi.ia; tMod(); end
-				NEG:	begin robo.res.val <= -robi.ia; tMod(); end
-				NOT:	begin robo.res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0; tMod(); end
-				CTLZ:	begin robo.res.val <= cntlzo; tMod(); end
-				CTPOP:	begin robo.res.val <= cntpopo; tMod(); end
+				ABS:	begin execo.res.val <= robi.ia[63] ? -robi.ia : robi.ia; tMod(); end
+				NABS:	begin execo.res.val <= robi.ia[63] ? robi.ia : -robi.ia; tMod(); end
+				NEG:	begin execo.res.val <= -robi.ia; tMod(); end
+				NOT:	begin execo.res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0; tMod(); end
+				CTLZ:	begin execo.res.val <= cntlzo; tMod(); end
+				CTPOP:	begin execo.res.val <= cntpopo; tMod(); end
 				V2BITS:	begin
 									if (robi.step==0) begin
 										if (robi.vmask[0]) begin
-											robo.res.val <= {63'd0,robi.ia.val[0]};
+											execo.res.val <= {63'd0,robi.ia.val[0]};
 											vtmp <= {63'd0,robi.ia.val[0]};
 										end
 										else if (robi.irmod.im.z) begin
-											robo.res.val <= 64'd0;
+											execo.res.val <= 64'd0;
 											vtmp <= 64'd0;
 										end
 									end
 									else begin
 										if (robi.vmask[robi.step]) begin
-											robo.res.val <= vtmp | (robi.ia.val[0] << robi.step);
+											execo.res.val <= vtmp | (robi.ia.val[0] << robi.step);
 											vtmp <= vtmp | (robi.ia.val[0] << robi.step);
 										end
 									end
@@ -430,14 +512,14 @@ else begin
 						graphi.ic <= robi.ic;
 						graphi.wr <= TRUE;
 						tMod();
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				CLIP:
 					begin
-						robo.res.val <=
+						execo.res.val <=
 							((robi.ia.val[31:0] < gr_target.ul.x) ||
 							 	(robi.ia.val[63:32] < gr_target.ul.y) ||
 							 	(robi.ia.val[31:0] >= gr_target.lr.x) ||
@@ -457,29 +539,29 @@ else begin
 		F1,VF1:
 			begin
 				case(robi.ir.r2.func)
-				FABS:	begin robo.res.val <= {1'b0,robi.ia.val[62:0]}; tMod(); end
-				FNABS:begin robo.res.val <= {1'b1,robi.ia.val[62:0]}; tMod(); end
-				FNEG:	begin robo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]}; tMod(); end
+				FABS:	begin execo.res.val <= {1'b0,robi.ia.val[62:0]}; tMod(); end
+				FNABS:begin execo.res.val <= {1'b1,robi.ia.val[62:0]}; tMod(); end
+				FNEG:	begin execo.res.val <= {~robi.ia.val[63],robi.ia.val[62:0]}; tMod(); end
 				I2F,F2I,FSQRT:
 					begin
 						fpreci.rid <= rob_exec;
 						fpreci.a <= robi.ia;
 						fpreci.wr <= TRUE;
 						tMod(); 
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
-				FRM:	begin robo.res.val <= robi.ia.val; tMod(); end
+				FRM:	begin execo.res.val <= robi.ia.val; tMod(); end
 				default:	;
 				endcase
 			end
 		F2,VF2:
 			begin
 				case(robi.ir.r2.func)
-				CPYSGN: begin robo.res.val <= { robi.ib.val[63],robi.ia.val[62:0]}; tMod(); end
-				SGNINV: begin robo.res.val <= {~robi.ib.val[63],robi.ia.val[62:0]}; tMod(); end
+				CPYSGN: begin execo.res.val <= { robi.ib.val[63],robi.ia.val[62:0]}; tMod(); end
+				SGNINV: begin execo.res.val <= {~robi.ib.val[63],robi.ia.val[62:0]}; tMod(); end
 				FADD,FSUB,FMUL,FDIV:
 					begin
 						fpreci.rid <= rob_exec;
@@ -487,65 +569,65 @@ else begin
 						fpreci.b <= robi.ib;
 						fpreci.wr <= TRUE;
 						tMod(); 
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				FMIN:	// FMIN	
 					begin
 						if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
-							robo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+							execo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
 						else if (fa_qnan & !fb_nan)
-							robo.res.val <= robi.ib.val;
+							execo.res.val <= robi.ib.val;
 						else if (!fa_nan & fb_qnan)
-							robo.res.val <= robi.ia.val;
+							execo.res.val <= robi.ia.val;
 						else if (fcmp_o[1])
-							robo.res.val <= robi.ia.val;
+							execo.res.val <= robi.ia.val;
 						else
-							robo.res.val <= robi.ib.val;
+							execo.res.val <= robi.ib.val;
 						tMod();
 					end
 				FMAX:	// FMAX
 					begin
 						if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
-							robo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+							execo.res.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
 						else if (fa_qnan & !fb_nan)
-							robo.res.val <= robi.ib.val;
+							execo.res.val <= robi.ib.val;
 						else if (!fa_nan & fb_qnan)
-							robo.res.val <= robi.ia.val;
+							execo.res.val <= robi.ia.val;
 						else if (fcmp_o[1])
-							robo.res.val <= robi.ib.val;
+							execo.res.val <= robi.ib.val;
 						else
-							robo.res.val <= robi.ia.val;
+							execo.res.val <= robi.ia.val;
 						tMod();
 					end
-				FCMP:	begin robo.res.val <=  cmpnan ? 64'h4000000000000000 : fcmp_o[1] ? 64'hBFF0000000000000 : fcmp_o[0] ? 64'd0 : 64'h3FF0000000000000;	tMod(); end	//2,-1,0,1 
-				FCMPB:begin	robo.res.val <=  fcmp_o; tMod(); end
-				FSEQ:	begin robo.res.val <=  fcmp_o[0] & ~cmpnan; tMod(); end
-				FSNE: begin robo.res.val <= ~fcmp_o[0] & ~cmpnan; tMod(); end
-				FSLT:	begin robo.res.val <=  fcmp_o[1] & ~cmpnan; tMod(); end
-				FSLE:	begin robo.res.val <=  fcmp_o[2] & ~cmpnan; tMod(); end
+				FCMP:	begin execo.res.val <=  cmpnan ? 64'h4000000000000000 : fcmp_o[1] ? 64'hBFF0000000000000 : fcmp_o[0] ? 64'd0 : 64'h3FF0000000000000;	tMod(); end	//2,-1,0,1 
+				FCMPB:begin	execo.res.val <=  fcmp_o; tMod(); end
+				FSEQ:	begin execo.res.val <=  fcmp_o[0] & ~cmpnan; tMod(); end
+				FSNE: begin execo.res.val <= ~fcmp_o[0] & ~cmpnan; tMod(); end
+				FSLT:	begin execo.res.val <=  fcmp_o[1] & ~cmpnan; tMod(); end
+				FSLE:	begin execo.res.val <=  fcmp_o[2] & ~cmpnan; tMod(); end
 				FSETM:
 					if (robi.step==6'd0) begin
-						robo.res.val <= 64'd0;
+						execo.res.val <= 64'd0;
 						vtmp <= 64'd0;
 						case(robi.ir[13:11])
-						3'd0:	begin robo.res.val[robi.step] <=  fcmp_o[0]; vtmp <=  fcmp_o[0]; end
-						3'd1:	begin robo.res.val[robi.step] <= ~fcmp_o[0]; vtmp <= ~fcmp_o[0]; end
-						3'd2:	begin robo.res.val[robi.step] <=  fcmp_o[1]; vtmp <=  fcmp_o[1]; end
-						3'd3:	begin robo.res.val[robi.step] <=  fcmp_o[2]; vtmp <=  fcmp_o[2]; end
+						3'd0:	begin execo.res.val[robi.step] <=  fcmp_o[0]; vtmp <=  fcmp_o[0]; end
+						3'd1:	begin execo.res.val[robi.step] <= ~fcmp_o[0]; vtmp <= ~fcmp_o[0]; end
+						3'd2:	begin execo.res.val[robi.step] <=  fcmp_o[1]; vtmp <=  fcmp_o[1]; end
+						3'd3:	begin execo.res.val[robi.step] <=  fcmp_o[2]; vtmp <=  fcmp_o[2]; end
 						default:	;
 						endcase
 						tMod();
 					end
 					else begin
-						robo.res.val <= vtmp;
+						execo.res.val <= vtmp;
 						case(robi.ir[13:11])
-						3'd0:	begin robo.res.val[robi.step] <=  fcmp_o[0]; vtmp[robi.step] <=  fcmp_o[0]; end
-						3'd1:	begin robo.res.val[robi.step] <= ~fcmp_o[0]; vtmp[robi.step] <= ~fcmp_o[0]; end
-						3'd2:	begin robo.res.val[robi.step] <=  fcmp_o[1]; vtmp[robi.step] <=  fcmp_o[1]; end
-						3'd3:	begin robo.res.val[robi.step] <=  fcmp_o[2]; vtmp[robi.step] <=  fcmp_o[2]; end
+						3'd0:	begin execo.res.val[robi.step] <=  fcmp_o[0]; vtmp[robi.step] <=  fcmp_o[0]; end
+						3'd1:	begin execo.res.val[robi.step] <= ~fcmp_o[0]; vtmp[robi.step] <= ~fcmp_o[0]; end
+						3'd2:	begin execo.res.val[robi.step] <=  fcmp_o[1]; vtmp[robi.step] <=  fcmp_o[1]; end
+						3'd3:	begin execo.res.val[robi.step] <=  fcmp_o[2]; vtmp[robi.step] <=  fcmp_o[2]; end
 						default:	;
 						endcase
 						tMod();
@@ -564,22 +646,22 @@ else begin
 						fpreci.c <= robi.ic;
 						fpreci.wr <= TRUE;
 						tMod(); 
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				default:	;
 				endcase
 			end
 `endif
-		ADDI:	begin robo.res.val <= robi.ia.val + robi.imm; tMod(); end
-		SUBFI:begin robo.res.val <= robi.imm - robi.ia.val; tMod(); end
-		ANDI:	begin robo.res.val <= robi.ia.val & robi.imm; tMod(); end
-		ORI:	begin robo.res.val <= robi.ia.val | robi.imm; tMod(); end
-		XORI:	begin robo.res.val <= robi.ia.val ^ robi.imm; tMod(); end
+		ADDI:	begin execo.res.val <= robi.ia.val + robi.imm; tMod(); end
+		SUBFI:begin execo.res.val <= robi.imm - robi.ia.val; tMod(); end
+		ANDI:	begin execo.res.val <= robi.ia.val & robi.imm; tMod(); end
+		ORI:	begin execo.res.val <= robi.ia.val | robi.imm; tMod(); end
+		XORI:	begin execo.res.val <= robi.ia.val ^ robi.imm; tMod(); end
 `ifdef SUPPORT_MYST
-		MYSTI:	begin robo.res.val <= {robi.id.val[35:20],robi.ir[19:8],robi.id.val[7:0]}; robo.myst <= TRUE; tMod(); end
+		MYSTI:	begin execo.res.val <= {robi.id.val[35:20],robi.ir[19:8],robi.id.val[7:0]}; execo.myst <= TRUE; tMod(); end
 `endif
 		MULI,MULUI,MULSUI:
 				begin
@@ -589,10 +671,10 @@ else begin
 						mulreci.imm <= robi.imm;
 						mulreci.wr <= TRUE;
 						tMod(); 
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				end
 		DIVI,DIVUI,DIVSUI:
@@ -603,61 +685,61 @@ else begin
 						divreci.imm <= robi.imm;
 						divreci.wr <= TRUE;
 						tMod(); 
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				end
-		MULFI:begin robo.res.val <= robi.ia.val[23:0] * robi.imm[15:0]; tMod(); end
-		SEQI:	begin robo.res.val <= robi.ia.val == robi.imm; tMod(); end
-		SNEI:	begin robo.res.val <= robi.ia != robi.imm; tMod(); end
-		SLTI:	begin robo.res.val <= $signed(robi.ia.val) < $signed(robi.imm); tMod(); end
-		SGTI:	begin robo.res.val <= $signed(robi.ia.val) > $signed(robi.imm); tMod(); end
-		SLTUI:	begin robo.res.val <= robi.ia.val < robi.imm; tMod(); end
-		SGTUI:	begin robo.res.val <= robi.ia.val > robi.imm; tMod(); end
-		BTFLD:	begin robo.res.val <= bf_out.val; tMod(); robo.cmt <= TRUE; end
+		MULFI:begin execo.res.val <= robi.ia.val[23:0] * robi.imm[15:0]; tMod(); end
+		SEQI:	begin execo.res.val <= robi.ia.val == robi.imm; tMod(); end
+		SNEI:	begin execo.res.val <= robi.ia != robi.imm; tMod(); end
+		SLTI:	begin execo.res.val <= $signed(robi.ia.val) < $signed(robi.imm); tMod(); end
+		SGTI:	begin execo.res.val <= $signed(robi.ia.val) > $signed(robi.imm); tMod(); end
+		SLTUI:	begin execo.res.val <= robi.ia.val < robi.imm; tMod(); end
+		SGTUI:	begin execo.res.val <= robi.ia.val > robi.imm; tMod(); end
+		BTFLD:	begin execo.res.val <= bf_out.val; tMod(); execo.cmt <= TRUE; end
     BYTNDX:
 	    begin
 	    	if (robi.ir.r2.func[6:3]!=4'd0) begin
 	        if (robi.ia.val[7:0]==robi.imm[7:0])
-	          robo.res.val <= 64'd0;
+	          execo.res.val <= 64'd0;
 	        else if (robi.ia.val[15:8]==robi.imm[7:0])
-	          robo.res.val <= 64'd1;
+	          execo.res.val <= 64'd1;
 	        else if (robi.ia.val[23:16]==robi.imm[7:0])
-	          robo.res.val <= 64'd2;
+	          execo.res.val <= 64'd2;
 	        else if (robi.ia.val[31:24]==robi.imm[7:0])
-	          robo.res.val <= 64'd3;
+	          execo.res.val <= 64'd3;
 	        else if (robi.ia.val[39:32]==robi.imm[7:0])
-	          robo.res.val <= 64'd4;
+	          execo.res.val <= 64'd4;
 	        else if (robi.ia.val[47:40]==robi.imm[7:0])
-	          robo.res.val <= 64'd5;
+	          execo.res.val <= 64'd5;
 	        else if (robi.ia.val[55:40]==robi.imm[7:0])
-	          robo.res.val <= 64'd6;
+	          execo.res.val <= 64'd6;
 	        else if (robi.ia.val[63:56]==robi.imm[7:0])
-	          robo.res.val <= 64'd7;
+	          execo.res.val <= 64'd7;
 	        else
-	          robo.res.val <= {64{1'b1}};  // -1
+	          execo.res.val <= {64{1'b1}};  // -1
 	      end
 	      else begin
 	        if (robi.ia.val[7:0]==robi.ib.val[7:0])
-	          robo.res.val <= 64'd0;
+	          execo.res.val <= 64'd0;
 	        else if (robi.ia.val[15:8]==robi.ib.val[7:0])
-	          robo.res.val <= 64'd1;
+	          execo.res.val <= 64'd1;
 	        else if (robi.ia.val[23:16]==robi.ib.val[7:0])
-	          robo.res.val <= 64'd2;
+	          execo.res.val <= 64'd2;
 	        else if (robi.ia.val[31:24]==robi.ib.val[7:0])
-	          robo.res.val <= 64'd3;
+	          execo.res.val <= 64'd3;
 	        else if (robi.ia.val[39:32]==robi.ib.val[7:0])
-	          robo.res.val <= 64'd4;
+	          execo.res.val <= 64'd4;
 	        else if (robi.ia.val[47:40]==robi.ib.val[7:0])
-	          robo.res.val <= 64'd5;
+	          execo.res.val <= 64'd5;
 	        else if (robi.ia.val[55:40]==robi.ib.val[7:0])
-	          robo.res.val <= 64'd6;
+	          execo.res.val <= 64'd6;
 	        else if (robi.ia.val[63:56]==robi.ib.val[7:0])
-	          robo.res.val <= 64'd7;
+	          execo.res.val <= 64'd7;
 	        else
-	          robo.res.val <= {64{1'b1}};  // -1
+	          execo.res.val <= {64{1'b1}};  // -1
 	      end
 	      tMod();
 	    end
@@ -666,35 +748,35 @@ else begin
     begin
     	if (robi.ir.sz==4'd1) begin
         if (robi.ia.val[9:0]==robi.imm[9:0])
-          robo.res.val <= 64'd0;
+          execo.res.val <= 64'd0;
         else if (robi.ia.val[19:10]==robi.imm[9:0])
-          robo.res.val <= 64'd1;
+          execo.res.val <= 64'd1;
         else if (robi.ia.val[29:20]==robi.imm[9:0])
-          robo.res.val <= 64'd2;
+          execo.res.val <= 64'd2;
         else if (robi.ia.val[39:30]==robi.imm[9:0])
-          robo.res.val <= 64'd3;
+          execo.res.val <= 64'd3;
         else if (robi.ia.val[49:40]==robi.imm[9:0])
-          robo.res.val <= 64'd4;
+          execo.res.val <= 64'd4;
         else if (robi.ia.val[59:50]==robi.imm[9:0])
-          robo.res.val <= 64'd5;
+          execo.res.val <= 64'd5;
         else
-          robo.res.val <= {64{1'b1}};  // -1
+          execo.res.val <= {64{1'b1}};  // -1
       end
       else begin
         if (robi.ia.val[9:0]==robi.ib.val[9:0])
-          robo.res.val <= 64'd0;
+          execo.res.val <= 64'd0;
         else if (robi.ia.val[19:10]==robi.ib.val[9:0])
-          robo.res.val <= 64'd1;
+          execo.res.val <= 64'd1;
         else if (robi.ia.val[29:20]==robi.ib.val[9:0])
-          robo.res.val <= 64'd2;
+          execo.res.val <= 64'd2;
         else if (robi.ia.val[39:30]==robi.ib.val[9:0])
-          robo.res.val <= 64'd3;
+          execo.res.val <= 64'd3;
         else if (robi.ia.val[49:40]==robi.ib.val[9:0])
-          robo.res.val <= 64'd4;
+          execo.res.val <= 64'd4;
         else if (robi.ia.val[59:50]==robi.ib.val[9:0])
-          robo.res.val <= 64'd5;
+          execo.res.val <= 64'd5;
         else
-          robo.res.val <= {64{1'b1}};  // -1
+          execo.res.val <= {64{1'b1}};  // -1
       end
       tMod();
     end
@@ -703,48 +785,48 @@ else begin
 			begin
 	    	if (robi.ir.r2.func[6:3]!=4'd0) begin
 	        if (robi.ia.val[20:0]==robi.imm[20:0])
-	          robo.res.val <= 64'd0;
+	          execo.res.val <= 64'd0;
 	        else if (robi.ia.val[41:21]==robi.imm[20:0])
-	          robo.res.val <= 64'd1;
+	          execo.res.val <= 64'd1;
 	        else if (robi.ia.val[62:42]==robi.imm[20:0])
-	          robo.res.val <= 64'd2;
+	          execo.res.val <= 64'd2;
 	        else
-	          robo.res.val <= {64{1'b1}};  // -1
+	          execo.res.val <= {64{1'b1}};  // -1
 	      end
 	      else begin
 	        if (robi.ia.val[20:0]==robi.ib.val[20:0])
-	          robo.res.val <= 64'd0;
+	          execo.res.val <= 64'd0;
 	        else if (robi.ia.val[41:21]==robi.ib.val[20:0])
-	          robo.res.val <= 64'd1;
+	          execo.res.val <= 64'd1;
 	        else if (robi.ia.val[62:42]==robi.ib.val[20:0])
-	          robo.res.val <= 64'd2;
+	          execo.res.val <= 64'd2;
 	        else
-	          robo.res.val <= {64{1'b1}};  // -1
+	          execo.res.val <= {64{1'b1}};  // -1
 	      end
 	      tMod();
 	    end
     PERM:
 			begin
 	    	if (robi.ir.r2.func!=4'd0) begin
-	    		robo.res.val[7:0] <= robi.ia.val >> {robi.imm[2:0],3'b0};
-	    		robo.res.val[15:8] <= robi.ia.val >> {robi.imm[5:3],3'b0};
-	    		robo.res.val[23:16] <= robi.ia.val >> {robi.imm[8:6],3'b0};
-	    		robo.res.val[31:24] <= robi.ia.val >> {robi.imm[11:9],3'b0};
-	    		robo.res.val[39:32] <= robi.ia.val >> {robi.imm[14:12],3'b0};
-	    		robo.res.val[47:40] <= robi.ia.val >> {robi.imm[17:15],3'b0};
-	    		robo.res.val[55:48] <= robi.ia.val >> {robi.imm[20:18],3'b0};
-	    		robo.res.val[63:56] <= robi.ia.val >> {robi.imm[23:21],3'b0};
+	    		execo.res.val[7:0] <= robi.ia.val >> {robi.imm[2:0],3'b0};
+	    		execo.res.val[15:8] <= robi.ia.val >> {robi.imm[5:3],3'b0};
+	    		execo.res.val[23:16] <= robi.ia.val >> {robi.imm[8:6],3'b0};
+	    		execo.res.val[31:24] <= robi.ia.val >> {robi.imm[11:9],3'b0};
+	    		execo.res.val[39:32] <= robi.ia.val >> {robi.imm[14:12],3'b0};
+	    		execo.res.val[47:40] <= robi.ia.val >> {robi.imm[17:15],3'b0};
+	    		execo.res.val[55:48] <= robi.ia.val >> {robi.imm[20:18],3'b0};
+	    		execo.res.val[63:56] <= robi.ia.val >> {robi.imm[23:21],3'b0};
 					tMod();
 				end
 				else if (robi.ibv) begin
-	    		robo.res.val[7:0] <= robi.ia.val >> {robi.ib.val[2:0],3'b0};
-	    		robo.res.val[15:8] <= robi.ia.val >> {robi.ib.val[5:3],3'b0};
-	    		robo.res.val[23:16] <= robi.ia.val >> {robi.ib.val[8:6],3'b0};
-	    		robo.res.val[31:24] <= robi.ia.val >> {robi.ib.val[11:9],3'b0};
-	    		robo.res.val[39:32] <= robi.ia.val >> {robi.ib.val[14:12],3'b0};
-	    		robo.res.val[47:40] <= robi.ia.val >> {robi.ib.val[17:15],3'b0};
-	    		robo.res.val[55:48] <= robi.ia.val >> {robi.ib.val[20:18],3'b0};
-	    		robo.res.val[63:56] <= robi.ia.val >> {robi.ib.val[23:21],3'b0};
+	    		execo.res.val[7:0] <= robi.ia.val >> {robi.ib.val[2:0],3'b0};
+	    		execo.res.val[15:8] <= robi.ia.val >> {robi.ib.val[5:3],3'b0};
+	    		execo.res.val[23:16] <= robi.ia.val >> {robi.ib.val[8:6],3'b0};
+	    		execo.res.val[31:24] <= robi.ia.val >> {robi.ib.val[11:9],3'b0};
+	    		execo.res.val[39:32] <= robi.ia.val >> {robi.ib.val[14:12],3'b0};
+	    		execo.res.val[47:40] <= robi.ia.val >> {robi.ib.val[17:15],3'b0};
+	    		execo.res.val[55:48] <= robi.ia.val >> {robi.ib.val[20:18],3'b0};
+	    		execo.res.val[63:56] <= robi.ia.val >> {robi.ib.val[23:21],3'b0};
 					tMod();
 				end
 			end    	
@@ -753,103 +835,54 @@ else begin
 				case(robi.ir.r2.Rt[2:0])
 				3'd0:
 					if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.imm)) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd1:
 					if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.imm)) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd2:
 					if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.imm)) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd3:
 					if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.imm)) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd4:
 					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm))) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd5:
 					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm))) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd6:
 					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm))) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd7:
 					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm))) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				endcase
 			end
 		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:
-			begin
-				robo.takb <= ex_takb;
-				robo.res.val <= fnIncIP(robi.ip);
-				tMod();
-				if (brMispredict) begin
-					f2a_rst <= TRUE;
-					a2d_rst <= TRUE;
-					d2x_rst <= TRUE;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
-					//ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
-					ex_redirect.current_ip <= robi.ip;
-					ex_redirect.step <= 6'd0;
-					ex_redirect.xrid <= rob_exec;
-					ex_redirect.wr <= TRUE;
-					restore_rfsrc <= TRUE;
-					robo.cmt <= FALSE;
-					robo.cmt2 <= FALSE;
-				end
-				else if (brAddrMispredict) begin
-					f2a_rst <= TRUE;
-					a2d_rst <= TRUE;
-					d2x_rst <= TRUE;
-					ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
-					//ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
-					ex_redirect.current_ip <= robi.ip;
-					ex_redirect.step <= 6'd0;
-					ex_redirect.xrid <= rob_exec;
-					ex_redirect.wr <= TRUE;
-					robo.cmt <= FALSE;
-					robo.cmt2 <= FALSE;
-					restore_rfsrc <= TRUE;
-				end
-			end
-		JALR:
-			begin
-				robo.jump <= TRUE;
-				robo.jump_tgt <= robi.ia.val + robi.imm;
-				robo.res <= fnIncIP(robi.ip);
-				f2a_rst <= TRUE;
-				a2d_rst <= TRUE;
-				d2x_rst <= TRUE;
-				ex_redirect.redirect_ip <= robi.ia.val + robi.imm;
-				ex_redirect.current_ip <= robi.ip;
-				ex_redirect.step <= 6'd0;
-				ex_redirect.xrid <= rob_exec;
-				ex_redirect.wr <= TRUE;
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.update_rob <= TRUE;
-			end
+			tBranch();
+		JALR:	tJalr();
 		JAL:
 			begin
-				robo.jump <= TRUE;
-				robo.jump_tgt <= robi.imm;
-				robo.res.val <= fnIncIP(robi.ip);
-				f2a_rst <= TRUE;
+				//execo.jump <= TRUE;
+				//execo.jump_tgt <= robi.imm;
+				execo.res.val <= fnIncIP(robi.ip);
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
 				ex_redirect.redirect_ip <= robi.imm;
@@ -857,27 +890,11 @@ else begin
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.step <= 6'd0;
 				ex_redirect.wr <= TRUE;
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.update_rob <= TRUE;
+				execo.cmt <= FALSE;
+				execo.cmt2 <= FALSE;
+				execo.update <= TRUE;
 			end
-		BAL:
-			begin
-				robo.jump <= TRUE;
-				robo.jump_tgt <= robi.ip + robi.imm;
-				robo.res.val <= fnIncIP(robi.ip);
-				f2a_rst <= TRUE;
-				a2d_rst <= TRUE;
-				d2x_rst <= TRUE;
-				ex_redirect.redirect_ip <= robi.ip + robi.imm;
-				ex_redirect.current_ip <= robi.ip;
-				ex_redirect.xrid <= rob_exec;
-				ex_redirect.step <= 6'd0;
-				ex_redirect.wr <= TRUE;
-				robo.update_rob <= TRUE;
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-			end
+		BAL:	tBal(FALSE);
 `ifdef SUPPORT_CALL_RET			
 		CALL:
 			begin
@@ -891,7 +908,6 @@ else begin
 				membufi.imm <= robi.imm;
 				membufi.wr <= TRUE;
 				tMod();
-				f2a_rst <= TRUE;
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
 				ex_redirect.redirect_ip <= robi.ir[8] ? robi.imm : robi.ip + robi.imm;
@@ -899,12 +915,12 @@ else begin
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.step <= 6'd0;
 				ex_redirect.wr <= TRUE;
-				robo.res.val <= robi.ia.val - 4'd8;	// decrement SP
-				robo.update_rob <= TRUE;
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.out2 <= TRUE;
-				robo.wr_fu <= TRUE;
+				execo.res.val <= robi.ia.val - 4'd8;	// decrement SP
+				execo.update <= TRUE;
+				execo.cmt <= FALSE;
+				execo.cmt2 <= FALSE;
+				execo.out2 <= TRUE;
+				execo.wr_fu <= TRUE;
 			end
 		RTS:
 			begin
@@ -917,60 +933,17 @@ else begin
 				membufi.dato <= robi.ib;
 				membufi.imm <= robi.imm;
 				membufi.wr <= TRUE;
-				robo.res.val <= robi.ia.val + {robi.imm[63:3],3'b0};	// increment SP
-				robo.update_rob <= TRUE;
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.wr_fu <= TRUE;
+				execo.res.val <= robi.ia.val + {robi.imm[63:3],3'b0};	// increment SP
+				execo.update <= TRUE;
+				execo.cmt <= FALSE;
+				execo.cmt2 <= FALSE;
+				execo.wr_fu <= TRUE;
 			end
 `endif			
 		LEA,LDx,LDxX,LDxZ,LDxXZ:
-			begin
-				membufi.rid <= rob_exec;
-				membufi.step <= robi.step;
-				membufi.ir <= robi.ir;
-				if (robi.ir[35:32]==LSM) begin
-					membufi.ia <= robi.ia + {count,4'd0};
-					count <= count + 2'd1;
-				end
-				else begin
-					membufi.ia <= robi.ia;
-					count <= 6'd0;
-				end
-				membufi.ib <= robi.ib;
-				membufi.ic <= robi.ic;
-				membufi.dato <= robi.ib;
-				membufi.imm <= robi.imm;
-				membufi.wr <= TRUE;
-				tMod();
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.wr_fu <= FALSE;
-			end
+			tLoad(2'b01);
 		STx,STxX:
-			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
-			begin
-				membufi.rid <= rob_exec;
-				membufi.step <= robi.step;
-				membufi.ir <= robi.ir;
-				if (robi.ir[35:32]==LSM) begin
-					membufi.ia <= robi.ia + {count,4'd0};
-					count <= count + 2'd1;
-				end
-				else begin
-					membufi.ia <= robi.ia;
-					count <= 6'd0;
-				end
-				membufi.ib <= robi.ib;
-				membufi.ic <= robi.ic;
-				membufi.dato <= robi.ib;
-				membufi.imm <= robi.imm;
-				membufi.wr <= TRUE;
-				tMod();
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.wr_fu <= FALSE;
-			end
+			tStore(2'b01);
 		LDSx:
 			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
 			begin
@@ -985,15 +958,15 @@ else begin
 				membufi.imm <= robi.imm;
 				membufi.wr <= TRUE;
 				tMod();
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.wr_fu <= FALSE;
+				execo.cmt <= FALSE;
+				execo.cmt2 <= FALSE;
+				execo.wr_fu <= FALSE;
 			end
 			else if (robi.irmod.im.z)
 				tDoOp(64'd0);
 			else begin
 				tDoOp(64'd0);
-				robo.vrfwr <= FALSE;
+				execo.vrfwr <= FALSE;
 			end
 			end
 		STSx:
@@ -1011,10 +984,10 @@ else begin
 				membufi.imm <= robi.imm;
 				membufi.wr <= TRUE;
 				tMod();
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.wr_fu <= FALSE;
-				robo.out <= TRUE;
+				execo.cmt <= FALSE;
+				execo.cmt2 <= FALSE;
+				execo.wr_fu <= FALSE;
+				execo.out <= TRUE;
 			end
 			else if (robi.irmod.im.z) begin
 				membufi.rid <= rob_exec;
@@ -1027,14 +1000,14 @@ else begin
 				membufi.imm <= robi.imm;
 				membufi.wr <= TRUE;
 				tMod();
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.wr_fu <= FALSE;
-				robo.out <= TRUE;
+				execo.cmt <= FALSE;
+				execo.cmt2 <= FALSE;
+				execo.wr_fu <= FALSE;
+				execo.out <= TRUE;
 			end
 			else begin
 				tDoOp(64'd0);
-				robo.vrfwr <= FALSE;
+				execo.vrfwr <= FALSE;
 			end
 			end
 		CVLDSx:
@@ -1053,16 +1026,16 @@ else begin
 				membufi.imm <= robi.imm;
 				membufi.wr <= TRUE;
 				tMod();
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.wr_fu <= FALSE;
-				robo.out <= TRUE;
+				execo.cmt <= FALSE;
+				execo.cmt2 <= FALSE;
+				execo.wr_fu <= FALSE;
+				execo.out <= TRUE;
 			end
 			else if (robi.irmod.im.z)
 				tDoOp(64'd0);
 			else begin
 				tDoOp(64'd0);
-				robo.vrfwr <= FALSE;
+				execo.vrfwr <= FALSE;
 			end
 			end
 		CVSTSx:
@@ -1081,23 +1054,23 @@ else begin
 				membufi.imm <= robi.imm;
 				membufi.wr <= TRUE;
 				tMod();
-				robo.cmt <= FALSE;
-				robo.cmt2 <= FALSE;
-				robo.wr_fu <= FALSE;
-				robo.out <= TRUE;
+				execo.cmt <= FALSE;
+				execo.cmt2 <= FALSE;
+				execo.wr_fu <= FALSE;
+				execo.out <= TRUE;
 			end
 			else begin
 				tDoOp(64'd0);
-				robo.vrfwr <= FALSE;
+				execo.vrfwr <= FALSE;
 			end
 			end
 		CSR:
 			begin
-				robo.ia <= robi.ia;
+				execo.ia <= robi.ia;
 				case({robi.ir.r2.Ta,robi.ir.r2.Tt})
-				CSRR:	robo.res <= csrro;
+				CSRR:	execo.res <= csrro;
 				CSRW,CSRS,CSRC:	;
-//				CSRRW:	robo.res <= csrro;
+//				CSRRW:	execo.res <= csrro;
 				default:	;
 				endcase
 		    tMod();
@@ -1109,7 +1082,7 @@ else begin
 					case(robi.ia[5:0])
 					6'd15:	
 						begin
-							robo.res <= trace_dout;
+							execo.res <= trace_dout;
 							rd_trace <= TRUE;
 							tMod();
 						end
@@ -1121,7 +1094,7 @@ else begin
 					case(robi.ir.r2.Ra)
 					6'd15:	
 						begin
-							robo.res <= trace_dout;
+							execo.res <= trace_dout;
 							rd_trace <= TRUE;
 							tMod();
 						end
@@ -1133,7 +1106,7 @@ else begin
 					case(robi.ia[5:0])
 					6'd15:	
 						begin
-							robo.res <= trace_dout;
+							execo.res <= trace_dout;
 							tMod();
 						end
 					default:	;
@@ -1144,7 +1117,7 @@ else begin
 					case(robi.ir.r2.Ra)
 					6'd15:	
 						begin
-							robo.res <= trace_dout;
+							execo.res <= trace_dout;
 							tMod();
 						end
 					default:	;
@@ -1153,7 +1126,7 @@ else begin
 			PFI:
 				begin
 	      	if (irq_i != 1'b0)
-			    	robo.cause <= 16'h8000|cause_i;
+			    	execo.cause <= 16'h8000|cause_i;
 			    tMod();
 		  	end
 		  WFI:	begin set_wfi <= TRUE; tMod(); end
@@ -1167,35 +1140,47 @@ else begin
 					membufi.imm <= robi.imm;
 					membufi.wr <= TRUE;
 					tMod();
-					robo.cmt <= FALSE;
-					robo.cmt2 <= FALSE;
-					robo.wr_fu <= FALSE;
-					robo.out <= TRUE;
+					execo.cmt <= FALSE;
+					execo.cmt2 <= FALSE;
+					execo.wr_fu <= FALSE;
+					execo.out <= TRUE;
 				end
 `ifdef SUPPORT_EXEC
 			EXEC:
 				begin
-					robo.exec <= TRUE;
-					robo.res.val <= robi.ia.val;
+					execo.exec <= TRUE;
+					execo.res.val <= robi.ia.val;
 					tMod();
 				end
 `endif				
+			CSAVE:		tStore(2'b10);
+			CRESTORE:	tLoad(2'b10);
 			default:	;
 			endcase
+		// Some of the modifiers should never execute because they are committed
+		// immediately at decode.
+		RGLST0,RGLST1,RGLST2,RGLST3:	tMod();
 		EXI0,EXI1,EXI2:	tMod();
 		IMOD:
 			begin
-				robo.res <= robi.ia;
+				execo.update_c <= TRUE;
+				execo.update_d <= TRUE;
+				execo.ia <= robi.ia;
+				execo.ib <= robi.ib;
 				tMod();
 			end
 		BRMOD:
 			begin
-				robo.res <= robi.ia;
+				execo.update_c <= TRUE;
+				execo.ia <= robi.ia;
 				tMod();
 			end
 		STRIDE:
 			begin
-				robo.res <= robi.ia;
+				execo.update_c <= TRUE;
+				execo.update_d <= TRUE;
+				execo.ia <= robi.ia;
+				execo.ib <= robi.ib;
 				tMod();
 			end
 		8'hFF:
@@ -1205,86 +1190,86 @@ else begin
 			begin
 				case(robi.ir.r2.func)
 				ABS:	begin
-								robo.update_rob <= TRUE;
+								execo.update <= TRUE;
 								if (robi.vmask.val[robi.step]) begin
-									robo.res.val <= robi.ia[63] ? -robi.ia : robi.ia;
-									robo.cmt <= TRUE;
-									robo.cmt2 <= TRUE;
+									execo.res.val <= robi.ia[63] ? -robi.ia : robi.ia;
+									execo.cmt <= TRUE;
+									execo.cmt2 <= TRUE;
 								end
 								else if (robi.irmod.im.z)
-									robo.res.val <= 64'd0;
+									execo.res.val <= 64'd0;
 						  end
 				NABS:	begin
-								robo.update_rob <= TRUE;
+								execo.update <= TRUE;
 								if (robi.vmask.val[robi.step]) begin
-									robo.res.val <= robi.ia[63] ? robi.ia : -robi.ia;
-									robo.cmt <= TRUE;
-									robo.cmt2 <= TRUE;
+									execo.res.val <= robi.ia[63] ? robi.ia : -robi.ia;
+									execo.cmt <= TRUE;
+									execo.cmt2 <= TRUE;
 								end
 								else if (robi.irmod.im.z)
-									robo.res.val <= 64'd0;
+									execo.res.val <= 64'd0;
 						  end
 				NEG:	begin
-								robo.update_rob <= TRUE;
+								execo.update <= TRUE;
 								if (robi.vmask.val[robi.step]) begin
-									robo.res.val <= -robi.ia;
-									robo.cmt <= TRUE;
-									robo.cmt2 <= TRUE;
+									execo.res.val <= -robi.ia;
+									execo.cmt <= TRUE;
+									execo.cmt2 <= TRUE;
 								end
 								else if (robi.irmod.im.z)
-									robo.res.val <= 64'd0;
+									execo.res.val <= 64'd0;
 						  end
 				NOT:	begin
-								robo.update_rob <= TRUE;
+								execo.update <= TRUE;
 								if (robi.vmask.val[robi.step]) begin
-									robo.res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0;
-									robo.cmt <= TRUE;
-									robo.cmt2 <= TRUE;
+									execo.res.val <= robi.ia==64'd0 ? 64'd1 : 64'd0;
+									execo.cmt <= TRUE;
+									execo.cmt2 <= TRUE;
 								end
 								else if (robi.irmod.im.z)
-									robo.res.val <= 64'd0;
+									execo.res.val <= 64'd0;
 							end
 				CTLZ:	begin
-								robo.update_rob <= TRUE;
+								execo.update <= TRUE;
 								if (robi.vmask.val[robi.step]) begin
-									robo.res.val <= cntlzo;
-									robo.cmt <= TRUE;
-									robo.cmt2 <= TRUE;
+									execo.res.val <= cntlzo;
+									execo.cmt <= TRUE;
+									execo.cmt2 <= TRUE;
 								end
 								else if (robi.irmod.im.z)
-									robo.res.val <= 64'd0;
+									execo.res.val <= 64'd0;
 							end
 				CTPOP:begin
-								robo.update_rob <= TRUE;
+								execo.update <= TRUE;
 								if (robi.vmask.val[robi.step]) begin
-									robo.res.val <= cntpopo;
-									robo.cmt <= TRUE;
-									robo.cmt2 <= TRUE;
+									execo.res.val <= cntpopo;
+									execo.cmt <= TRUE;
+									execo.cmt2 <= TRUE;
 								end
 								else if (robi.irmod.im.z)
-									robo.res.val <= 64'd0;
+									execo.res.val <= 64'd0;
 							end
 				V2BITS:	
 					if (robi.iav) begin
 						if (robi.step==0) begin
 							if (robi.vmask[0]) begin
-								robo.res.val <= {63'd0,robi.ia.val[0]};
+								execo.res.val <= {63'd0,robi.ia.val[0]};
 								vtmp <= {63'd0,robi.ia.val[0]};
 							end
 							else if (robi.irmod.im.z) begin
-								robo.res.val <= 64'd0;
+								execo.res.val <= 64'd0;
 								vtmp <= 64'd0;
 							end
 						end
 						else begin
 							if (robi.vmask[robi.step]) begin
-								robo.res.val <= vtmp | (robi.ia.val[0] << robi.step);
+								execo.res.val <= vtmp | (robi.ia.val[0] << robi.step);
 								vtmp <= vtmp | (robi.ia.val[0] << robi.step);
 							end
 						end
 						tMod();
 						if (robi.step + 2'd1 >= vl)
-							robo.vcmt <= TRUE;
+							execo.vcmt <= TRUE;
 					end
 				BITS2V:
 					if (robi.iav) begin
@@ -1294,9 +1279,9 @@ else begin
 					begin
 						if (robi.step==6'd0)
 							vtmp[5:0] <= 6'd0;
-						robo.res <= robi.ia;
+						execo.res <= robi.ia;
 						if (robi.vmask[robi.step]) begin
-							robo.res_ele <= |robi.step ? vtmp[5:0] : 6'd0;
+							execo.res_ele <= |robi.step ? vtmp[5:0] : 6'd0;
 							vtmp[5:0] <= vtmp[5:0] + 2'd1;
 						end
 						tMod();
@@ -1305,19 +1290,19 @@ else begin
 					begin
 						if (robi.step==6'd0)
 							vtmp[5:0] <= 6'd0;
-						robo.res <= robi.ia * robi.step;
+						execo.res <= robi.ia * robi.step;
 						if (robi.vmask[robi.step]) begin
-							robo.res_ele <= |robi.step ? vtmp[5:0] : 6'd0;
+							execo.res_ele <= |robi.step ? vtmp[5:0] : 6'd0;
 							vtmp[5:0] <= vtmp[5:0] + 2'd1;
 						end
 						tMod();
 					end
 				VSCAN:
 					begin
-						robo.res.val <= vtmp;
+						execo.res.val <= vtmp;
 						if (robi.step==6'd0) begin
 							vtmp <= 64'd0;
-							robo.res.val <= 64'd0;
+							execo.res.val <= 64'd0;
 						end
 						else if (robi.vmask[robi.step])
 							vtmp <= vtmp + robi.ia.val;
@@ -1336,12 +1321,12 @@ else begin
 				XOR:	tDoOp(robi.ia.val ^ robi.ib.val);
 				SLL:	tDoOp(robi.ia.val << robi.ib.val[5:0]);
 				SLLI:	tDoOp(robi.ia.val << {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]});
-				SRL:	tDoOp(robo.res.val <= robi.ia.val >> robi.ib.val[5:0]);
-				SRLI:	tDoOp(robo.res.val <= robi.ia.val >> {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]});
+				SRL:	tDoOp(execo.res.val <= robi.ia.val >> robi.ib.val[5:0]);
+				SRLI:	tDoOp(execo.res.val <= robi.ia.val >> {robi.ir.r2.Tb[0],robi.ir.r2.Rb[4:0]});
 				DIF:
 					begin
 						tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ?
-							robo.ib.val - robi.ia.val : robi.ia.val - robi.ib.val);
+							robi.ib.val - robi.ia.val : robi.ia.val - robi.ib.val);
 					end
 				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
 					begin
@@ -1351,11 +1336,11 @@ else begin
 						mulreci.b <= robi.ib;
 						mulreci.wr <= TRUE;
 						tMod();
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.vcmt <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.vcmt <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				DIV,DIVU,DIVSU:
 					begin
@@ -1365,11 +1350,11 @@ else begin
 						divreci.b <= robi.ib;
 						divreci.wr <= TRUE;
 						tMod();
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.vcmt <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.vcmt <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				MULF:	tDoOp(robi.ia.val[23:0] * robi.ib.val[15:0]);
 				CMP:	tDoOp($signed(robi.ia.val) < $signed(robi.ib.val) ? -64'd1 : $signed(robi.ia.val) == $signed(robi.ib.val) ? 64'd0 : 64'd1);
@@ -1381,74 +1366,74 @@ else begin
 				SGEU:	tDoOp(robi.ia.val >= robi.ib.val);
 				SETM:
 					if (robi.step==6'd0) begin
-						robo.res.val <= 64'd0;
+						execo.res.val <= 64'd0;
 						vtmp <= 64'd0;
 						case(robi.ir[13:11])
-						3'd0:	begin robo.res.val[robi.step] <= robi.ia.val==robi.ib.val; vtmp <= robi.ia.val==robi.ib.val; end
-						3'd1:	begin robo.res.val[robi.step] <= robi.ia.val!=robi.ib.val; vtmp <= robi.ia.val!=robi.ib.val; end
-						3'd2:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); vtmp <= $signed(robi.ia.val)< $signed(robi.ib.val); end
-						3'd3:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); vtmp <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
-						3'd4:	begin robo.res.val[robi.step] <= robi.ia.val< robi.ib.val; vtmp <= robi.ia.val< robi.ib.val; end
-						3'd5:	begin robo.res.val[robi.step] <= robi.ia.val<=robi.ib.val; vtmp <= robi.ia.val<=robi.ib.val; end
+						3'd0:	begin execo.res.val[robi.step] <= robi.ia.val==robi.ib.val; vtmp <= robi.ia.val==robi.ib.val; end
+						3'd1:	begin execo.res.val[robi.step] <= robi.ia.val!=robi.ib.val; vtmp <= robi.ia.val!=robi.ib.val; end
+						3'd2:	begin execo.res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); vtmp <= $signed(robi.ia.val)< $signed(robi.ib.val); end
+						3'd3:	begin execo.res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); vtmp <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
+						3'd4:	begin execo.res.val[robi.step] <= robi.ia.val< robi.ib.val; vtmp <= robi.ia.val< robi.ib.val; end
+						3'd5:	begin execo.res.val[robi.step] <= robi.ia.val<=robi.ib.val; vtmp <= robi.ia.val<=robi.ib.val; end
 						default:	;
 						endcase
 						tMod();
 					end
 					else begin
-						robo.res.val <= vtmp;
+						execo.res.val <= vtmp;
 						case(robi.ir[13:11])
-						3'd0:	begin robo.res.val[robi.step] <= robi.ia.val==robi.ib.val; vtmp[robi.step] <= robi.ia.val==robi.ib.val; end
-						3'd1:	begin robo.res.val[robi.step] <= robi.ia.val!=robi.ib.val; vtmp[robi.step] <= robi.ia.val!=robi.ib.val; end
-						3'd2:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); vtmp[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); end
-						3'd3:	begin robo.res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); vtmp[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
-						3'd4:	begin robo.res.val[robi.step] <= robi.ia.val< robi.ib.val; vtmp[robi.step] <= robi.ia.val< robi.ib.val; end
-						3'd5:	begin robo.res.val[robi.step] <= robi.ia.val<=robi.ib.val; vtmp[robi.step] <= robi.ia.val<=robi.ib.val; end
+						3'd0:	begin execo.res.val[robi.step] <= robi.ia.val==robi.ib.val; vtmp[robi.step] <= robi.ia.val==robi.ib.val; end
+						3'd1:	begin execo.res.val[robi.step] <= robi.ia.val!=robi.ib.val; vtmp[robi.step] <= robi.ia.val!=robi.ib.val; end
+						3'd2:	begin execo.res.val[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); vtmp[robi.step] <= $signed(robi.ia.val)< $signed(robi.ib.val); end
+						3'd3:	begin execo.res.val[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); vtmp[robi.step] <= $signed(robi.ia.val)<=$signed(robi.ib.val); end
+						3'd4:	begin execo.res.val[robi.step] <= robi.ia.val< robi.ib.val; vtmp[robi.step] <= robi.ia.val< robi.ib.val; end
+						3'd5:	begin execo.res.val[robi.step] <= robi.ia.val<=robi.ib.val; vtmp[robi.step] <= robi.ia.val<=robi.ib.val; end
 						default:	;
 						endcase
 						tMod();
 					end
 				VEX:
 					if (robi.step_v) begin
-						robo.res.val <= robi.ib;
+						execo.res.val <= robi.ib;
 						tMod();
 					end
 					else begin
-						robo.step_v <= TRUE;
-						robo.step <= robi.ia[5:0];
+						execo.step_v <= TRUE;
+						execo.step <= robi.ia[5:0];
 					end
 				VEINS:
 					if (robi.step_v)
 						tDoOp(robi.ib);
 					else begin
-						robo.step_v <= TRUE;
-						robo.step <= robi.ia[5:0];
+						execo.step_v <= TRUE;
+						execo.step <= robi.ia[5:0];
 					end
 				VSLLV:
 					begin
 						if ({2'b0,robi.ia_ele} + robi.ib.val[11:6] <= vl) begin
-							robo.res_ele <= robi.ia_ele + robi.ib.val[11:6];
+							execo.res_ele <= robi.ia_ele + robi.ib.val[11:6];
 							tDoOp(sll_out2[63:0]|vtmp);
 							vtmp <= sll_out2[127:64];
 						end
 						else begin
-							robo.res_ele <= robi.ia_ele - vl - 2'd1;
+							execo.res_ele <= robi.ia_ele - vl - 2'd1;
 							tDoOp(64'd0);
 						end
 					end
 				VSRLV:
 					begin
 						if (robi.ia_ele >= robi.ib.val[11:6]) begin
-							robo.res_ele <= robi.ia_ele - robi.ib.val[11:6];
+							execo.res_ele <= robi.ia_ele - robi.ib.val[11:6];
 							tDoOp(vtmp|srl_out2[127:64]);
 							vtmp <= srl_out2[63:0];
 						end
 						else begin
-							robo.res_ele <= robi.ia_ele;
+							execo.res_ele <= robi.ia_ele;
 							tDoOp(64'd0);
 						end
 					end
 `ifdef SUPPORT_MYST				
-				MYST:	begin robo.res.val <= {robi.id.val[35:29],robi.ir[28:8],robi.id.val[7:0]}; robo.myst <= TRUE; tMod(); end
+				MYST:	begin execo.res.val <= {robi.id.val[35:29],robi.ir[28:8],robi.id.val[7:0]}; execo.myst <= TRUE; tMod(); end
 `endif					
 				default:	;
 				endcase
@@ -1456,53 +1441,52 @@ else begin
 		VR3:
 			begin
 				case(robi.ir.r2.func)
-				SLLP:	tDoOp(robo.res.val <= sll_out[63:0]);
+				SLLP:	tDoOp(execo.res.val <= sll_out[63:0]);
 				PTRDIF:	tDoOp(((robi.ia.val < robi.ib.val) ? robi.ib.val - robi.ia.val : robi.ia.val - robi.ib.val) >> robi.ic.val[4:0]);
 				CHK:
 					case(robi.ir.r2.func)
 					3'd0:
 						if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.ib.val)) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd1:
 						if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.ib.val)) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd2:
 						if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.ib.val)) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd3:
 						if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.ib.val)) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd4:
 						if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.ib.val))) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd5:
 						if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.ib.val))) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd6:
 						if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.ib.val))) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					3'd7:
 						if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.ib.val))) begin
-							robo.cause <= FLT_CHK;
+							execo.cause <= FLT_CHK;
 							tMod();
 						end
 					default:
 						begin
-							robo.ui <= TRUE;
 							tMod();
 						end
 					endcase
@@ -1522,11 +1506,11 @@ else begin
 						mulreci.imm <= robi.imm;
 						mulreci.wr <= TRUE;
 						tMod(); 
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.vcmt <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.vcmt <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				end
 		VDIVI,VDIVUI,VDIVSUI:
@@ -1537,11 +1521,11 @@ else begin
 						divreci.imm <= robi.imm;
 						divreci.wr <= TRUE;
 						tMod(); 
-						robo.cmt <= FALSE;
-						robo.cmt2 <= FALSE;
-						robo.vcmt <= FALSE;
-						robo.wr_fu <= FALSE;
-						robo.out <= TRUE;
+						execo.cmt <= FALSE;
+						execo.cmt2 <= FALSE;
+						execo.vcmt <= FALSE;
+						execo.wr_fu <= FALSE;
+						execo.out <= TRUE;
 					end
 				end
 		VMULFI:	tDoOp(robi.ia.val[23:0] * robi.imm[15:0]);
@@ -1650,22 +1634,22 @@ else begin
 	    end
 	  VM:
 			case(robi.ir.r2.func)
-			MTM:	begin robo.res.val <= robi.ia.val; tMod(); end
-			MFM:	if (robi.vmv) begin robo.res.val <= robi.vmask; tMod(); end
-			VMADD:begin robo.res.val <= robi.ia.val + robi.ib.val; tMod(); end
-			MAND:	begin robo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
-			MOR:	begin robo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
-			MXOR:	begin robo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
+			MTM:	begin execo.res.val <= robi.ia.val; tMod(); end
+			MFM:	if (robi.vmv) begin execo.res.val <= robi.vmask; tMod(); end
+			VMADD:begin execo.res.val <= robi.ia.val + robi.ib.val; tMod(); end
+			MAND:	begin execo.res.val <= robi.ia.val & robi.ib.val; tMod(); end
+			MOR:	begin execo.res.val <= robi.ia.val | robi.ib.val; tMod(); end
+			MXOR:	begin execo.res.val <= robi.ia.val ^ robi.ib.val; tMod(); end
 			MFILL:	begin 
 								for (n = 0; n < 64; n = n + 1)
-									robo.res.val[n] <= n[5:0] <= robi.ia.val[5:0];
+									execo.res.val[n] <= n[5:0] <= robi.ia.val[5:0];
 								tMod();
 							end
-			MSLL:	begin robo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
-			MSRL:	begin robo.res.val <= robi.ia.val >> robi.ib.val[5:0]; tMod(); end
-			MPOP: begin robo.res.val <= cntpopo; tMod(); end
-			MFIRST:	begin robo.res.val <= floo; tMod(); end
-			MLAST:	begin robo.res.val <= ffoo; tMod(); end
+			MSLL:	begin execo.res.val <= robi.ia.val << robi.ib.val[5:0]; tMod(); end
+			MSRL:	begin execo.res.val <= robi.ia.val >> robi.ib.val[5:0]; tMod(); end
+			MPOP: begin execo.res.val <= cntpopo; tMod(); end
+			MFIRST:	begin execo.res.val <= floo; tMod(); end
+			MLAST:	begin execo.res.val <= ffoo; tMod(); end
 			default:	;
 	  	endcase
 `ifdef U10NDX
@@ -1758,56 +1742,56 @@ else begin
 				case(robi.ir.r2.Rt[2:0])
 				3'd0:
 					if (!(robi.ic.val <= robi.ia.val && robi.ia.val <= robi.imm)) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd1:
 					if (!(robi.ic.val < robi.ia.val && robi.ia.val <= robi.imm)) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd2:
 					if (!(robi.ic.val <= robi.ia.val && robi.ia.val < robi.imm)) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd3:
 					if (!(robi.ic.val < robi.ia.val && robi.ia.val < robi.imm)) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd4:
 					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm))) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd5:
 					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) <= $signed(robi.imm))) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd6:
 					if (!($signed(robi.ic.val) <= $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm))) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				3'd7:
 					if (!($signed(robi.ic.val) < $signed(robi.ia.val) && $signed(robi.ia.val) < $signed(robi.imm))) begin
-						robo.cause <= FLT_CHK;
+						execo.cause <= FLT_CHK;
 						tMod();
 					end
 				endcase
 			end
 `ifdef SUPPORT_MYST
-		VMYSTI:	begin robo.res.val <= {robi.id.val[35:20],robi.ir[19:8],robi.id.val[7:0]}; robo.myst <= TRUE; tMod(); end
+		VMYSTI:	begin execo.res.val <= {robi.id.val[35:20],robi.ir[19:8],robi.id.val[7:0]}; execo.myst <= TRUE; tMod(); end
 `endif
 		VSYS:
 			case(robi.ir.r2.func)
 `ifdef SUPPORT_EXEC
 			EXEC:
 				begin
-					robo.exec <= TRUE;
-					robo.res.val <= robi.ia.val;
+					execo.exec <= TRUE;
+					execo.res.val <= robi.ia.val;
 					tMod();
 				end
 `endif				
@@ -1816,9 +1800,9 @@ else begin
 `endif
 		default:	;
 		endcase
-		end
-		end
-	end
+		end // if (!robi.out)
+		end // if (robi.dec)
+	end // if (robi.v && !robi.cmt && rob_exec != 6'd63)
 	else begin
 		/*
 		if (robi.v==INV)
@@ -1831,34 +1815,185 @@ else begin
 	end
 end
 
+task tBal;
+input opt;
+begin
+	//execo.jump <= TRUE;
+	//execo.jump_tgt <= robi.ip + robi.imm;
+	execo.res.val <= opt ? fnIncIP5(robi.ip) : fnIncIP(robi.ip);
+	a2d_rst <= TRUE;
+	d2x_rst <= TRUE;
+	ex_redirect.redirect_ip <= robi.ip + robi.imm;
+	ex_redirect.current_ip <= robi.ip;
+	ex_redirect.xrid <= rob_exec;
+	ex_redirect.step <= 6'd0;
+	ex_redirect.wr <= TRUE;
+	execo.update <= TRUE;
+	execo.cmt <= FALSE;
+	execo.cmt2 <= FALSE;
+end
+endtask
+
+task tBranch;
+begin
+	execo.takb <= ex_takb;
+	execo.res.val <= fnIncIP(robi.ip);
+	tMod();
+	if (brMispredict) begin
+		a2d_rst <= TRUE;
+		d2x_rst <= TRUE;
+		ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
+		//ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
+		ex_redirect.current_ip <= robi.ip;
+		ex_redirect.step <= 6'd0;
+		ex_redirect.xrid <= rob_exec;
+		ex_redirect.wr <= TRUE;
+		restore_rfsrc <= TRUE;
+		execo.cmt <= FALSE;
+		execo.cmt2 <= FALSE;
+	end
+	else if (brAddrMispredict) begin
+		a2d_rst <= TRUE;
+		d2x_rst <= TRUE;
+		ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
+		//ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
+		ex_redirect.current_ip <= robi.ip;
+		ex_redirect.step <= 6'd0;
+		ex_redirect.xrid <= rob_exec;
+		ex_redirect.wr <= TRUE;
+		execo.cmt <= FALSE;
+		execo.cmt2 <= FALSE;
+		restore_rfsrc <= TRUE;
+	end
+end
+endtask
+
+task tJalr;
+begin
+	//execo.jump <= TRUE;
+	//execo.jump_tgt <= robi.ia.val + robi.imm;
+	execo.res <= fnIncIP(robi.ip);
+	a2d_rst <= TRUE;
+	d2x_rst <= TRUE;
+	ex_redirect.redirect_ip <= robi.ia.val + robi.imm;
+	ex_redirect.current_ip <= robi.ip;
+	ex_redirect.step <= 6'd0;
+	ex_redirect.xrid <= rob_exec;
+	ex_redirect.wr <= TRUE;
+	execo.cmt <= FALSE;
+	execo.cmt2 <= FALSE;
+	execo.update <= TRUE;
+end
+endtask
+
+
+// For a LDM if Rt is zero there is nothing left to load. Do not run a bus
+// cycle. The micro-code may pass the load operation for a couple of cycles
+// beyond the point where it is finished.
+
+task tLoad;
+input [1:0] opt;
+begin
+	membufi.rid <= rob_exec;
+	membufi.step <= robi.step;
+	membufi.ir <= robi.ir;
+	membufi.ib <= robi.ib;
+	membufi.ic <= robi.ic;
+	membufi.dato <= robi.ib;
+	membufi.imm <= robi.imm;
+	tMod();
+	execo.cmt <= FALSE;
+	execo.cmt2 <= FALSE;
+	execo.wr_fu <= FALSE;
+	if (opt==2'b10) begin
+		membufi.ia <= tcbptr + {robi.Rtseg,robi.Rt[4:0],3'h0};
+		membufi.wr <= TRUE;
+	end
+	else if (robi.ir[35:32]==LSM && opt==2'b01) begin
+		membufi.ia <= robi.ia + {count,3'd0};
+		count <= count + 2'd1;
+		if (robi.Rt != 6'd0)
+			membufi.wr <= TRUE;
+		else begin
+			execo.cmt <= TRUE;
+			execo.cmt2 <= TRUE;
+		end
+	end
+	else begin
+		membufi.ia <= robi.ia;
+		count <= 6'd0;
+		membufi.wr <= TRUE;
+	end
+end
+endtask
+
+// For STM if Rb is zero there there is nothing more to do. Do not run a bus
+// cycle.
+
+task tStore;
+input [1:0] opt;
+begin
+	exvec <= 4'd5;
+	membufi.rid <= rob_exec;
+	membufi.step <= robi.step;
+	membufi.ir <= robi.ir;
+	membufi.ib <= robi.ib;
+	membufi.ic <= robi.ic;
+	membufi.dato <= robi.ib;
+	membufi.imm <= robi.imm;
+	tMod();
+	execo.cmt <= FALSE;
+	execo.cmt2 <= FALSE;
+	execo.wr_fu <= FALSE;
+	if (opt==2'b10) begin
+		membufi.ia <= tcbptr + {robi.Rbseg,robi.Rb[4:0],3'h0};
+		membufi.wr <= TRUE;
+	end
+	else if (robi.ir[35:32]==LSM && opt==2'b01) begin
+		membufi.ia <= robi.ia + {count,3'd0};
+		count <= count + 2'd1;
+		if (robi.Rb != 7'd0)
+			membufi.wr <= TRUE;
+		else begin
+			execo.cmt <= TRUE;
+			execo.cmt2 <= TRUE;
+		end
+	end
+	else begin
+		membufi.ia <= robi.ia;
+		count <= 6'd0;
+		membufi.wr <= TRUE;
+	end
+end
+endtask
 
 task tDoOp;
 input Value res;
 begin
-	robo.update_rob <= TRUE;
-	robo.out <= TRUE;
+	execo.update <= TRUE;
+	execo.out <= TRUE;
 	if (robi.vmask.val[robi.step])
-		robo.res.val <= res.val;
+		execo.res.val <= res.val;
 	else if (robi.irmod.im.z)
-		robo.res.val <= {VALUE_SIZE{1'd0}};
-	robo.cmt <= TRUE;
-	robo.cmt2 <= TRUE;
+		execo.res.val <= {VALUE_SIZE{1'd0}};
+	execo.cmt <= TRUE;
+	execo.cmt2 <= TRUE;
 	if (robi.step >= vl) begin
 		vtmp <= 64'h0;
-		robo.vcmt <= TRUE;
+		execo.vcmt <= TRUE;
 	end
 end
 endtask
 
 task tMod;
 begin
-	robo.cmt <= TRUE;
-	robo.cmt2 <= TRUE;
-	robo.update_rob <= TRUE;
-	robo.vcmt <= robi.step >= vl;
+	execo.cmt <= TRUE;
+	execo.cmt2 <= TRUE;
+	execo.update <= TRUE;
+	execo.vcmt <= robi.step >= vl;
 	if (robi.step >= vl) begin
 		vtmp <= 64'h0;
-		robo.vcmt <= TRUE;
+		execo.vcmt <= TRUE;
 	end
 end
 endtask
