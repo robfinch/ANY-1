@@ -24,6 +24,7 @@
 // ============================================================================
 //
 #include "stdafx.h"
+#include <conio.h>
 #define I_RR	002
 #define I_JRL	0xD3
 
@@ -84,7 +85,8 @@
 #define I_GCSUBI	0x37
 #define I_ADDUI	0x38
 #define I_ANDUI	0x3A
-#define I_ORUI	0x3C
+#define I_LINK	0x000075E3C
+#define I_UNLINK	0x000075E3D	// 0_0111_0101_1110_0011_1101
 #define I_AUIIP	0x3E
 
 #define I_RTE		0x45
@@ -152,7 +154,6 @@
 #define I_LDTS	0x84
 #define I_LDTUS 0x85
 #define I_LDOS	0x86
-#define I_UNLINK	0x8F
 
 #define I_LEA		0x91
 #define I_FLDO	0x92
@@ -182,7 +183,6 @@
 #define I_PUSHC	0xA9
 #define I_PUSH	0xAA
 #define I_FSTO	0xAB
-#define I_LINK	0xAD
 #define I_STX		0xAF
 #define I_STB		0xB8
 #define I_STW		0xB9
@@ -260,20 +260,20 @@
 #define I_CMPUR2B	0x15
 
 // Shift Operations
-#define I_SHL		0x0
-#define I_SHLI	0x8
-#define I_ASL		0x0
-#define I_ASLI	0x8
-#define I_LSR		0x1
-#define I_LSRI  0x9
-#define I_SHR		0x1
-#define I_SHRI	0x9
-#define I_ASR		0x4
-#define I_ASRI	0xC
-#define I_ROL		0x2
-#define I_ROLI	0xA
-#define I_ROR		0x3
-#define I_RORI	0xB
+#define I_SHL		0x40
+#define I_SHLI	0x48
+#define I_ASL		0x40
+#define I_ASLI	0x48
+#define I_LSR		0x41
+#define I_LSRI  0x49
+#define I_SHR		0x41
+#define I_SHRI	0x49
+#define I_ASR		0x42
+#define I_ASRI	0x4A
+#define I_ROL		0x43
+#define I_ROLI	0x4B
+#define I_ROR		0x44
+#define I_RORI	0x4C
 #define I_ASLX	0x5
 #define I_ASLXI	0xD
 
@@ -561,7 +561,7 @@ static int getRegisterX()
 					return (-1);
 				if (!isIdentChar(inptr[3])) {
 					inptr += 3;
-					reg = 96 + inptr[2] - '0';
+					reg = 1 + inptr[2] - '0';
 					any1_NextToken();	// Will modify inptr!
 					return (reg);
 				}
@@ -570,7 +570,7 @@ static int getRegisterX()
 			else if (!isIdentChar(inptr[2])) {
 				inptr += 2;
 				any1_NextToken();
-				return (96);
+				return (1);
 			}
 			return (-1);
     }
@@ -1805,7 +1805,7 @@ static void LoadConstant(int64_t val, int rg)
 {
 	int64_t val1, val2;
 
-	if (IsNBit(val, 7LL)) {
+	if (IsNBit(val, 7LL) && gCanCompress) {
 		emit_insn((val << 13LL) | (rg << 8LL) | I_LDI20, 5);
 		return;
 	}
@@ -1930,9 +1930,9 @@ static void process_getzl(int oc)
 	emit_insn(
 		FUNC6(oc) |
 		RT(Rd) |
-		I_OSR2, true
+		I_OSR2
 	);
-	prevToken();
+	//prevToken();
 }
 
 static void process_permi(int64_t opcode6, int64_t func6, int64_t bit23)
@@ -2076,27 +2076,27 @@ static void process_riop(int64_t opcode6, int64_t func6, int64_t bit23)
 			opcode6, true);
 			goto xit;
 	}
-	if (opcode6 == I_ADDI && Rt==regSP && Ra==regSP && (val & 7LL) == 0 && IsNBit(val, 10)) {
+	if (opcode6 == I_ADDI && Rt==regSP && Ra==regSP && (val & 7LL) == 0 && IsNBit(val, 10) && gCanCompress) {
 		emit_insn(((val >> 3LL) << 13) | (Rt << 8) | I_ADDI20, 5);
 		goto xit;
 	}
-	if (opcode6 == I_ANDI && Rt == regSP && Ra == regSP && (val & 7LL) == 0 && IsNBit(val, 10)) {
+	if (opcode6 == I_ANDI && Rt == regSP && Ra == regSP && (val & 7LL) == 0 && IsNBit(val, 10) && gCanCompress) {
 		emit_insn(((val >> 3LL) << 13LL) | (Rt << 8) | I_ANDI20, 5);
 		goto xit;
 	}
-	if (opcode6 == I_ORI && Rt == regSP && Ra == regSP && (val & 7LL) == 0 && IsNBit(val, 10)) {
+	if (opcode6 == I_ORI && Rt == regSP && Ra == regSP && (val & 7LL) == 0 && IsNBit(val, 10) && gCanCompress) {
 		emit_insn(((val >> 3LL) << 13LL) | (Rt << 8) | I_ORI20, 5);
 		goto xit;
 	}
-	if (opcode6 == I_ADDI && IsNBit(val, 7) && Rt==Ra) {
+	if (opcode6 == I_ADDI && IsNBit(val, 7) && Rt==Ra && gCanCompress) {
 		emit_insn((val << 13) | (Rt << 8) | I_ADDI20, 5);
 		goto xit;
 	}
-	if (opcode6 == I_ANDI && IsNBit(val, 7) && Rt==Ra) {
+	if (opcode6 == I_ANDI && IsNBit(val, 7) && Rt==Ra && gCanCompress) {
 		emit_insn((val << 13) | (Rt << 8) | I_ANDI20, 5);
 		goto xit;
 	}
-	if (opcode6 == I_ORI && IsNBit(val, 7) && Rt==Ra) {
+	if (opcode6 == I_ORI && IsNBit(val, 7) && Rt==Ra && gCanCompress) {
 		emit_insn((val << 13) | (Rt << 8) | I_ORI20, 5);
 		goto xit;
 	}
@@ -2149,7 +2149,7 @@ static void process_setiop(int64_t opcode6, int64_t func6, int64_t bit23)
 		RA(Ra) |
 		opcode6
 	);
-	prevToken();
+	//prevToken();
 	ScanToEOL();
 }
 
@@ -2200,7 +2200,7 @@ static void process_setop(int64_t funct6, int64_t opcode6, int64_t bit23)
 			RA(Ra) |
 			I_SET
 		);
-	prevToken();
+	//prevToken();
 	ScanToEOL();
 }
 
@@ -2240,7 +2240,7 @@ static void process_fsetop(int64_t funct6)
 		RA(Ra) |
 		I_FLT2
 	);
-	prevToken();
+	//prevToken();
 	ScanToEOL();
 }
 
@@ -2305,29 +2305,29 @@ static void process_rrop()
 	Ra = Ra & 0x1f;
 	Rb = Rb & 0x1f;
 	Rt = Rt & 0x1f;
-	if (Ra == Rt && IsRn3(Ra) >= 0 && IsRn3(Rb) >= 0 && funct6 == I_SUB2) {
+	if (Ra == Rt && IsRn3(Ra) >= 0 && IsRn3(Rb) >= 0 && funct6 == I_SUB2 && gCanCompress) {
 		emit_insn((IsRn3(Rb) << 13LL) | (IsRn3(Rt) << 8LL) | I_SUB20, 5);
 		goto xit;
 	}
-	if (Ra == Rt && IsRn3(Ra) >= 0 && IsRn3(Rb) >= 0 && funct6 == I_OR2) {
+	if (Ra == Rt && IsRn3(Ra) >= 0 && IsRn3(Rb) >= 0 && funct6 == I_OR2 && gCanCompress) {
 		emit_insn((IsRn3(Rb) << 13LL) | (IsRn3(Rt) << 8LL) | I_OR20, 5);
 		goto xit;
 	}
-	if (Ra == Rt && IsRn3(Ra) >= 0 && IsRn3(Rb) >= 0 && funct6 == I_XOR2) {
+	if (Ra == Rt && IsRn3(Ra) >= 0 && IsRn3(Rb) >= 0 && funct6 == I_XOR2 && gCanCompress) {
 		emit_insn((IsRn3(Rb) << 13LL) | (IsRn3(Rt) << 8LL) | I_XOR20, 5);
 		goto xit;
 	}
-	if (Ra == Rt && funct6 == I_ADD2) {
+	if (Ra == Rt && funct6 == I_ADD2 && gCanCompress) {
 		emit_insn(((Rb) << 13LL) | ((Rt) << 8LL) | I_ADD20, 5);
 		goto xit;
 	}
-	if (Ra == Rt && funct6 == I_AND2) {
+	if (Ra == Rt && funct6 == I_AND2 && gCanCompress) {
 		emit_insn(((Rb) << 13LL) | ((Rt) << 8LL) | I_AND20, 5);
 		goto xit;
 	}
 	emit_insn(FUNC6(funct6) | RB(Rb) | RT(Rt) | RA(Ra) | I_R2);
 	xit:
-		prevToken();
+		//prevToken();
 		ScanToEOL();
 }
        
@@ -2389,7 +2389,7 @@ static void process_cmp()
 	Rb = Rb & 0x1f;
 	emit_insn(FUNC6(funct6) | RB(Rb) | RT(Rt) | RA(Ra) | I_R2);
 xit:
-	prevToken();
+	//prevToken();
 	ScanToEOL();
 }
 
@@ -2439,7 +2439,7 @@ static void process_ptrdif()
 	emit_insn((3)<<29LL|RB(0)|RA(sc)|I_IMOD);
 	emit_insn(instr | FUNC6(funct6) | RB(Rb) | RT(Rt) | RA(Ra) | opcode);
 xit:
-	prevToken();
+	//prevToken();
 	ScanToEOL();
 }
 
@@ -2529,7 +2529,7 @@ static void process_cmove(int64_t funct6)
 	}
 	prevToken();
 	Rc = getRegisterX();
-	prevToken();
+	//prevToken();
 	ScanToEOL();
 }
 
@@ -2577,12 +2577,12 @@ static void process_jal(int64_t oc, int opt)
 	j1:
 		Ra = getRegisterX();
 		if (Ra == -1) {
-			printf("Expecting a register\r\n");
+			error("Expecting a register\r\n");
 			goto xit;
 		}
 		// Simple jmp [Rn]
 		if (token != ')' && token != ']')
-			printf("Missing close bracket %d\n", lineno);
+			error("Missing close bracket");
 		emit_insn(RA(Ra) | RD(Rt) | I_JAL);
 		goto xit;
 	}
@@ -2608,7 +2608,7 @@ static void process_jal(int64_t oc, int opt)
     if (token=='(' || token=='[') {
         Ra = getRegisterX();
         if (Ra==-1) {
-            printf("Illegal jump address mode.\r\n");
+            error("Illegal jump address mode");
             Ra = 0;
         }
 		if (Ra==regPC)	// program counter relative ?
@@ -2873,7 +2873,7 @@ static void process_fpstat(int oc)
        any1_NextToken();
        bits = expr();
     }
-    prevToken();
+    //prevToken();
 	emit_insn(
 		((bits & 0x3F) << 18) |
 		(oc << 12) |	// ToDo Fix this
@@ -2922,7 +2922,7 @@ static void process_rop(int oc)
 		RA(Ra) |
 		I_R1
 		);
-	prevToken();
+//	prevToken();
 }
 
 // ---------------------------------------------------------------------------
@@ -2960,7 +2960,7 @@ static void process_popq(int oc)
 		RA(Ra) |
 		I_OSR2
 	);
-	prevToken();
+	//prevToken();
 }
 
 static void process_ptrop(int oc, int func)
@@ -2981,7 +2981,7 @@ static void process_ptrop(int oc, int func)
 		RA(Ra) |
 		0x02
 	);
-	prevToken();
+	//prevToken();
 }
 
 // ---------------------------------------------------------------------------
@@ -3044,7 +3044,7 @@ static void process_bcc()
 	}
 	if (Ra & 0x40)
 		error("Register value required");
-	if ((Rb == 0 || (Rb & 0x7f) == 0x40) && IsNBit(disp, 7)) {
+	if ((Rb == 0 || (Rb & 0x7f) == 0x40) && IsNBit(disp, 7) && gCanCompress) {
 		if (opcode6 == I_BEQ) {
 			emit_insn((disp << 13LL) | (Ra << 8) | I_BEQZ20, 5);
 			goto xit;
@@ -3180,7 +3180,7 @@ static void process_beqi(int64_t opcode6, int64_t opcode3)
 
 static void process_bitfield(int64_t oc, int64_t fn)
 {
-	int Ra, Rb, Rc;
+	int Ra, Rb, Rc, Rd=0;
 	int Rt;
 	int64_t mb;
 	int64_t me;
@@ -3201,20 +3201,12 @@ static void process_bitfield(int64_t oc, int64_t fn)
 	need(',');
 	p = inptr;
 	Rb = getRegisterX();
-	if (Rb == -1) {
-		inptr = p;
-		any1_NextToken();
-		mb = expr();
-		gmb = true;
-	}
 	need(',');
 	p = inptr;
 	Rc = getRegisterX();
-	if (Rc == -1) {
-		inptr = p;
-		any1_NextToken();
-		me = expr();
-		gme = true;
+	if (oc == I_DEP) {
+		need(',');
+		Rd = getRegisterX();
 	}
 	if (!gme) {
 		switch (oc) {
@@ -3232,9 +3224,8 @@ static void process_bitfield(int64_t oc, int64_t fn)
 			break;
 		}
 	}
-	if (gme != gmb)
-		error("Bitfield spec must be both register or both constant");
-	emit_insn(op);
+	emit_insn((((Rc >> 6LL) & 1LL) << 27LL) |RB(Rd) | RA(Rc) | I_IMOD);
+	emit_insn(FUNC6(oc) | RB(Rb) | RA(Ra) | RT(Rt) | 0x1C);
 //	ScanToEOL();
 	prevToken();
 }
@@ -3254,7 +3245,7 @@ static void process_bra(int oc, int cond)
   any1_NextToken();
   val = expr();
 	disp = val - code_address;
-	if (IsNBit(disp, 13LL))
+	if (IsNBit(disp, 13LL) && gCanCompress)
 		emit_insn((disp << 10LL) | I_BAL20,5);
 	else
 		emit_insn(((disp) << 10LL) | I_BAL);
@@ -3440,8 +3431,8 @@ static void process_call(int opcode, int opt)
 	}
 	if (Ra == 0 && rel) {
 		val = disp;
-		if (IsNBit(disp, 13LL)) {
-			emit_insn((val << 10LL) | ((lk) << 8LL) | I_BAL, 5);
+		if (IsNBit(disp, 10LL) && gCanCompress) {
+			emit_insn((val << 10LL) | ((lk) << 8LL) | I_BAL20, 5);
 			return;
 		}
 		if (code_bits < 25) {
@@ -3524,8 +3515,11 @@ static void process_ret(int64_t opcode)
 		}
 	}
 	*/
-	emit_insn((1 << 13) | I_JALR20,5);
-//	emit_insn(IMM(stkadj) | RA(30) | RT(30) | I_RET);
+	if (gCanCompress)
+		emit_insn((1 << 13) | I_JALR20,5);
+	else
+		emit_insn(RA(1) | I_JALR);
+	//	emit_insn(IMM(stkadj) | RA(30) | RT(30) | I_RET);
 }
 
 // ---------------------------------------------------------------------------
@@ -3638,9 +3632,10 @@ static void process_link(int64_t oc)
 
 	any1_NextToken();
 	amt = expr();
-	emit_insn(
-		(amt << 8LL)|
-		oc,true);
+	if (amt < 0 || amt > 32767)
+		error("LINK: amount too large.");
+	amt = -amt;
+	emit_insn((amt << 20LL)|oc);
 }
 
 // ---------------------------------------------------------------------------
@@ -3662,7 +3657,7 @@ static void GetIndexScale(int *sc)
 	case 16: *sc = 4; break;
 	case 32: *sc = 5; break;
 	case 64: *sc = 6; break;
-	default: printf("Illegal scaling factor.\r\n");
+	default: error("Illegal scaling factor");
 	}
 }
 
@@ -3742,12 +3737,12 @@ j1:
      if (token=='[') {
          *regA = getRegisterX();
          if (*regA == -1) {
-             printf("expecting a register\r\n");
+             error("expecting a register");
          }
 		 if (token=='+') {
 			 *regB = getRegisterX();
 			 if (*regB == -1) {
-				 printf("expecting a register\r\n");
+				 error("expecting a register");
 			 }
               if (token=='*') {
                   GetIndexScale(Sc);
@@ -3777,12 +3772,12 @@ static void mem_voperand(int64_t *disp, int *regA, int *regB)
      if (token=='[') {
          *regA = getRegisterX();
          if (*regA == -1) {
-             printf("expecting a register\r\n");
+             error("expecting a register");
          }
 		 if (token=='+') {
 			 *regB = getVecRegister();
 			 if (*regB == -1) {
-				 printf("expecting a vector register: %d\r\n", lineno);
+				 error("expecting a vector register");
 			 }
 		 }
          need(']');
@@ -3827,8 +3822,8 @@ static void process_store()
 	if (!lsm) {
 		Rs = getRegisterX();
 		if (Rs < 0) {
-			printf("Expecting a source register (%d).\r\n", lineno);
-			printf("Line:%.60s\r\n", inptr);
+			error("Expecting a source register");
+			//printf("Line:%.60s\r\n", inptr);
 			ScanToEOL();
 			return;
 		}
@@ -3870,10 +3865,16 @@ static void process_store()
 		else
 			val -= data_base_address;
 	}
+	else if (Ra == regPC) {
+		val -= code_address;
+		if (val & 1LL)
+			error("Store: unaligned data");
+		val >>= 1LL;
+	}
 	if (lsm) {
 		emit_insn(((rglist >> 2LL) << 8LL) | (rglist & 3LL) | 0x5C);
 	}
-	if (IsNBit(val, 10) && (val & 7LL) == 0 && Ra == regSP) {
+	if (IsNBit(val, 10) && (val & 7LL) == 0 && Ra == regSP && gCanCompress) {
 		emit_insn(((val >> 3LL) << 13LL) | (Ra << 8) | I_STOSP20,5);
 		goto xit;
 	}
@@ -3965,8 +3966,8 @@ static void process_sv(int64_t opcode6)
 	ar = (int)((aq << 1LL) | rl);
 	Vs = getVecRegister();
     if (Vs < 0 || Vs > 63) {
-        printf("Expecting a vector source register (%d).\r\n", lineno);
-        printf("Line:%.60s\r\n",inptr);
+        error("Expecting a vector source register");
+        //printf("Line:%.60s\r\n",inptr);
         ScanToEOL();
         return;
     }
@@ -4061,8 +4062,8 @@ static void process_load()
 	if (!lsm) {
 		Rt = getRegisterX();
 		if (Rt < 0) {
-			printf("Expecting a target register (%d).\r\n", lineno);
-			printf("Line:%.60s\r\n", p);
+			error("Expecting a target register");
+			//printf("Line:%.60s\r\n", p);
 			ScanToEOL();
 			inptr -= 2;
 			return;
@@ -4090,7 +4091,18 @@ static void process_load()
 		else
 			val -= data_base_address;
 	}
+	else if (Ra == regPC) {
+		val -= code_address;
+		if (val & 1LL)
+			error("Load: unaligned data");
+		val >>= 1LL;
+	}
 
+	/*
+	if (val & 1LL)
+		error("Load: unaligned data");
+	val >>= 1LL;
+	*/
 	if (lsm) {
 		emit_insn(((rglist >> 2LL) << 8LL) | (rglist & 3LL) | 0x5C);
 	}
@@ -4102,7 +4114,7 @@ static void process_load()
 		return;
 	}
 
-	if (IsNBit(val, 10) && (val & 7LL) == 0 && Ra == regSP) {
+	if (IsNBit(val, 10) && (val & 7LL) == 0 && Ra == regSP && gCanCompress) {
 		emit_insn(((val >> 3LL) << 13LL) | (Ra << 8) | I_LDOSP20,5);
 		return;
 	}
@@ -4155,7 +4167,12 @@ static void process_cache(int opcode6)
 		ScanToEOL();
 		return;
 	}
-
+	if (Ra == regPC) {
+		val -= code_address;
+		if (val & 1LL)
+			error("Cache: unaligned data");
+		val >>= 1LL;
+	}
 	if (Ra <= 0) Ra = 0x40;
 	if (IsNBit(val, 12)) {
 		emit_insn(FUNC4(opcode6) | ((val & 0xfffLL) << 20LL) | RA(Ra) | RT(cmd) | opcode6);
@@ -4185,8 +4202,8 @@ static void process_lv(int opcode6)
     p = inptr;
 	Vt = getVecRegister();
     if (Vt < 0) {
-        printf("Expecting a vector target register (%d).\r\n", lineno);
-        printf("Line:%.60s\r\n",p);
+        error("Expecting a vector target register");
+        //printf("Line:%.60s\r\n",p);
         ScanToEOL();
         inptr-=2;
         return;
@@ -4254,8 +4271,8 @@ static void process_lsfloat(int64_t opcode6, int64_t opcode3)
   p = inptr;
   Rt = getFPRegister();
   if (Rt < 0) {
-      printf("Expecting a float target register (1:%d).\r\n", lineno);
-      printf("Line:%.60s\r\n",p);
+      error("Expecting a float target register");
+      //printf("Line:%.60s\r\n",p);
       ScanToEOL();
       inptr-=2;
       return;
@@ -4331,8 +4348,8 @@ static void process_stfloat(int64_t opcode6, int64_t opcode3)
 	p = inptr;
 	Rt = getFPRegister();
 	if (Rt < 0) {
-		printf("Expecting a float target register (1:%d).\r\n", lineno);
-		printf("Line:%.60s\r\n", p);
+		error("Expecting a float target register");
+		//printf("Line:%.60s\r\n", p);
 		ScanToEOL();
 		inptr -= 2;
 		return;
@@ -4484,8 +4501,10 @@ static void process_mov(int64_t oc, int64_t fn)
 		}
 	}
 	if (intreg) {
-		emit_insn((Ra << 13) | (Rt << 8) | I_MOV20, 5);
-		goto xit;
+		if (gCanCompress) {
+			emit_insn((Ra << 13) | (Rt << 8) | I_MOV20, 5);
+			goto xit;
+		}
 		emit_insn(
 			FUNC6(I_OR2) |
 			RT(Rt) |
@@ -4503,6 +4522,7 @@ static void process_mov(int64_t oc, int64_t fn)
 			 );
 xit:
 	prevToken();
+	//ScanToEOL();
 }
 
 static int64_t process_op2()
@@ -4606,9 +4626,9 @@ static void process_shifti(int64_t op4)
 	}
 	val = expr();
 	val &= 63;
-	if (val < 32 && op4 == I_SLL && Ra==Rt)
+	if (val < 32 && op4 == I_SLL && Ra==Rt && gCanCompress)
 		emit_insn((val << 13) |(Rt << 8LL) | I_SLLI20, 5);
-	else if (val < 32 && op4 == I_SRL && Ra == Rt)
+	else if (val < 32 && op4 == I_SRL && Ra == Rt && gCanCompress)
 		emit_insn((val << 13) | (Rt << 8LL) | I_SRLI20, 5);
 	else
 		emit_insn(
@@ -4950,7 +4970,7 @@ static void process_csrrw(int64_t op)
 		prevToken();
 		return;
 		}
-	printf("Illegal CSR instruction.\r\n");
+	error("Illegal CSR instruction");
 	return;
 }
 
@@ -5078,7 +5098,7 @@ static void process_vrrop(int funct6)
     need(',');
     Vm = getVecRegister();
 	if (Vm < 0x20 || Vm > 0x23)
-		printf("Illegal vector mask register: %d\r\n", lineno);
+		error("Illegal vector mask register");
 	Vm &= 0x7;
     //prevToken();
     emit_insn((funct6<<26)|(Vm<<23)|(sz << 21)|(Vt<<16)|(Vb<<11)|(Va<<6)|0x01);
@@ -5108,7 +5128,7 @@ static void process_vsrrop(int funct6)
     need(',');
     Vm = getVecRegister();
 	if (Vm < 0x20 || Vm > 0x23)
-		printf("Illegal vector mask register: %d\r\n", lineno);
+		error("Illegal vector mask register");
 	Vm &= 0x3;
     //prevToken();
     emit_insn((funct6<<26)|(Vm<<23)|(sz << 21)|(Vt<<16)|(Rb<<11)|(Va<<6)|0x01);
@@ -5315,6 +5335,8 @@ static void ProcessEOL(int opt)
 
 static void process_default()
 {
+	char* p;
+
 	while (token == ' ' || token == '\t' || token == '\r')
 		any1_NextToken();
 	switch (token) {
@@ -5356,7 +5378,7 @@ static void process_default()
 		break;
 	case tk_bytndx: process_rrop();
 	case tk_cache: process_cache(0x1E); break;
-	case tk_call: process_call(I_CALL, 1); break;
+	case tk_call: process_call(I_BAL, 1); break;
 	case tk_cli: emit_insn(0xC0000002); break;
 	case tk_chk:  process_chk(0x34); break;
 	case tk_cmovenz: process_cmove(6); break;
@@ -5367,6 +5389,8 @@ static void process_default()
 	//case tk_cmpui:  process_riop(0x07); break;
 	case tk_code: process_code(); break;
 	case tk_com: process_com(3); break;
+	case tk_csave: emit_insn(0x400000107LL); break;
+	case tk_crestore: emit_insn(0x420000107LL); break;
 	case tk_csrrc: process_csrrw(I_CSRRC); break;
 	case tk_csrrs: process_csrrw(I_CSRRS); break;
 	case tk_csrrw: process_csrrw(I_CSRRW); break;
@@ -5417,6 +5441,7 @@ static void process_default()
 		//	any1_NextToken();
 		//	lineno = expr();
 		//}
+		ScanToEOL();
 		break;
 	case tk_ftoi:	process_ftoi(0x12); break;
 	case tk_fadd:	process_fprrop(0x04); break;
@@ -5462,7 +5487,7 @@ static void process_default()
 		//case tk_mulh: process_rrop(0x26, 0x3A); break;
 		//case tk_muluh: process_rrop(0x24, 0x38); break;
 	case tk_neg: process_com(5); break;
-	case tk_nop: emit_insn(I_NOP, false); break;
+	case tk_nop: emit_insn(I_NOP); break;
 	case tk_not: process_com(4); break;
 		//        case tk_not: process_rop(0x07); break;
 	case tk_ori: process_riop(0x09,0x09,0); break;
@@ -5546,7 +5571,7 @@ static void process_default()
 	case tk_tlbwr:   process_tlb(3); break;
 	case tk_tlbwrreg:   process_tlb(8); break;
 	case tk_tst:	process_rop(I_TST);
-	case tk_unlink: emit_insn(I_UNLINK, false); break;
+	case tk_unlink: emit_insn(I_UNLINK); break;
 	/*
 	case tk_vadd: process_vrrop(0x04); break;
 	case tk_vadds: process_vsrrop(0x14); break;
@@ -5563,8 +5588,8 @@ static void process_default()
 	case tk_vxor: process_vrrop(0x0A); break;
 	case tk_vxors: process_vsrrop(0x1A); break;
 	*/
-	case tk_wai: emit_insn(FUNC6(I_WAI)|I_OSR2,true); break;
-	case tk_wfi: emit_insn(FUNC6(I_WAI) | I_OSR2,true); break;
+	case tk_wai: emit_insn(FUNC6(I_WAI)|I_OSR2); break;
+	case tk_wfi: emit_insn(FUNC6(I_WAI) | I_OSR2); break;
 	case tk_wydndx: process_rrop();
 	case tk_xori: process_riop(0x0A,0x0A,0x00); break;
 	case tk_zxb: process_sxx(0x87); break;
@@ -5573,8 +5598,9 @@ static void process_default()
 	case tk_id:  process_label(); break;
 	case '-': compress_flag = 1; expand_flag = 0; break;
 	default:	
-//		printf("%.60s\r\n", stptr);
-//		printf("%*s", inptr - stptr, "^");
+		//printf("%.60s\r\n", stptr);
+		//printf("%*s", inptr - stptr, "^");
+		p = inptr;
 		break;
 	}
 }
@@ -5587,6 +5613,7 @@ void any1v3_processMaster()
     int nn;
     int64_t bs1, bs2;
 		SYM* sym;
+		char* binptr, * ainptr;
 
 		pagesize = 16384;
     lineno = 1;
@@ -5920,14 +5947,24 @@ void any1v3_processMaster()
 	num_bytes = 0;
 	ZeroMemory(binfile, sizeof(binfile));
 	any1_NextToken();
+	binptr = inptr;
   while (token != tk_eof && token != tk_end) {
+		binptr = inptr;
 		recflag = FALSE;
-//        printf("\t%.*s\n", inptr-stptr-1, stptr);
-//        printf("token=%d\r", token);
+		if (kbhit()) {
+			printf("hi");
+		}
+        //printf("\t%.*s\n", inptr-stptr-1, stptr);
+        //printf("token=%d\r", token);
     if (expandedBlock)
       expand_flag = 1;
 		(*jumptbl[token])();
     any1_NextToken();
+		// Is the assembly "stuck"?
+		ainptr = inptr;
+		if (ainptr <= binptr) {
+			ScanToEOL();
+		}
   }
 j1:
 	fprintf(ofp, "\r\n");

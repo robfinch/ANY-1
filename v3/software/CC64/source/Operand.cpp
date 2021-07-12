@@ -663,10 +663,10 @@ void Operand::store(txtoStream& ofs)
 			else if (preg==regZero)
 				ofs.printf("[%s]", RegMoniker(sreg));
 			else
-				ofs.printf("[%s+%s]", RegMoniker(sreg), RegMoniker(preg));
+				ofs.printf("[%s+%s]", RegMoniker(preg), RegMoniker(sreg));
 		}
 		else
-			ofs.printf("[%s+%s*%d]", RegMoniker(sreg), RegMoniker(preg), scale);
+			ofs.printf("[%s+%s*%d]", RegMoniker(preg), RegMoniker(sreg), scale);
 		break;
 
 //	case am_mask:

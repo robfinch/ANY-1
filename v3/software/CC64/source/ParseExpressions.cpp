@@ -1773,7 +1773,7 @@ TYP *Expression::ParseCastExpression(ENODE **node)
 					ep2 = makenode(en_tempref, (ENODE *)NULL, (ENODE *)NULL);
 					ep2->SetType(tp);
 				}
-				ep2 = makenode(en_void, ep2, ep1);
+				ep2 = makenode(en_cast, ep2, ep1);
 				if (ep1 == nullptr)
 					error(ERR_NULLPOINTER);
 				else {

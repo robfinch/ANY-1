@@ -303,14 +303,14 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			return (true);
 		if (b->type == bt_double)
 			return (true);
-		return (false);
+		goto chk;
 
 	case bt_double:
 		if (b->type == bt_float)
 			return (true);
 		if (b->type == bt_double)
 			return (true);
-		return (false);
+		goto chk;
 
 	case bt_long:
 		if (b->type == bt_long)
@@ -337,7 +337,7 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_ulong:
 		if (b->type == bt_ulong)
@@ -364,7 +364,7 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_short:
 		if (b->type == bt_short)
@@ -391,7 +391,7 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_ushort:
 		if (b->type == bt_ushort)
@@ -418,7 +418,7 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_uchar:
 		if (b->type == bt_uchar)
@@ -445,7 +445,7 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_iuchar:
 		if (b->type == bt_iuchar)
@@ -472,7 +472,7 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_char:
 		if (b->type == bt_char)
@@ -497,7 +497,7 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_ichar:
 		if (b->type == bt_ichar)
@@ -524,7 +524,7 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_byte:
 		if (b->type == bt_byte)
@@ -551,7 +551,7 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_ubyte:
 		if (b->type == bt_ubyte)
@@ -578,30 +578,30 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			if (b->type == bt_enum)
 				return (true);
 		}
-		return (false);
+		goto chk;
 
 	case bt_pointer:
 		if (a->val_flag && b->type == bt_struct) {
 			return (true);
 		}
 		if (a->type != b->type)
-			return (false);
+			goto chk;
 		if (a->GetBtp() == b->GetBtp())
 			return (true);
 		if (a->GetBtp() && b->GetBtp())
 			return (TYP::IsSameType(a->GetBtp(), b->GetBtp(), exact));
-		return (false);
+		goto chk;
 
 	case bt_struct:
 	case bt_union:
 	case bt_class:
 		if (a->type != b->type)
-			return (false);
+			goto chk;
 		if (a->GetBtp() == b->GetBtp() || !exact)
 			return (true);
 		if (a->GetBtp() && b->GetBtp())
 			return (TYP::IsSameType(a->GetBtp(), b->GetBtp(), exact));
-		return (false);
+		goto chk;
 
 	case bt_enum:
 		if (a->typeno == b->typeno)
@@ -619,12 +619,64 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 				)
 				return (true);
 		}
-		return (false);
 	}
+chk:
+	if (b->type == bt_union || a->type == bt_union)
+		return (IsSameUnionType(a, b));
+	if (a->type == bt_struct && b->type == bt_struct)
+		return (IsSameStructType(a, b));
 	return (false);
 }
 
-// Initialize the type. Unions can't be initialized.
+// Do we really want to compare all the fields?
+// As long as the sizes are the same there should be no issues with
+// memory overwrites.
+
+bool TYP::IsSameStructType(TYP* a, TYP* b)
+{
+	SYM* spA, * spB;
+	int64_t maxa = 0, maxb = 0;
+
+	return (a->size == b->size);
+	spA = spA->GetPtr(a->lst.GetHead());      /* start at top of symbol table */
+	while (spA != nullptr) {
+		maxa = maxa + spA->tp->size;
+		spA = spA->GetNextPtr();
+	}
+	spB = spB->GetPtr(b->lst.GetHead());      /* start at top of symbol table */
+	while (spB != nullptr) {
+		maxb = maxb + spB->tp->size;
+		spB = spB->GetNextPtr();
+	}
+	return (maxa == maxb);
+}
+
+// Unions are considered the same if the max size of the union is the same.
+// The target needs to be at least the size o f the source. ToDo.
+
+bool TYP::IsSameUnionType(TYP* a, TYP* b)
+{
+	SYM* spA, * spB;
+	int64_t maxa=0, maxb=0;
+
+	// union will match anything
+	return (true);
+	spA = spA->GetPtr(a->lst.GetHead());      /* start at top of symbol table */
+	maxa = a->size;
+	while (spA != nullptr) {
+		maxa = max(maxa, spA->tp->size);
+		spA = spA->GetNextPtr();
+	}
+	spB = spB->GetPtr(b->lst.GetHead());      /* start at top of symbol table */
+	maxb = b->size;
+	while (spB != nullptr) {
+		maxb = max(maxb, spB->tp->size);
+		spB = spB->GetNextPtr();
+	}
+	return (maxa==maxb);
+}
+
+// Initialize the type. Unions can't be initialized. Oh yes they can.
 
 int64_t TYP::Initialize(ENODE* pnode, TYP *tp2, int opt)
 {

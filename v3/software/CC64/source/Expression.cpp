@@ -1205,6 +1205,8 @@ ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1)
 		ep1 = makefcnode(en_fcall, ep3, ep2, sp);
 		//if (sp->fi)
 		{
+			if (currentFn == nullptr)
+				currentFn = sp->fi;
 			if (!sp->fi->IsInline)
 				currentFn->IsLeaf = FALSE;
 		}

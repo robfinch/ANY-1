@@ -151,6 +151,7 @@ void doinit(SYM *sp)
 
 		NextToken();
 		if (lastst == bitandd) {
+			ENODE* n;
 			char buf[400];
 			char buf2[40];
 			if (sp->storage_class == sc_global)
@@ -160,8 +161,9 @@ void doinit(SYM *sp)
 			sprintf(buf, "%s:\ndco %s_dat\n%s%s_dat:\n", lbl, sp->name->c_str(), buf2, lbl);
 			ofs.seekp(lblpoint);
 			ofs.write(buf);
-			while (lastst != begin && lastst != semicolon && lastst != my_eof)
-				NextToken();
+//			while (lastst != begin && lastst != semicolon && lastst != my_eof)
+//				NextToken();
+
 		}
 		hasPointer = sp->tp->FindPointer();
 		typ_sp = 0;

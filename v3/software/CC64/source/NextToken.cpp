@@ -97,7 +97,7 @@ int isalnum(char c)
 
 int isidch(char c) { return isalnum(c) || c == '_' || c == '$'; }
 int my_isspace(char c) { return c == ' ' || c == '\t' || c == '\n' || c=='\r'; }
-int isdigit(char c) { return (c >= '0' && c <= '9'); }
+int my_isdigit(char c) { return (c >= '0' && c <= '9'); }
 
 void initsym()
 {
@@ -216,7 +216,7 @@ int     getsch()        /* return an in-quote character */
           }
           return i;
         }
-				else if (isdigit(lastch)) {
+				else if (my_isdigit(lastch)) {
 					for (j = i = 0; j < 5; ++j) {
 						if (lastch <= '9' && lastch >= '0')
 							i = (i * 10) + lastch - '0';
@@ -367,7 +367,7 @@ void getfrac()
   p10.Ten();
   pot.OneTenth();
   frmul = 1.0;
-  while(isdigit(lastch)) {
+  while(my_isdigit(lastch)) {
 		Float128::IntToFloat(&ch128,lastch-'0');
 		Float128::Mul(&tmp,&fract128,Float128::Ten());
 		Float128::Add(&fract128,&ch128,&tmp);
@@ -593,7 +593,7 @@ restart:        /* we come back here after comments */
     lastst = my_eof;
     dfs.printf("Returning EOF from NextToken.\n");
   }
-  else if(isdigit(lastch)) {
+  else if(my_isdigit(lastch)) {
     getnum();
   }
   else if(isidch(lastch)) {

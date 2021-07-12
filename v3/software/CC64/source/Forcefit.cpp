@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2012-2019  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2012-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -225,7 +225,7 @@ TYP *forcefit(ENODE **srcnode, TYP *srctp, ENODE **dstnode, TYP *dsttp, bool pro
 			case bt_ulong: *dstnode = *srcnode; return (dsttp);
 			case bt_pointer:
 				typ = dsttp->GetBtp()->type;
-				*dstnode = *srcnode;
+				/**dstnode = *srcnode;*/
 				return (dsttp);
 			case bt_ubitfield:
 			case bt_bitfield: goto j1;

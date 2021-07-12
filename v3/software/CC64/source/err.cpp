@@ -59,7 +59,7 @@ static char *errtextstr[] = {
 	"E Preprocessor error",
 	"E Include file",
 	"E Can't open",
-	"E Define",
+	"E Define - Is a symbol refined?",
 	"E Expecting a catch statement",
 	"E Bad bitfield width",
 	"E Expression too complex",
@@ -114,7 +114,7 @@ char *errtext(int errnum)
 	if (errnum < 1000)
 		return errtextstr[errnum];
 	else
-		return (errtext1000[errnum]);
+		return (errtext1000[errnum-1000]);
 	return "";
 }
 

@@ -77,7 +77,7 @@ int need(int tk)
 {
     if (tk != token) {
         printf("Syntax error %s.%d.\r\n", currentFilename, lineno);
-        printf("Line:%.60s\r\n", stptr);
+        printf("Line:%.160s\r\n", stptr);
     }
 	return 1;
 }

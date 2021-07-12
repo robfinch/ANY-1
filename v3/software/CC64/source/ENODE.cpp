@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2017-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2017-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -94,7 +94,7 @@ bool ENODE::HasCall()
 		return (true);
 	if (p[1]->HasCall())
 		return (true);
-	if (p[1]->HasCall())
+	if (p[2]->HasCall())
 		return (true);
 	return (false);
 }
@@ -223,7 +223,7 @@ int ENODE::GetNaturalSize()
 			return (siz1);
 		else
 			return (siz0);
-	case en_void:   case en_cond:	case en_safe_cond:
+	case en_void:   case en_cond:	case en_safe_cond: case en_cast:
 		return (p[1]->GetNaturalSize());
 	case en_bchk:
 		return (p[0]->GetNaturalSize());
@@ -695,7 +695,7 @@ void ENODE::repexpr()
 	case en_asmod:  case en_aslsh:
 	case en_asrsh:  case en_fcall:
 	case en_aggregate:
-	case en_void:
+	case en_void:		case en_cast:
 		p[0]->repexpr();
 		p[1]->repexpr();
 		break;
@@ -946,7 +946,7 @@ void ENODE::scanexpr(int duse)
 	case en_asrsh:
 	case en_asand:	case en_asxor: case en_asor:
 	case en_cond:	case en_safe_cond:
-	case en_void:
+	case en_void:	case en_cast:
 	case en_aggregate:
 		p[0]->scanexpr(0);
 		p[1]->scanexpr(0);
@@ -2549,6 +2549,7 @@ std::string ENODE::nodetypeStr()
 	case en_autocon: return "en_autocon";
 	case en_cond:	return "en_cond";
 	case en_void: return "en_void";
+	case en_cast: return "en_cast";
 	case en_asadd: return "en_asadd";
 	case en_icon: return "en_icon";
 	case en_assign: return "en_assign";

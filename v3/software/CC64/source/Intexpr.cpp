@@ -58,7 +58,7 @@ int64_t GetIntegerExpression(ENODE **pnode)       /* simple integer value */
 	if (node->nodetype != en_icon && node->nodetype != en_cnacon && node->nodetype != en_labcon) {
 		// A type case is represented by a tempref node associated with a value.
 		// There may be an integer typecast to another value that can be used.
-		if (node->nodetype == en_void) {
+		if (node->nodetype == en_void || node->nodetype==en_cast) {
 			if (node->p[0]->nodetype == en_tempref) {
 				if (node->p[1]->nodetype == en_icon) {
 					if (pnode)

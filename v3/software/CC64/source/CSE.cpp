@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2017-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2017-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -45,6 +45,9 @@ int CSE::OptimizationDesireability()
   */
 	if (exp->nodetype == en_nacon)
 		return (0);
+	// Duh, lets not optimize to replace one regvar with another.
+	if (exp->nodetype == en_regvar)
+		return (0);
 	// No value to optimizing function call names, the called function
 	// address will typically fit in a single 32/48 bit opcode. It's faster
 	// to call a fixed label rather than an address in a register, because
@@ -55,6 +58,8 @@ int CSE::OptimizationDesireability()
 	// a 16-bit compressed JAL can be used.
 	if (exp->nodetype == en_cnacon && !opt_size)
 		return (0);
+	// If the expression is volatile eg. reading I/O we don't want to
+	// replace it.
 	if (exp->isVolatile)
 		return (0);
 	// Prevent Inline code from being allocated a pointer in a register.

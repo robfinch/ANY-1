@@ -17,6 +17,7 @@ enum e_bt {
 enum e_node {
 		en_unknown,
         en_void,        /* used for parameter lists */
+				en_cast,				/* typecase */
 				en_nop,
 		en_list, en_aggregate,
 		en_cbu, en_ccu, en_chu,

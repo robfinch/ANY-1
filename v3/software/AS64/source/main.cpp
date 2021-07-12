@@ -491,6 +491,10 @@ int processOptions(int argc, char **argv)
               if (argv[nn][2] == 'y') {
                 gCpu = ANY1V3;
                 vebits = 128;
+                if (argv[nn][3] == 'c')
+                  gCanCompress = 1;
+                else
+                  gCanCompress = 0;
               }
            }
            nn++;
@@ -553,7 +557,7 @@ void searchenv(char* filename, char* envname, char** pathname)
 void emitByte(int64_t cd)
 {
   bt_ndx = 0;
-  if (gCpu == ANY1V3) {
+  if (gCpu == ANY1V3 && segment==codeseg) {
     emitNybble(cd);
     emitNybble(cd>>4LL);
     return;
@@ -566,17 +570,6 @@ void emitByte(int64_t cd)
 		 else
 			sections[segment].AddByte(cd);
 	 }
-  /*
-  if (segment == codeseg && gCpu == ANY1V3) {
-    binfile[binndx] = cd & 255LL;
-    binndx++;
-    if ((binndx & 63LL) >= 60LL) {
-      binndx = binndx & ~63LL;
-      binndx = binndx + 64LL;
-    }
-  }
-  else
-  */
   if (segment == codeseg || segment == rodataseg) {
 			if (gCpu == GAMBIT || gCpu==GAMBIT_V5) {
 				binfile[binndx] = cd & 255LL;

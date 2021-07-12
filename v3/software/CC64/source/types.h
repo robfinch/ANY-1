@@ -543,6 +543,8 @@ public:
 	bool IsArrayType() const { return (type == bt_array); };
 	bool IsAggregateType() const { return (IsStructType() | isArray | IsArrayType()); };
 	static bool IsSameType(TYP *a, TYP *b, bool exact);
+	static bool IsSameStructType(TYP* a, TYP* b);
+	static bool IsSameUnionType(TYP* a, TYP* b);
 	void put_ty();
 
 	int Alignment();
@@ -988,6 +990,7 @@ public:
 	void OptBne();
 	void OptBeq();
 	void OptScc();
+	void OptSll();
 
 	static OCODE *loadHex(txtiStream& ifs);
 	void store(txtoStream& ofs);

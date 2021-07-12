@@ -699,6 +699,7 @@ void PeepList::OptInstructions()
 			case op_push:	ip->OptPush(); break;
 			case op_seq:	ip->OptScc(); break;
 			case op_sne:	ip->OptScc(); break;
+			case op_sll:	ip->OptSll(); break;
 			}
 		}
 	}

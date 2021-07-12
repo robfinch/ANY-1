@@ -845,6 +845,103 @@ void OCODE::OptScc()
 	}
 }
 
+// Search for a shift subsequently used as an index register in a
+// following load or store operation. Turn it into a scaled index.
+
+void OCODE::OptSll()
+{
+	OCODE* ip;
+	bool retargetted = false;
+	bool dorem = false;
+	bool reused = false;
+
+	return;	// Under construction
+	if (oper3->mode != am_imm)
+		return;
+	if (oper3->offset->i < 0 || oper3->offset->i > 7)
+		return;
+	for (ip = fwd; ip; ip = ip->fwd) {
+		if (ip->insn->IsLoad() | ip->insn->IsStore()) {
+			if (ip->oper2->mode == am_indx2) {
+				if (ip->oper2->scale == 0) {
+					if (ip->oper2->sreg == oper1->preg) {
+						dorem = true;
+						continue;
+					}
+					// Swap registers?
+					else if (ip->oper2->preg == oper1->preg) {
+						dorem = true;
+						continue;
+					}
+				}
+			}
+		}
+		// Check that the register is not used by another instruction
+		if (!retargetted) {
+			if (ip->oper2)
+				if (ip->oper2->preg == oper1->preg || ip->oper2->sreg == oper1->preg)
+					reused = true;
+			if (ip->oper3)
+				if (ip->oper3->preg == oper1->preg || ip->oper3->sreg == oper1->preg)
+					reused = true;
+			if (ip->oper4)
+				if (ip->oper4->preg == oper1->preg || ip->oper4->sreg == oper1->preg)
+					reused = true;
+			if (ip->oper1 && ip->opcode != op_label)
+				if (ip->oper1->preg == oper2->preg || ip->oper1->sreg == oper2->preg)
+					reused = true;
+			if (ip->oper2)
+				if (ip->oper2->preg == oper2->preg || ip->oper2->sreg == oper2->preg)
+					reused = true;
+			if (ip->oper3)
+				if (ip->oper3->preg == oper2->preg || ip->oper3->sreg == oper2->preg)
+					reused = true;
+			if (ip->oper4)
+				if (ip->oper4->preg == oper2->preg || ip->oper4->sreg == oper2->preg)
+					reused = true;
+			if (ip->oper1 && ip->opcode != op_label)
+				if (ip->oper1->preg == oper1->preg)
+					retargetted = true;
+		}
+		if (retargetted && dorem) {
+			if (ip->oper2->sreg == oper1->preg) {
+				ip->oper2->sreg = oper2->preg;
+				ip->oper2->scale = oper3->offset->i;
+				ip->oper2->scale = 1 << oper3->offset->i;
+				optimized++;
+				this->MarkRemove();
+			}
+			// Swap registers?
+			else if (ip->oper2->preg == oper1->preg) {
+				ip->oper2->preg = ip->oper2->sreg;
+				ip->oper2->sreg = oper2->preg;
+				ip->oper2->scale = 1 << oper3->offset->i;
+				optimized++;
+				this->MarkRemove();
+			}
+			return;
+		}
+		if (reused)
+			return;
+	}
+	if (ip->oper2->sreg == oper1->preg) {
+		ip->oper2->sreg = oper2->preg;
+		ip->oper2->scale = oper3->offset->i;
+		ip->oper2->scale = 1 << oper3->offset->i;
+		optimized++;
+		this->MarkRemove();
+	}
+	// Swap registers?
+	else if (ip->oper2->preg == oper1->preg) {
+		ip->oper2->preg = ip->oper2->sreg;
+		ip->oper2->sreg = oper2->preg;
+		ip->oper2->scale = 1 << oper3->offset->i;
+		optimized++;
+		this->MarkRemove();
+	}
+}
+
+
 void OCODE::OptDoubleTargetRemoval()
 {
 	OCODE *ip2;

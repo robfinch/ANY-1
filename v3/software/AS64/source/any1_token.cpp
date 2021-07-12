@@ -1145,6 +1145,29 @@ int any1_NextToken()
 								 tbndx++;
 								 return token = tk_cmovenz;
 							 }
+							 if ((inptr[1] == 's' || inptr[1] == 'S') &&
+								 (inptr[2] == 'a' || inptr[2] == 'A') &&
+								 (inptr[3] == 'v' || inptr[3] == 'V') &&
+								 (inptr[4] == 'e' || inptr[4] == 'E') &&
+								 isspaceOrDot(inptr[5])) {
+								 inptr += 5;
+								 tokenBuffer[tbndx] = tk_csave;
+								 tbndx++;
+								 return token = tk_csave;
+							 }
+							 if ((inptr[1] == 'r' || inptr[1] == 'R') &&
+								 (inptr[2] == 'e' || inptr[2] == 'E') &&
+								 (inptr[3] == 's' || inptr[3] == 'S') &&
+								 (inptr[4] == 't' || inptr[4] == 'T') &&
+								 (inptr[5] == 'o' || inptr[5] == 'O') &&
+								 (inptr[6] == 'r' || inptr[6] == 'R') &&
+								 (inptr[7] == 'e' || inptr[7] == 'E') &&
+								 isspaceOrDot(inptr[8])) {
+								 inptr += 8;
+								 tokenBuffer[tbndx] = tk_crestore;
+								 tbndx++;
+								 return token = tk_crestore;
+							 }
 							 break;
 
         // db dbnz dc dh dw data dep div divs divu divi divui ds:
