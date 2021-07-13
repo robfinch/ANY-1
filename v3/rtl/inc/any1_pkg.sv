@@ -247,10 +247,10 @@ parameter LDx		= 8'h60;
 parameter LDxX	= 8'h61;
 parameter LDxZ	= 8'h64;
 parameter LDxXZ	= 8'h65;
-parameter LDM		= 8'h6F;
+parameter POP		= 8'h67;
 parameter STx		= 8'h68;
 parameter STxX	= 8'h69;
-parameter STM		= 8'h7F;
+parameter PUSH	= 8'h6F;
 
 parameter BEQZ	= 8'h78;
 parameter BNEZ	= 8'h79;

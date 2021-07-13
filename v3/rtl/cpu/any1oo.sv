@@ -77,7 +77,7 @@ wire [2:0] memmode;
 wire UserMode, SupervisorMode, HypervisorMode, MachineMode, DebugMode;
 wire MUserMode;
 
-Instruction ir, link_ir;
+Instruction ir, micro_ir;
 sFuncUnit [5:0] funcUnit;
 sInstAlignIn f2a_in;
 sInstAlignOut a2d_in,a2d_out,a3d;
@@ -1866,20 +1866,21 @@ else begin
 			ip <= ip;
 			case(micro_ip)
 			// Link
-			6'd1:	begin micro_ip <= 6'd2; a2d_out.ir <= {16'hFFF8,1'b0,link_ir[12:8],1'b0,link_ir[12:8],ADDI};	end			// SUB $SP,$SP,#8
-			6'd2:	begin micro_ip <= 6'd3; a2d_out.ir <= {4'd3,5'd0,2'd0,link_ir[18:14],1'b0,link_ir[12:8],6'd0,STx}; end		// STO $FP,[$SP]
-			6'd3: begin micro_ip <= 6'd4; a2d_out.ir <= {OR,2'd0,7'd0,1'b0,link_ir[12:8],1'b0,link_ir[18:14],R2};	ip <= fnIPInc(ip); end		// MOV $FP,$SP
-			6'd4: begin micro_ip <= 6'd0; a2d_out.ir <= {link_ir[35:20],1'b0,link_ir[12:8],1'b0,link_ir[12:8],ADDI}; ip <= fnIPInc(ip); end // SUB $SP,$SP,#Amt
+			6'd1:	begin micro_ip <= 6'd2; a2d_out.ir <= {16'hFFF8,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI};	end			// SUB $SP,$SP,#8
+			6'd2:	begin micro_ip <= 6'd3; a2d_out.ir <= {4'd3,5'd0,2'd0,micro_ir[18:14],1'b0,micro_ir[12:8],6'd0,STx}; end		// STO $FP,[$SP]
+			6'd3: begin micro_ip <= 6'd4; a2d_out.ir <= {OR,2'd0,7'd0,1'b0,micro_ir[12:8],1'b0,micro_ir[18:14],R2};	ip <= fnIPInc(ip); end		// MOV $FP,$SP
+			6'd4: begin micro_ip <= 6'd0; a2d_out.ir <= {micro_ir[35:20],1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; ip <= fnIPInc(ip); end // SUB $SP,$SP,#Amt
 			// Unlink
-			6'd8:	begin micro_ip <= 6'd9; a2d_out.ir <= {OR,2'd0,7'd0,1'b0,link_ir[18:14],1'b0,link_ir[12:8],R2};	end		// MOV $SP,$FP
-			6'd9:	begin micro_ip <= 6'd10; a2d_out.ir <= {4'd3,12'd0,1'b0,link_ir[12:8],1'b0,link_ir[18:14],LDx}; ip <= fnIPInc(ip); end		// LDO $FP,[$SP]
-			6'd10:	begin micro_ip <= 6'd0; a2d_out.ir <= {16'h0008,1'b0,link_ir[12:8],1'b0,link_ir[12:8],ADDI}; ip <= fnIPInc(ip); end			// SUB $SP,$SP,#8
+			6'd8:	begin micro_ip <= 6'd9; a2d_out.ir <= {OR,2'd0,7'd0,1'b0,micro_ir[18:14],1'b0,micro_ir[12:8],R2};	end		// MOV $SP,$FP
+			// POP Ra
+			6'd9:	begin micro_ip <= 6'd10; a2d_out.ir <= {4'd3,12'd0,1'b0,micro_ir[12:8],1'b0,micro_ir[18:14],LDx}; ip <= fnIPInc(ip); end		// LDO $FP,[$SP]
+			6'd10:	begin micro_ip <= 6'd0; a2d_out.ir <= {16'h0008,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; ip <= fnIPInc(ip); end			// ADD $SP,$SP,#8
 			// LDM / STM
 			6'd12:
 				begin
 					lsm_mask <= fnLDMmask(lsm_mask);
 					ldm_mask <= lsm_mask;
-					a2d_out.ir <= link_ir;
+					a2d_out.ir <= micro_ir;
 					//ip <= |mod_cnt ? mod_ip + 4'd9 : ip;
 					if (ldm_mask==36'd0) begin
 						ip <= fnIPInc(ip);
@@ -1889,14 +1890,25 @@ else begin
 						ldm_mask <= 36'hFFFFFFF03;
 					end
 				end
-			default:	micro_ip <= 6'd0;
+			// PUSH Ra
+			6'd13:	begin micro_ip <= 6'd14; a2d_out.ir <= {16'hFFF8,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI};	ip <= fnIPInc(ip); end			// SUB $SP,$SP,#8
+			6'd14:	begin micro_ip <= 6'd0;  a2d_out.ir <= {4'd3,5'd0,2'd0,micro_ir[18:14],1'b0,micro_ir[12:8],6'd0,STx}; ip <= fnIPInc(ip); end		// STO $FP,[$SP]
+			// PUSH Ra,Rb
+			6'd15:	begin micro_ip <= 6'd16; a2d_out.ir <= {16'hFFF0,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI};	end			// SUB $SP,$SP,#16
+			6'd16:	begin micro_ip <= 6'd17; a2d_out.ir <= {4'd3,5'd0,2'd0,micro_ir[18:14],1'b0,micro_ir[12:8],6'd0,STx}; ip <= fnIPInc(ip); end		// STO $FP,[$SP]
+			6'd17:	begin micro_ip <= 6'd0;  a2d_out.ir <= {4'd3,5'd0,2'd0,micro_ir[24:20],1'b0,micro_ir[12:8],6'd0,STx}; ip <= fnIPInc(ip); end		// STO $FP,[$SP]
+			// POP Ra,Rb
+			6'd18:	begin micro_ip <= 6'd19; a2d_out.ir <= {4'd3,12'd0,1'b0,micro_ir[12:8],1'b0,micro_ir[24:20],LDx}; end		// LDO $Rb,[$SP]
+			6'd19:	begin micro_ip <= 6'd20; a2d_out.ir <= {4'd3,12'h008,1'b0,micro_ir[12:8],1'b0,micro_ir[18:14],LDx}; ip <= fnIPInc(ip); end		// LDO $Ra,8[$SP]
+			6'd20:	begin micro_ip <= 6'd0; a2d_out.ir <= {16'h0010,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; ip <= fnIPInc(ip); end			// ADD $SP,$SP,#16
+			default:	micro_ip <= 6'd0; 
 			endcase
 		end
 		else
 		casez(a2d_in.ir[7:0])
 		LINK: 
 			if (a2d_in.v) begin
-				link_ir <= a2d_in.ir;
+				micro_ir <= a2d_in.ir;
 				a2d_out.ir <= NOP_INSN;
 				micro_ip <= 6'd1;
 				ip <= a2d_in.ip;
@@ -1904,9 +1916,24 @@ else begin
 			end
 		UNLINK:
 			if (a2d_in.v) begin
-				link_ir <= a2d_in.ir;
+				micro_ir <= a2d_in.ir;
 				a2d_out.ir <= NOP_INSN;
 				micro_ip <= 6'd8;
+				ip <= a2d_in.ip;
+				//f2a_in.v <= INV;
+			end
+		PUSH:
+			if (a2d_in.v) begin
+				micro_ir <= a2d_in.ir;
+				a2d_out.ir <= NOP_INSN;
+				micro_ip <= a2d_in.ir[35:32]==4'd1 ? 6'd13 : 6'd15;
+				ip <= a2d_in.ip;
+			end
+		POP:
+			if (a2d_in.v) begin
+				micro_ir <= a2d_in.ir;
+				a2d_out.ir <= NOP_INSN;
+				micro_ip <= a2d_in.ir[35:32]==4'd1 ? 6'd9 : 6'd18;
 				ip <= a2d_in.ip;
 				//f2a_in.v <= INV;
 			end
@@ -1927,7 +1954,7 @@ else begin
 			end
 		8'b?110????:
 			if (a2d_in.v && a2d_in.ir[35:32]==LSM) begin
-				link_ir <= a2d_in.ir;
+				micro_ir <= a2d_in.ir;
 				a2d_out.ir <= NOP_INSN;
 				micro_ip <= 6'd12;
 				ip <= a2d_in.ip;
