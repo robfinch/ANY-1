@@ -1057,21 +1057,23 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1)
 	else {
 	j2:
 		dfs.printf("tp1->type:%d", tp1->type);
-		qnode = makeinode(en_icon, sp->value.i);
-		qnode->constflag = TRUE;
-		if (sp->tp->bit_offset) {
-			qnode->bit_offset = makeinode(en_icon, sp->tp->bit_offset->i);
-			qnode->bit_width = makeinode(en_icon, sp->tp->bit_width->i);
-		}
 		iu = ep1->isUnsigned;
-		ep1 = makenode(en_add, ep1, qnode);
-		ep1->bit_offset = qnode->bit_offset;
-		ep1->bit_width = qnode->bit_width;
-		ep1->isPascal = ep1->p[0]->isPascal;
-		ep1->constflag = ep1->p[0]->constflag;
+		if (sp->value.i) {
+			qnode = makeinode(en_icon, sp->value.i);
+			qnode->constflag = TRUE;
+			if (sp->tp->bit_offset) {
+				qnode->bit_offset = makeinode(en_icon, sp->tp->bit_offset->i);
+				qnode->bit_width = makeinode(en_icon, sp->tp->bit_width->i);
+			}
+			ep1 = makenode(en_add, ep1, qnode);
+			ep1->bit_offset = qnode->bit_offset;
+			ep1->bit_width = qnode->bit_width;
+			ep1->isPascal = ep1->p[0]->isPascal;
+			ep1->constflag = ep1->p[0]->constflag;
+		}
 		ep1->isUnsigned = iu;
 		ep1->esize = sizeOfWord;
-		ep1->p[2] = pep1;
+//		ep1->p[2] = pep1;
 		//if (tp1->type==bt_pointer && (tp1->GetBtp()->type==bt_func || tp1->GetBtp()->type==bt_ifunc))
 		//	dfs.printf("Pointer to func");
 		//else
@@ -1079,8 +1081,6 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1)
 		ep1->SetType(tp1);
 		dfs.printf("tp1->type:%d", tp1->type);
 	}
-	if (tp1 == nullptr)
-		getchar();
 	NextToken();       /* past id */
 	dfs.printf("B");
 xit:

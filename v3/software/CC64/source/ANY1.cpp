@@ -1132,17 +1132,32 @@ void SaveRegisterVars(CSet *rmask)
 {
 	int cnt;
 	int nn;
+	int64_t mask;
 
+	if (pass == 1) {
+		max_stack_use += rmask->NumMember() * sizeOfWord;
+		currentFn->regvarbot = max_stack_use;
+	}
 	if( rmask->NumMember() ) {
-		cnt = 0;
-		GenerateTriadic(op_sub,0,makereg(regSP),makereg(regSP),cg.MakeImmediate(rmask->NumMember()*8));
-		rmask->resetPtr();
-		for (nn = rmask->lastMember(); nn >= 0; nn = rmask->prevMember()) {
-			// nn = nregs - 1 - regno
-			// regno = -(nn - nregs + 1);
-			// regno = nregs - 1 - nn
-			GenerateDiadic(op_sto,0,makereg(nregs-1-nn),cg.MakeIndexed(cnt,regSP));
-			cnt+=sizeOfWord;
+		if (cpu.SupportsSTM && rmask->NumMember() > 2) {
+			mask = 0;
+			for (nn = nregs; nn >= 0; nn--)
+				if (rmask->isMember(nn))
+					mask = mask | (1LL << (nregs-1-nn-1));
+			//GenerateMonadic(op_reglist, 0, cg.MakeImmediate(mask, 16));
+			GenerateDiadic(op_stm, 0, cg.MakeIndirect(regSP), cg.MakeImmediate(mask, 16));
+		}
+		else {
+			cnt = 0;
+			//GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), cg.MakeImmediate(rmask->NumMember() * sizeOfWord));
+			rmask->resetPtr();
+			for (nn = rmask->lastMember(); nn >= 0; nn = rmask->prevMember()) {
+				// nn = nregs - 1 - regno
+				// regno = -(nn - nregs + 1);
+				// regno = nregs - 1 - nn
+				GenerateDiadic(op_sto, 0, makereg(nregs - 1 - nn), cg.MakeIndexed(cnt, regSP));
+				cnt += sizeOfWord;
+			}
 		}
 	}
 }
@@ -1183,16 +1198,27 @@ static void RestoreRegisterVars()
 {
 	int cnt2, cnt;
 	int nn;
+	int64_t mask;
 
 	if( save_mask->NumMember()) {
-		cnt2 = cnt = save_mask->NumMember()*sizeOfWord;
-		cnt = 0;
-		save_mask->resetPtr();
-		for (nn = save_mask->nextMember(); nn >= 0; nn = save_mask->nextMember()) {
-			GenerateDiadic(op_ldo,0,makereg(nn),cg.MakeIndexed(cnt,regSP));
-			cnt += sizeOfWord;
+		if (cpu.SupportsLDM && save_mask->NumMember() > 2) {
+			mask = 0;
+			for (nn = 0; nn < 32; nn++)
+				if (save_mask->isMember(nn))
+					mask = mask | (1LL << nn);
+			GenerateMonadic(op_reglist, 0, cg.MakeImmediate(mask, 1));
+			GenerateMonadic(op_ldm, 0, cg.MakeIndirect(regSP));
 		}
-		GenerateTriadic(op_add,0,makereg(regSP),makereg(regSP),cg.MakeImmediate(cnt2));
+		else {
+			cnt2 = cnt = save_mask->NumMember() * sizeOfWord;
+			cnt = 0;
+			save_mask->resetPtr();
+			for (nn = save_mask->nextMember(); nn >= 0; nn = save_mask->nextMember()) {
+				GenerateDiadic(op_ldo, 0, makereg(nn), cg.MakeIndexed(cnt, regSP));
+				cnt += sizeOfWord;
+			}
+			GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), cg.MakeImmediate(cnt2));
+		}
 	}
 }
 
@@ -1219,13 +1245,14 @@ static void RestoreFPRegisterVars()
 // 8 we assume a structure variable and we assume we have the address in a reg.
 // Returns: number of stack words pushed.
 //
-int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isFloat)
+int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isFloat, int* push_count, bool large_argcount)
 {    
 	Operand *ap, *ap3;
 	int nn = 0;
 	int sz;
 
 	*isFloat = false;
+	*push_count = 0;
 	switch(ep->etype) {
 	case bt_quad:	sz = sizeOfFPD; break;
 	case bt_triple:	sz = sizeOfFPT; break;
@@ -1240,7 +1267,7 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 		else if (ep->tp->IsPositType())
 			ap = cg.GenerateExpression(ep, am_preg, sizeOfPosit);
 		else
-			ap = cg.GenerateExpression(ep,am_reg,ep->GetNaturalSize());
+			ap = cg.GenerateExpression(ep,am_reg|am_imm,ep->GetNaturalSize());
 	}
 	else if (ep->etype==bt_quad)
 		ap = cg.GenerateExpression(ep,am_fpreg,sz);
@@ -1253,7 +1280,7 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 	else if (ep->etype == bt_posit)
 		ap = cg.GenerateExpression(ep, am_preg, sz);
 	else
-		ap = cg.GenerateExpression(ep,am_reg,ep->GetNaturalSize());
+		ap = cg.GenerateExpression(ep,am_reg|am_imm,ep->GetNaturalSize());
 	switch(ap->mode) {
 	case am_fpreg:
 		*isFloat = true;
@@ -1304,26 +1331,33 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 				}
 			}
 			else {
-				if (cpu.SupportsPush) {
+				if (cpu.SupportsPush && !large_argcount) {
 					if (ap->mode==am_imm) {	// must have been a zero
 						if (ap->offset->i==0)
          					GenerateMonadic(op_push,0,makereg(0));
 						else {
-							GenerateMonadic(op_push,0,ap);
+							ap3 = GetTempRegister();
+							GenerateLoadConst(ap, ap3);
+							GenerateMonadic(op_push,0,ap3);
+							ReleaseTempReg(ap3);
 						}
 						nn = 1;
+						*push_count = 1;
 					}
 					else {
 						if (ap->type==stddouble.GetIndex()) 
 						{
 							*isFloat = true;
-							GenerateMonadic(op_push,ap->FloatSize,ap);
+							GenerateMonadic(op_push,0,ap);
 							nn = sz/sizeOfWord;
+							nn = 1;
+							*push_count = 1;
 						}
 						else {
 							regs[ap->preg].IsArg = true;
 							GenerateMonadic(op_push,0,ap);
 							nn = 1;
+							*push_count = 1;
 						}
 					}
 				}
@@ -1376,13 +1410,16 @@ int ANY1CodeGenerator::PushArguments(Function *sym, ENODE *plist)
 	OCODE *ip;
 	ENODE *p;
 	ENODE *pl[100];
-	int nn, maxnn, kk;
+	int nn, maxnn, kk, pc;
+	int push_count;
 	bool isFloat = false;
 	bool sumFloat;
 	bool o_supportsPush;
+	bool large_argcount = false;
 	SYM** sy = nullptr;
 
 	sum = 0;
+	push_count = 0;
 	if (sym)
 		ta = sym->GetProtoTypes();
 
@@ -1393,12 +1430,16 @@ int ANY1CodeGenerator::PushArguments(Function *sym, ENODE *plist)
 	for (nn = 0, p = plist; p != NULL; p = p->p[1], nn++) {
 		pl[nn] = p->p[0];
 	}
+	if (nn > 2)
+		large_argcount = true;
 	maxnn = nn;
 	for(--nn, i = 0; nn >= 0; --nn,i++ )
   {
 		if (pl[nn]->etype == bt_pointer) {
-			if (pl[nn]->tp->GetBtp() == nullptr)
+			if (pl[nn]->tp->GetBtp() == nullptr) {
+				sum++;
 				continue;
+			}
 			if (pl[nn]->tp->GetBtp()->type == bt_ichar || pl[nn]->tp->GetBtp()->type == bt_iuchar)
 				continue;
 		}
@@ -1409,16 +1450,20 @@ int ANY1CodeGenerator::PushArguments(Function *sym, ENODE *plist)
 			if (sy==nullptr && sym)
 				sy = sym->params.GetParameters();
 			if (sy) {
-				if (sy[nn])
-					sum += PushArgument(sy[nn]->defval, ta ? (i < ta->length ? ta->preg[i] : 0) : 0, sum * sizeOfWord, &isFloat);
+				if (sy[nn]) {
+					sum += PushArgument(sy[nn]->defval, ta ? (i < ta->length ? ta->preg[i] : 0) : 0, sum * sizeOfWord, &isFloat, &pc, large_argcount);
+					push_count += pc;
+				}
 			}
 		}
-		else
-			sum += PushArgument(pl[nn],ta ? (i < ta->length ? ta->preg[i] : 0) : 0,sum*sizeOfWord, &isFloat);
+		else {
+			sum += PushArgument(pl[nn], ta ? (i < ta->length ? ta->preg[i] : 0) : 0, sum * sizeOfWord, &isFloat, &pc, large_argcount);
+			push_count += pc;
+		}
 		sumFloat |= isFloat;
 //		plist = plist->p[1];
   }
-	if (sum==0)
+	if (sum == 0 || !large_argcount)
 		ip->fwd->MarkRemove();
 	else
 		ip->fwd->oper3 = MakeImmediate(sum*sizeOfWord);
@@ -1551,7 +1596,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 		}
 		else {
 			if (sym && sym->IsLeaf) {
-				GenerateMonadic(op_jal, 0, MakeDirect(node->p[0]));
+				GenerateDiadic(op_bal, 0, makereg(regLR), MakeDirect(node->p[0]));
 				currentFn->doesJAL = true;
 			}
 			else
@@ -1617,7 +1662,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 		}
 		else {
 			if (sym && sym->IsLeaf) {
-				GenerateMonadic(op_jal, 0, ap);
+				GenerateDiadic(op_jal, 0, makereg(regLR), ap);
 				currentFn->doesJAL = true;
 			}
 			else
@@ -1723,11 +1768,9 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 
 void ANY1CodeGenerator::GenerateUnlink()
 {
-	/*
 	if (cpu.SupportsUnlink)
 		GenerateZeradic(op_unlk);
 	else
-	*/
 	{
 		GenerateDiadic(op_mov, 0, makereg(regSP), makereg(regFP));
 		GenerateDiadic(op_ldo, 0, makereg(regFP), MakeIndirect(regSP));

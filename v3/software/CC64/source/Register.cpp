@@ -201,7 +201,8 @@ void initRegStack()
 void SpillRegister(Operand *ap, int number)
 {
 	GenerateDiadic(op_sto,0,ap,cg.MakeIndexed(currentFn->GetTempBot()-ap->deep*sizeOfWord,regFP));
-	max_stack_use = max(max_stack_use, (ap->deep+1) * sizeOfWord);
+	if (pass==1)
+		max_stack_use = max(max_stack_use, (ap->deep+1) * sizeOfWord);
     //reg_stack[reg_stack_ptr].Operand = ap;
     //reg_stack[reg_stack_ptr].f.allocnum = number;
     if (reg_alloc[number].f.isPushed=='T')
@@ -212,7 +213,8 @@ void SpillRegister(Operand *ap, int number)
 void SpillFPRegister(Operand *ap, int number)
 {
 	GenerateDiadic(op_fsto,0,ap,cg.MakeIndexed(currentFn->GetTempBot()-ap->deep*sizeOfWord,regFP));
-	max_stack_use = max(max_stack_use, (ap->deep+1) * sizeOfWord);
+	if (pass==1)
+		max_stack_use = max(max_stack_use, (ap->deep+1) * sizeOfWord);
 	fpreg_stack[fpreg_stack_ptr].Operand = ap;
     fpreg_stack[fpreg_stack_ptr].f.allocnum = number;
     if (fpreg_alloc[number].f.isPushed=='T')
@@ -223,7 +225,8 @@ void SpillFPRegister(Operand *ap, int number)
 void SpillPositRegister(Operand* ap, int number)
 {
 	GenerateDiadic(op_psto, 0, ap, cg.MakeIndexed(currentFn->GetTempBot() - ap->deep * sizeOfWord, regFP));
-	max_stack_use = max(max_stack_use, (ap->deep + 1) * sizeOfWord);
+	if (pass == 1)
+		max_stack_use = max(max_stack_use, (ap->deep + 1) * sizeOfWord);
 	preg_stack[preg_stack_ptr].Operand = ap;
 	preg_stack[preg_stack_ptr].f.allocnum = number;
 	if (preg_alloc[number].f.isPushed == 'T')
@@ -429,6 +432,8 @@ Operand *GetTempFPRegister()
     Function *sym = currentFn;
 	int number;
  
+	return (GetTempRegister());
+	// Dead code follows
 	number = fpreg_in_use[next_fpreg];
 	if (number >= 0) {
 		SpillFPRegister(fpreg_alloc[number].Operand,number);
@@ -459,6 +464,8 @@ Operand* GetTempPositRegister()
 	Function* sym = currentFn;
 	int number;
 
+	return (GetTempRegister());
+	// Dead code follows
 	number = preg_in_use[next_preg];
 	if (number >= 0) {
 		SpillPositRegister(preg_alloc[number].Operand, number);

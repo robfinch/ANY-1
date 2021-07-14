@@ -247,6 +247,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 		R3:
 			begin
 				decbuf.needRb <= TRUE;
+				decbuf.needRc <= TRUE;
 				case(ir.r2.func)
 				PTRDIF:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; decbuf.is_signed <= FALSE; end
 				SLLP:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
@@ -256,6 +257,8 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 						decbuf.ui <= FALSE;
 						decbuf.needRc <= TRUE;
 					end
+				MUX:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
+				CMOVNZ:	begin decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.ui <= FALSE; end
 				default:	;
 				endcase
 			end
@@ -393,8 +396,6 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				default:	;
 				endcase
 			end
-		LINK:		begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; end
-		UNLINK: begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; end
 		CSR:	begin decbuf.Rt <= {1'b0,ir[12:8]}; decbuf.Rtvec <= FALSE; decbuf.Ra <= {1'b0,ir.r2.Ra}; decbuf.Ravec <= FALSE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; end
 		RGLST0,RGLST1,RGLST2,RGLST3:	begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; decbuf.Ravec <= FALSE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= FALSE; end
 		EXI0,EXI1,EXI2:	begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; decbuf.Ravec <= FALSE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= FALSE; end

@@ -1279,7 +1279,7 @@ void OCODE::OptLdi()
 	OCODE *ip;
 
 	if (fwd) {
-		if (oper2->offset->constflag) {
+		if (oper2->offset && oper2->offset->constflag) {
 			if (fwd->opcode == op_sxt) {
 				if (oper2->offset->i >= -(int64_t)2147483648L && oper2->offset->i <= 2147483647L) {
 					fwd->MarkRemove();
@@ -1395,15 +1395,15 @@ void OCODE::OptPush()
 {
 	OCODE *ip;
 
-	return;
-	ip = back;
+	//return;
+	if (oper1->mode != am_reg)
+		return;
+	ip = fwd;
 	if (ip && !ip->remove) {
 		if (ip->opcode == op_push) {
 			if (ip->oper1->mode == am_reg) {
-				if (oper1->mode == am_reg) {
-					ip->oper2 = makereg(oper1->preg);
-					MarkRemove();
-				}
+				oper2 = makereg(ip->oper1->preg);
+				ip->MarkRemove();
 			}
 		}
 	}

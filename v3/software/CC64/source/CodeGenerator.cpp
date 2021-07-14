@@ -85,9 +85,9 @@ Operand *CodeGenerator::MakeString(char *s)
 	return (compiler.of.MakeString(s));
 }
 
-Operand *CodeGenerator::MakeImmediate(int64_t i)
+Operand *CodeGenerator::MakeImmediate(int64_t i, int display)
 {
-	return (compiler.of.MakeImmediate(i));
+	return (compiler.of.MakeImmediate(i, display));
 }
 
 Operand *CodeGenerator::MakeIndirect(int i)
@@ -726,7 +726,7 @@ Operand *CodeGenerator::GenerateDereference(ENODE *node,int flags,int size, int 
 		}
 		return(ap1);
 	}
-	ap1 = GenerateExpression(node->p[0], am_reg | am_imm, 8); // generate address
+	ap1 = GenerateExpression(node->p[0], am_reg | am_imm, sizeOfWord); // generate address
 	ap1->isPtr = node->IsRefType();
 	if( ap1->mode == am_reg)
   {
@@ -1329,6 +1329,126 @@ Operand *CodeGenerator::GenerateAggregateAssign(ENODE *node1, ENODE *node2)
 	return base;
 }
 
+Operand* CodeGenerator::GenerateBigAssign(Operand* ap1, Operand* ap2, int size, int ssize)
+{
+	Operand* ap3;
+
+	if (ap1->type == stdvector.GetIndex() && ap2->type == stdvector.GetIndex()) {
+		if (ap2->mode == am_reg)
+			GenerateStore(ap2, ap1, ssize);
+		else {
+			ap3 = GetTempVectorRegister();
+			GenerateLoad(ap3, ap2, ssize, ssize);
+			GenerateStore(ap3, ap1, ssize);
+			ReleaseTempRegister(ap3);
+		}
+	}
+	else {
+		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(3 * sizeOfWord));
+		ap3 = GetTempRegister();
+		GenerateDiadic(op_ldi, 0, ap3, MakeImmediate(size));
+		GenerateDiadic(op_sto, 0, ap3, MakeIndexed(2 * sizeOfWord, regSP));
+		if (ap2->mode != am_reg) {
+			GenerateLoad(ap3, ap2, ssize, ssize);
+			GenerateDiadic(op_sto, 0, ap3, MakeIndexed(1 * sizeOfWord, regSP));
+		}
+		else
+			GenerateDiadic(op_sto, 0, ap2, MakeIndexed(1 * sizeOfWord, regSP));
+		if (ap1->mode != am_reg) {
+			GenerateLoad(ap3, ap1, ssize, ssize);
+			GenerateDiadic(op_sto, 0, ap3, MakeIndirect(regSP));
+		}
+		else
+			GenerateDiadic(op_sto, 0, ap1, MakeIndirect(regSP));
+		GenerateDiadic(op_bal, 0, makereg(regLR), MakeStringAsNameConst("_aacpy", codeseg));
+	}
+	return (ap1);
+}
+
+Operand* CodeGenerator::GenerateImmToMemAssign(Operand* ap1, Operand* ap2, int ssize)
+{
+	Operand* ap3;
+
+	if (ap2->offset->i == 0 && ap2->offset->nodetype != en_labcon) {
+		GenerateStore(makereg(regZero), ap1, ssize);
+	}
+	else {
+		if (ap2->offset->i >= -32 && ap2->offset->i < 32)
+			GenerateStore(ap2, ap1, ssize);
+		else {
+			ap3 = GetTempRegister();
+			GenerateLoadConst(ap2, ap3);
+			GenerateStore(ap3, ap1, ssize);
+			ReleaseTempReg(ap3);
+		}
+	}
+	return (ap1);
+}
+
+Operand* CodeGenerator::GenerateRegToMemAssign(Operand* ap1, Operand* ap2, int ssize)
+{
+	GenerateStore(ap2, ap1, ssize);
+	return (ap1);
+}
+
+Operand* CodeGenerator::GenerateRegToRegAssign(ENODE* node, Operand* ap1, Operand* ap2, int ssize)
+{
+	Operand* ap3;
+
+	GenerateHint(2);
+	if (node->p[0]->IsRefType() && node->p[1]->IsRefType()) {
+		ap3 = GetTempRegister();
+		GenerateLoad(ap3, MakeIndirect(ap2->preg), ssize, node->p[1]->GetReferenceSize());
+		GenerateStore(ap3, MakeIndirect(ap1->preg), ssize);
+		ReleaseTempRegister(ap3);
+	}
+	else if (node->p[1]->IsRefType()) {
+		ap3 = GetTempRegister();
+		GenerateLoad(ap3, MakeIndirect(ap2->preg), ssize, node->p[1]->GetReferenceSize());
+		GenerateDiadic(op_mov, 0, ap1, ap3);
+		ReleaseTempRegister(ap3);
+		GenerateZeradic(op_setwb);
+		ap1->isPtr = TRUE;
+	}
+	else if (node->p[0]->IsRefType()) {
+		GenerateStore(ap2, MakeIndirect(ap1->preg), ssize);
+	}
+	else {
+		GenerateDiadic(op_mov, 0, ap1, ap2);
+	}
+	return (ap1);
+}
+
+Operand* CodeGenerator::GenerateImmToRegAssign(Operand* ap1, Operand* ap2, int ssize)
+{
+	Operand* ap3;
+
+	//if (ap2->isPtr)
+//	GenerateZeradic(op_setwb);
+	GenerateLoadConst(ap2, ap1);
+	ap1->isPtr = ap2->isPtr;
+	return (ap1);
+}
+
+
+Operand* CodeGenerator::GenerateMemToRegAssign(Operand* ap1, Operand* ap2, int size, int ssize)
+{
+	Operand* ap3;
+
+	if (ap1->isPtr) {
+		ap3 = GetTempRegister();
+		GenerateLoad(ap3, ap2, ssize, size);
+		GenerateStore(ap3, MakeIndirect(ap1->preg), ssize);
+	}
+	else {
+		//if (ap1->preg >= 0x20 && ap1->preg <= 0x3f)
+		//	ap1->mode = am_fpreg;
+		GenerateLoad(ap1, ap2, ssize, size);
+	}
+	ap1->isPtr = ap2->isPtr;
+	return (ap1);
+}
+
 
 // ----------------------------------------------------------------------------
 // Generate code for an assignment node. If the size of the assignment
@@ -1389,7 +1509,7 @@ Operand *CodeGenerator::GenerateAssign(ENODE *node, int flags, int64_t size)
 		if (node->p[0]->isUnsigned && !node->p[1]->isUnsigned)
 		    ap2->GenZeroExtend(size,ssize);
 //	}
-	if (ap1->mode == am_reg || ap1->mode==am_fpreg || ap1->mode == am_preg) {
+	if (ap1->mode == am_reg) {
 		mr = &regs[ap1->preg];
 		if (mr->assigned)
 			mr->modified = true;
@@ -1397,60 +1517,13 @@ Operand *CodeGenerator::GenerateAssign(ENODE *node, int flags, int64_t size)
 		switch(ap2->mode) {
 
 		case am_reg:
-			GenerateHint(2);
-			if (node->p[0]->IsRefType() && node->p[1]->IsRefType()) {
-				ap3 = GetTempRegister();
-				GenerateLoad(ap3, MakeIndirect(ap2->preg),ssize,node->p[1]->GetReferenceSize());
-				GenerateStore(ap3, MakeIndirect(ap1->preg),ssize);
-				ReleaseTempRegister(ap3);
-			}
-			else if (node->p[1]->IsRefType()) {
-				ap3 = GetTempRegister();
-				GenerateLoad(ap3, MakeIndirect(ap2->preg), ssize, node->p[1]->GetReferenceSize());
-				GenerateDiadic(op_mov, 0, ap1, ap3);
-				ReleaseTempRegister(ap3);
-				GenerateZeradic(op_setwb);
-				ap1->isPtr = TRUE;
-			}
-			else if (node->p[0]->IsRefType()) {
-				GenerateStore(ap2, ap1/*MakeIndirect(ap1->preg)*/, ssize);
-			}
-			else {
-				GenerateDiadic(op_mov, 0, ap1, ap2);
-			}
+			ap1 = GenerateRegToRegAssign(node, ap1, ap2, ssize);
 			mr->val = regs[ap2->preg].val;
 			mr->isConst = ap2->isConst;
 			break;
 
-		case am_fpreg:
-			GenerateHint(2);
-			if (ap1->mode==am_fpreg)
-				GenerateDiadic(op_fmov,0,ap1,ap2);
-			else
-				GenerateDiadic(op_mov,0,ap1,ap2);
-			mr->modified = true;
-			break;
-
-		case am_preg:
-			GenerateHint(2);
-			if (ap1->mode == am_preg) {
-				if (node->p[1]->IsRefType())
-					GenerateLoad(ap1, ap2, ssize, ssize);
-				else
-					GenerateDiadic(op_mov, 0, ap1, ap2);
-			}
-			else {
-				GenerateDiadic(op_mov, 0, ap1, ap2);
-			}
-			mr->modified = true;
-			break;
-
 		case am_imm:
-			//if (ap2->isPtr)
-			//	GenerateZeradic(op_setwb);
-			GenerateLoadConst(ap2, ap1);
-			//GenerateDiadic(op_ldi,0,ap1,ap2);
-			ap1->isPtr = ap2->isPtr;
+			ap1 = GenerateImmToRegAssign(ap1, ap2, ssize);
 			if (ap2->mode == am_preg)
 				mr->val = ap2->offset->posit.val;
 			else if (ap2->mode == am_fpreg)
@@ -1460,18 +1533,9 @@ Operand *CodeGenerator::GenerateAssign(ENODE *node, int flags, int64_t size)
 			mr->offset = ap2->offset;
 			mr->isConst = true;
 			break;
+
 		default:
-			if (ap1->isPtr) {
-				ap3 = GetTempRegister();
-				GenerateLoad(ap3, ap2, ssize, node->p[1]->GetReferenceSize());
-				GenerateStore(ap3, ap1, /*MakeIndirect(ap1->preg), */ssize);
-			}
-			else {
-				//if (ap1->preg >= 0x20 && ap1->preg <= 0x3f)
-				//	ap1->mode = am_fpreg;
-				GenerateLoad(ap1, ap2, ssize, node->p[1]->GetReferenceSize());
-			}
-			ap1->isPtr = ap2->isPtr;
+			ap1 = GenerateMemToRegAssign(ap1, ap2, node->p[1]->GetReferenceSize(), ssize);
 			mr->modified = true;
 			break;
 		}
@@ -1486,72 +1550,18 @@ Operand *CodeGenerator::GenerateAssign(ENODE *node, int flags, int64_t size)
 	// ap1 is memory
 	else {
 		if (ap2->mode == am_reg || ap2->mode == am_fpreg || ap2->mode == am_preg) {
-		    GenerateStore(ap2,ap1,ssize);
-        }
+			ap1 = GenerateRegToMemAssign(ap1, ap2, ssize);
+    }
 		else if (ap2->mode == am_imm) {
-            if (ap2->offset->i == 0 && ap2->offset->nodetype != en_labcon) {
-                GenerateStore(makereg(0),ap1,ssize);
-            }
-            else {
-    			ap3 = GetTempRegister();
-				//GenerateDiadic(op_ldi,0,ap3,ap2);
-				GenerateLoadConst(ap2, ap3);
-				GenerateStore(ap3,ap1,ssize);
-		    	ReleaseTempReg(ap3);
-          }
+			ap1 = GenerateImmToMemAssign(ap1, ap2, ssize);
 		}
 		else {
-			if (ap1->type == stddouble.GetIndex() || ap1->type == stdflt.GetIndex()
-				|| ap1->type == stdtriple.GetIndex() || ap1->type == stdquad.GetIndex()) {
-				ap3 = GetTempFPRegister();
-				ap3->tp = ap1->tp;
-			}
-			else if (ap1->type == stdposit.GetIndex()) {
-				ap3 = GetTempPositRegister();
-				ap3->tp = ap1->tp;
-			}
+			// Generate a memory to memory move? (struct assignments)
+			if (ssize > sizeOfWord)
+				ap1 = GenerateBigAssign(ap1, ap2, size, ssize);
 			else {
 				ap3 = GetTempRegister();
 				ap3->tp = ap1->tp;
-			}
-			// Generate a memory to memory move (struct assignments)
-			if (ssize > sizeOfWord) {
-				if (ap1->type==stdvector.GetIndex() && ap2->type==stdvector.GetIndex()) {
-					if (ap2->mode==am_reg)
-						GenerateStore(ap2,ap1,ssize);
-					else {
-						ap3 = GetTempVectorRegister();
-						GenerateLoad(ap3,ap2,ssize,ssize);
-						GenerateStore(ap3,ap1,ssize);
-						ReleaseTempRegister(ap3);
-					}
-				}
-				else {
-					if (!cpu.SupportsPush) {
-						GenerateTriadic(op_sub,0,makereg(regSP),makereg(regSP),MakeImmediate(3 * sizeOfWord));
-						ap3 = GetTempRegister();
-						GenerateDiadic(op_ldi,0,ap3,MakeImmediate(size));
-						GenerateDiadic(op_sto,0,ap3,MakeIndexed(2 * sizeOfWord,regSP));
-						if (ap2->mode != am_reg)
-							GenerateLoad(ap3, ap2, ssize, ssize);
-						else
-							GenerateDiadic(op_mov,0,ap3,ap2);
-						GenerateDiadic(op_sto,0,ap3,MakeIndexed(1 * sizeOfWord,regSP));
-						if (ap1->mode != am_reg)
-							GenerateLoad(ap3, ap1, ssize, ssize);
-						else
-							GenerateDiadic(op_mov,0,ap3,ap1);
-						GenerateDiadic(op_sto,0,ap3,MakeIndirect(regSP));
-					}
-					else {
-						GenerateMonadic(op_push,0,MakeImmediate(size));
-						GenerateMonadic(op_push,0,ap2);
-						GenerateMonadic(op_push,0,ap1);
-					}
-					GenerateDiadic(op_bal,0,makereg(regLR),MakeStringAsNameConst("_aacpy",codeseg));
-				}
-			}
-			else {
 				ap3->isPtr = ap2->isPtr;
 				GenerateLoad(ap3, ap2, ssize, size);
 //				GenLoad(ap3,ap2, node->p[0]->GetReferenceSize(),node->p[1]->GetReferenceSize());

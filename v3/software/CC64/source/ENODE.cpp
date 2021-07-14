@@ -1740,8 +1740,9 @@ Operand *ENODE::GenerateBinary(int flags, int size, int op)
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
 						else if (ap2->isPtr)
 							GenerateDiadic(op_lea, 0, ap3, op==op_sub ? compiler.of.MakeNegIndexed(ap2->offset, ap1->preg) : MakeIndexed(ap2->offset, ap1->preg));
-						else
+						else {
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
+						}
 						break;
 					default:
 						GenerateTriadic(op, 0, ap3, ap1, ap2);
@@ -2117,7 +2118,7 @@ e_node StringToNodetype(char* str)
 };
 
 
-void ENODE::PutConstant(txtoStream& ofs, unsigned int lowhigh, unsigned int rshift, bool opt)
+void ENODE::PutConstant(txtoStream& ofs, unsigned int lowhigh, unsigned int rshift, bool opt, int display_opt)
 {
 	// ASM statment text (up to 3500 chars) may be placed in the following buffer.
 	static char buf[4000];
@@ -2165,7 +2166,18 @@ void ENODE::PutConstant(txtoStream& ofs, unsigned int lowhigh, unsigned int rshi
 			ofs.write(buf);
 		}
 		else {
-			sprintf_s(buf, sizeof(buf), "%lld", i);
+			char buf[65];
+			switch (display_opt) {
+			case 1:
+				ofs.write("%");
+				sprintf_s(buf, sizeof(buf), "%s", itoa((int)i, buf, 2));
+				break;
+			case 16:
+				sprintf_s(buf, sizeof(buf), "$%08I64X", i);
+				break;
+			default:
+				sprintf_s(buf, sizeof(buf), "%lld", i);
+			}
 			ofs.write(buf);
 		}
 		if (rshift > 0) {

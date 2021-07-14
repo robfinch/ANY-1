@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2017-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2017-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -442,11 +442,33 @@ void PeepList::RemoveGPLoad()
 void PeepList::RemoveLinkUnlink()
 {
 	OCODE *ip;
+	int64_t amt;
+	bool foundLink = false;
 
+	amt = 0;
 	for (ip = head; ip != NULL; ip = ip->fwd)
 	{
-		if (ip->opcode == op_link || ip->opcode == op_unlk) {
-			ip->MarkRemove();
+		// Change link into subtract from sp
+		if (ip->opcode == op_link) {
+			foundLink = true;
+			amt = ip->oper1->offset->i;
+			ip->opcode = op_sub;
+			ip->insn = GetInsn(op_sub);
+			ip->oper1 = makereg(regSP);
+			ip->oper2 = makereg(regSP);
+			ip->oper3 = cg.MakeImmediate(amt);
+		}
+	}
+	for (ip = head; ip != NULL; ip = ip->fwd)
+	{
+		if (ip->opcode == op_unlk) {
+			if (!foundLink)
+				;
+			ip->opcode = op_add;
+			ip->insn = GetInsn(op_add);
+			ip->oper1 = makereg(regSP);
+			ip->oper2 = makereg(regSP);
+			ip->oper3 = cg.MakeImmediate(amt);
 		}
 	}
 }

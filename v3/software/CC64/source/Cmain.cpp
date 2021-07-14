@@ -148,13 +148,15 @@ int main(int argc, char **argv)
 	uctran_off = 0;
 	optimize =1;
 	exceptions=1;
-	cpu.SupportsBBC = false;
+	cpu.SupportsBBC = true;
 	cpu.SupportsBBS = true;
 	cpu.SupportsPop = false;
-	cpu.SupportsPush = false;
-	cpu.SupportsLink = false;
-	cpu.SupportsUnlink = false;
+	cpu.SupportsPush = true;
+	cpu.SupportsLink = true;
+	cpu.SupportsUnlink = true;
 	cpu.SupportsBitfield = false;
+	cpu.SupportsLDM = true;
+	cpu.SupportsSTM = true;
 
 //	printf("c64 starting...\r\n");
 	while(--argc) {

@@ -77,6 +77,8 @@ parameter R3		= 8'h03;
 parameter VM		= 8'h3E;
 
 // R3 ops
+parameter MUX			= 6'h04;
+parameter CMOVNZ	= 6'h06;
 parameter SLLP		= 6'h10;
 parameter SLLPI		= 6'h11;
 parameter PTRDIF	= 6'h18;
@@ -214,14 +216,15 @@ parameter RTE		= 6'h13;
 parameter MVSEG	= 6'h1D;
 parameter TLBRW	= 6'h1E;
 parameter SYNC	= 6'h1F;
-parameter CSAVE = 6'd20;
-parameter CRESTORE = 6'd21;
+parameter CSAVE = 6'h20;
+parameter CRESTORE = 6'h21;
 
 parameter BLT		= 8'h48;
 parameter BGE		= 8'h49;
 parameter BLTU	= 8'h4A;
 parameter BGEU	= 8'h4B;
-parameter BBS		= 8'h4C;
+parameter BBC		= 8'h4C;
+parameter BBS		= 8'h4D;
 parameter BEQ		= 8'h4E;
 parameter BNE		= 8'h4F;
 

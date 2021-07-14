@@ -45,7 +45,7 @@ struct nlit *numeric_tab = nullptr;
 // Please keep table in alphabetical order.
 // Instruction.cpp has the number of table elements hard-coded in it.
 //
-Instruction opl[285] =
+Instruction opl[288] =
 {   
 { ";", op_remark },
 { ";asm",op_asm,300 },
@@ -186,6 +186,7 @@ Instruction opl[285] =
 { "ldft", op_ldft,4,1,true, am_fpreg, am_mem,0,0 },
 { "ldh", op_ldh,4,1,true,am_reg,am_mem,0,0 },
 { "ldi",op_ldi,1,1,false,am_reg,am_imm,0,0 },
+{ "ldm", op_ldm,20,1,true,am_mem,0,0,0 },
 { "ldo", op_ldo,4,1,true,am_reg,am_mem,0,0 },
 { "ldou", op_ldou,4,1,true,am_reg,am_mem,0,0 },
 { "ldp", op_ldp,4,1,true,am_reg,am_mem,0,0 },
@@ -247,6 +248,7 @@ Instruction opl[285] =
 { "push",op_push,4,1,true,am_reg|am_imm,am_reg,0,0 },
 { "pushf",op_pushf,4,0,true,am_fpreg,0,0,0 },
 { "redor", op_redor,2,1,false,am_reg,am_reg,am_reg,0 },
+{ "regs", op_reglist,1,1,false,am_imm,0,0,0 },
 { "rem", op_rem,68,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "remu",op_remu,68,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "ret", op_ret,1,0,am_imm,0,0,0 },
@@ -289,6 +291,7 @@ Instruction opl[285] =
 { "stft", op_stft,4,0,true, am_fpreg, am_mem,0,0 },
 { "sth", op_sth,4,0,true,am_reg,am_mem,0,0 },
 { "sti", op_sti,1,0 },
+{ "stm", op_stm,20,1,true,am_mem,0,0,0 },
 { "sto",op_sto,4,0,true,am_reg,am_mem,0,0 },
 { "stop", op_stop },
 { "stp",op_stp,4,0,true,am_reg,am_mem,0,0 },
@@ -1148,7 +1151,7 @@ void cseg()
 		if (curseg != codeseg || true) {
 			nl();
 			ofs.printf("\tcode\n");
-			ofs.printf("\talign\t4\n");
+			ofs.printf("\talign\t16\n");
 			curseg = codeseg;
 		}
 	}

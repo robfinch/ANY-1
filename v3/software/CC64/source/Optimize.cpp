@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2012-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2012-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -25,6 +25,7 @@
 //
 #include "stdafx.h"
 
+static void opt0(ENODE** node);
 static void fold_const(ENODE **node);
 extern int NumericLiteral(ENODE*);
 /*
@@ -336,6 +337,51 @@ int mod_mask(int i)
     return (m);
 }
 
+static void Opt0_addsub(ENODE** node)
+{
+	ENODE* ep;
+
+	ep = *node;
+	if (ep == (ENODE*)NULL)
+		return;
+	opt0(&(ep->p[0]));
+	opt0(&(ep->p[1]));
+	if (ep->p[0]->nodetype == en_icon) {
+		if (ep->p[1]->nodetype == en_icon) {
+			dooper(*node);
+			return;
+		}
+		if (ep->p[0]->i == 0) {
+			if (ep->nodetype == en_sub)
+			{
+				ep->p[0] = ep->p[1];
+				ep->nodetype = en_uminus;
+			}
+			else
+				*node = ep->p[1];
+			return;
+		}
+		if (ep->p[0]->nodetype == en_pcon) {
+			if (ep->p[1]->nodetype == en_pcon) {
+				dooper(*node);
+				return;
+			}
+		}
+		// Place the constant node second in the add to allow
+		// use of immediate mode instructions.
+		if (ep->nodetype == en_add)
+			swap_nodes(ep);
+	}
+	// Add or subtract of zero gets eliminated.
+	else if (ep->p[1]->nodetype == en_icon) {
+		if (ep->p[1]->i == 0) {
+			*node = ep->p[0];
+			return;
+		}
+	}
+	return;
+}
+
 /*
  *      opt0 - delete useless expressions and combine constants.
  *
@@ -443,9 +489,12 @@ static void opt0(ENODE **node)
 							}
 							return;
 						case en_vadd:
-			case en_vsub:
+						case en_vsub:
             case en_add:
             case en_sub:
+							Opt0_addsub(node);
+							return;
+							/*
               opt0(&(ep->p[0]));
               opt0(&(ep->p[1]));
               if(ep->p[0]->nodetype == en_icon) {
@@ -482,6 +531,7 @@ static void opt0(ENODE **node)
                         }
                     }
                     return;
+										*/
 						case en_ptrdif:
 							opt0(&(ep->p[0]));
 							opt0(&(ep->p[1]));

@@ -316,8 +316,9 @@ public:
 	unsigned __int8 numa;			// number of stack parameters (autos)
 	int stkspace;					// stack space used by function
 	int64_t sp_init;					// initial SP for interrupt functions
-	int argbot;
-	int tempbot;
+	int64_t argbot;
+	int64_t tempbot;
+	int64_t regvarbot;
 	TABLE proto;
 	TABLE params;
 	Statement *prolog;
@@ -716,7 +717,7 @@ public:
 	void loadHex(txtiStream& ifs);
 
 	int PutStructConst(txtoStream& ofs);
-	void PutConstant(txtoStream& ofs, unsigned int lowhigh, unsigned int rshift, bool opt = false);
+	void PutConstant(txtoStream& ofs, unsigned int lowhigh, unsigned int rshift, bool opt = false, int display_opt = 0);
 	void PutConstantHex(txtoStream& ofs, unsigned int lowhigh, unsigned int rshift);
 	static ENODE *GetConstantHex(std::ifstream& ifs);
 
@@ -902,6 +903,7 @@ public:
 	int8_t scale;
 	Operand *next;			// For extended sizes (long)
 	Operand* memop;
+	int display_opt;
 public:
 	Operand *Clone();
 	static bool IsSameType(Operand *ap1, Operand *ap2);
@@ -1012,7 +1014,7 @@ public:
 	Operand *makefpreg(int r);
 	Operand* makepreg(int r);
 	Operand *MakeMask(int mask);
-	Operand *MakeImmediate(int64_t i);
+	Operand *MakeImmediate(int64_t i, int display_opt=0);
 	Operand* MakeMemoryIndirect(int disp, int regno);
 	Operand *MakeIndirect(short int regno);
 	Operand *MakeIndexedCodeLabel(int lab, int i);
@@ -1036,7 +1038,7 @@ public:
 	Operand *MakeCodeLabel(int lab);
 	Operand *MakeStringAsNameConst(char *s, e_sg seg);
 	Operand *MakeString(char *s);
-	Operand *MakeImmediate(int64_t i);
+	Operand *MakeImmediate(int64_t i, int display_opt=0);
 	Operand *MakeIndirect(int i);
 	Operand *MakeIndexed(int64_t o, int i);
 	Operand *MakeDoubleIndexed(int i, int j, int scale);
@@ -1088,6 +1090,12 @@ public:
 	Operand* GenPositcon(ENODE* node, int flags, int64_t size);
 	Operand* GenLabelcon(ENODE* node, int flags, int64_t size);
 	Operand *GenerateAssign(ENODE *node, int flags, int64_t size);
+	Operand* GenerateBigAssign(Operand* ap1, Operand* ap2, int size, int ssize);
+	Operand* GenerateImmToMemAssign(Operand* ap1, Operand* ap2, int ssize);
+	Operand* GenerateRegToMemAssign(Operand* ap1, Operand* ap2, int ssize);
+	Operand* GenerateRegToRegAssign(ENODE* node, Operand* ap1, Operand* ap2, int ssize);
+	Operand* GenerateImmToRegAssign(Operand* ap1, Operand* ap2, int ssize);
+	Operand* GenerateMemToRegAssign(Operand* ap1, Operand* ap2, int size, int ssize);
 	Operand *GenerateExpression(ENODE *node, int flags, int64_t size);
 	void GenerateTrueJump(ENODE *node, int label, unsigned int prediction);
 	void GenerateFalseJump(ENODE *node, int label, unsigned int prediction);
@@ -1146,7 +1154,7 @@ public:
 	Operand *GenExpr(ENODE *node);
 	bool IsPascal(ENODE *ep);
 	void LinkAutonew(ENODE *node);
-	int PushArgument(ENODE *ep, int regno, int stkoffs, bool *isFloat);
+	int PushArgument(ENODE *ep, int regno, int stkoffs, bool *isFloat, int* push_count, bool large_argcount=false);
 	int PushArguments(Function *func, ENODE *plist);
 	void PopArguments(Function *func, int howMany, bool isPascal = true);
 	Operand* GenerateSafeLand(ENODE *, int flags, int op);
@@ -1846,6 +1854,8 @@ public:
 	bool SupportsLink;
 	bool SupportsUnlink;
 	bool SupportsBitfield;
+	bool SupportsLDM;
+	bool SupportsSTM;
 	void SetRealRegisters();
 	void SetVirtualRegisters();
 };

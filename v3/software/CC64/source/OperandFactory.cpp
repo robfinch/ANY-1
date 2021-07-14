@@ -99,7 +99,7 @@ Operand *OperandFactory::MakeString(char *s)
 /*
  *      make a node to reference an immediate value i.
  */
-Operand *OperandFactory::MakeImmediate(int64_t i)
+Operand *OperandFactory::MakeImmediate(int64_t i, int display_opt)
 {
 	Operand *ap;
 	ENODE *ep;
@@ -109,6 +109,7 @@ Operand *OperandFactory::MakeImmediate(int64_t i)
 	ap = allocOperand();
 	ap->mode = am_imm;
 	ap->offset = ep;
+	ap->display_opt = display_opt;
 	return (ap);
 }
 

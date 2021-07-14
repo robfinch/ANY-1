@@ -1639,6 +1639,7 @@ reg ifetch_v;
 reg [5:0] last_rid;
 reg cycle_after;
 reg [5:0] rob_que_m1;
+reg [ROB_ENTRIES-1:0] ridv;
 always_comb rob_que_m1 = rob_que==6'd0 ? ROB_ENTRIES -1 : rob_que - 2'd1;
 always_comb branch_invalidating = ihit && (wb_redirecti.wr || mem_redirecti.wr || ex_redirecti.wr);
 Address mod_ip;
@@ -1764,6 +1765,7 @@ if (rst_i) begin
 		vm_regfilesrc[nn].rf <= 1'b0;	
 		vm_regfilesrc[nn].rid <= 6'd0;
 	end
+	ridv <= {ROB_ENTRIES{1'b1}};
 end
 else begin
 	mem_redirecti.wr <= FALSE;
@@ -1866,10 +1868,10 @@ else begin
 			ip <= ip;
 			case(micro_ip)
 			// Link
-			6'd1:	begin micro_ip <= 6'd2; a2d_out.ir <= {16'hFFF8,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI};	end			// SUB $SP,$SP,#8
-			6'd2:	begin micro_ip <= 6'd3; a2d_out.ir <= {4'd3,5'd0,2'd0,micro_ir[18:14],1'b0,micro_ir[12:8],6'd0,STx}; end		// STO $FP,[$SP]
-			6'd3: begin micro_ip <= 6'd4; a2d_out.ir <= {OR,2'd0,7'd0,1'b0,micro_ir[12:8],1'b0,micro_ir[18:14],R2};	ip <= fnIPInc(ip); end		// MOV $FP,$SP
-			6'd4: begin micro_ip <= 6'd0; a2d_out.ir <= {micro_ir[35:20],1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; ip <= fnIPInc(ip); end // SUB $SP,$SP,#Amt
+//			6'd1:	begin micro_ip <= 6'd2; a2d_out.ir <= {16'hFFF8,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI};	end			// SUB $SP,$SP,#8
+			6'd2:	begin micro_ip <= 6'd3; a2d_out.ir <= {4'd3,5'h1F,2'd0,micro_ir[18:14],1'b0,micro_ir[12:8],6'h38,STx}; end		// STO $FP,-8[$SP]
+			6'd3: begin micro_ip <= 6'd4; a2d_out.ir <= {16'hFFF8,1'b0,micro_ir[12:8],1'b0,micro_ir[18:14],ADDI}; ip <= fnIPInc(ip); end		// ADD $FP,$SP,#-8
+			6'd4: begin micro_ip <= 6'd0; a2d_out.ir <= {micro_ir[35:20],1'b0,micro_ir[12:8],1'b0,micro_ir[12: 8],ADDI}; ip <= fnIPInc(ip); end // SUB $SP,$SP,#Amt
 			// Unlink
 			6'd8:	begin micro_ip <= 6'd9; a2d_out.ir <= {OR,2'd0,7'd0,1'b0,micro_ir[18:14],1'b0,micro_ir[12:8],R2};	end		// MOV $SP,$FP
 			// POP Ra
@@ -1910,15 +1912,7 @@ else begin
 			if (a2d_in.v) begin
 				micro_ir <= a2d_in.ir;
 				a2d_out.ir <= NOP_INSN;
-				micro_ip <= 6'd1;
-				ip <= a2d_in.ip;
-				//f2a_in.v <= INV;
-			end
-		UNLINK:
-			if (a2d_in.v) begin
-				micro_ir <= a2d_in.ir;
-				a2d_out.ir <= NOP_INSN;
-				micro_ip <= 6'd8;
+				micro_ip <= 6'd2;
 				ip <= a2d_in.ip;
 				//f2a_in.v <= INV;
 			end
@@ -1933,7 +1927,12 @@ else begin
 			if (a2d_in.v) begin
 				micro_ir <= a2d_in.ir;
 				a2d_out.ir <= NOP_INSN;
-				micro_ip <= a2d_in.ir[35:32]==4'd1 ? 6'd9 : 6'd18;
+				case(a2d_in.ir[35:32])
+				4'd1:	micro_ip <= 6'd9;
+				4'd2:	micro_ip <= 6'd18;
+				4'd3:	micro_ip <= 6'd8;
+				default:	micro_ip <= 6'd0;
+				endcase
 				ip <= a2d_in.ip;
 				//f2a_in.v <= INV;
 			end
@@ -2842,7 +2841,6 @@ default:
 		gr_state <= ST_GR1;
 	endcase
 
-
 	regfilesrc[0] <= 7'd0;
 	vregfilesrc[0] <= 7'd0;
 
@@ -2876,7 +2874,12 @@ task tQueue;
 begin
 	prev_rob_que <= rob_que;
 	rob[rob_que].rob_q <= rob_q;
-	rob[rob_que].v <= a2d_out.v && !branch_invalidating;
+	if (~ridv[rob_que]) begin
+		rob[rob_que].v <= INV;
+		ridv[rob_que] <= 1'b1;
+	end
+	else
+		rob[rob_que].v <= a2d_out.v && !branch_invalidating;
 	rob[rob_que].dec <= FALSE;
 	rob[rob_que].out <= FALSE;
 	rob[rob_que].predict_taken <= a2d_out.predict_taken;
@@ -2935,6 +2938,10 @@ begin
 	if (rob[rob_dec].exec)
 		tResetSrcs(dec_latestID);
 `endif			
+	if (~ridv[rob_dec]) begin
+		rob[rob_dec].v <= INV;
+		ridv[rob_dec] <= 1'b1;
+	end
 	rob[rob_dec].ui <= decbuf.ui;
 	rob[rob_dec].is_vec <= decbuf.is_vec;
 	rob[rob_dec].is_mod <= decbuf.is_mod;

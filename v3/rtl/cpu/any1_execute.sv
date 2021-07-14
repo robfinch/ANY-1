@@ -41,7 +41,7 @@ module any1_execute(rst,clk,robi,execo,mulreci,divreci,membufi,fpreci,rob_exec,e
 	a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,out,tid,
 	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q,
 	ld_vtmp, vtmp, new_vtmp, graphi, rd_trace, trace_dout,
-	gr_target, gr_clip, clip_en, lsm_mask, exvec, tcbptr,
+	gr_target, gr_clip, clip_en, lsm_mask, exvec, tcbptr
 	);
 input rst;
 input clk;
@@ -406,6 +406,10 @@ else begin
 							tMod();
 						end
 					endcase
+				MUX:
+					for (n = 0; n < VALUE_SIZE; n = n + 1)
+						execo.res.val[n] = robi.ia.val[n] ? robi.ib.val[n] : robi.ic.val[n];
+				CMOVNZ:	begin execo.res.val <= (robi.ic.val!=64'd0) ? robi.ia.val : robi.ib.val; tMod(); end
 				default:	;
 				endcase
 			end

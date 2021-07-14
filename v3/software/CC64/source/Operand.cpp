@@ -591,7 +591,7 @@ void Operand::store(txtoStream& ofs)
 			offset2->PutConstant(ofs, lowhigh, rshift);
 			ofs.printf("+");
 		}
-		offset->PutConstant(ofs, lowhigh, rshift);
+		offset->PutConstant(ofs, lowhigh, rshift, false, display_opt);
 		break;
 	case am_direct2:
 		offset->PutConstant(ofs, lowhigh, rshift);

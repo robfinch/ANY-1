@@ -90,7 +90,8 @@ Statement *Function::ParseBody()
 	//	stmt->stype = st_funcbody;
 	while (lc_auto % sizeOfWord)	// round frame size to word
 		++lc_auto;
-	stkspace = round8(lc_auto);
+	if (pass==1)
+		stkspace = round8(lc_auto);
 	if (!IsInline) {
 		pass = 1;
 		oc = pl.tail->opcode;
@@ -100,10 +101,12 @@ Statement *Function::ParseBody()
 		max_stack_use = 0;
 		label = nextlabel;
 		Generate();
-		stkspace += (ArgRegCount - regFirstArg) * sizeOfWord;
-		argbot = -stkspace;
-		stkspace += max_stack_use;// GetTempMemSpace();
-		tempbot = -stkspace;
+		if (pass == 1) {
+			stkspace += (ArgRegCount - regFirstArg) * sizeOfWord;
+			argbot = -stkspace;
+			stkspace += max_stack_use;// GetTempMemSpace();
+			tempbot = -stkspace;
+		}
 		pass = 2;
 		pl.tail = ip;
 		if (pl.tail)
@@ -489,16 +492,27 @@ int Function::RestoreGPRegisterVars()
 {
 	int cnt2 = 0, cnt;
 	int nn;
+	int64_t mask;
 
 	if (save_mask == nullptr)
 		return (0);
 	if (save_mask->NumMember()) {
-		cnt2 = cnt = save_mask->NumMember()*sizeOfWord;
-		cnt = 0;
-		save_mask->resetPtr();
-		for (nn = save_mask->nextMember(); nn >= 0; nn = save_mask->nextMember()) {
-			GenerateDiadic(op_ldo, 0, makereg(nn), MakeIndexed(cnt, regSP));
-			cnt += sizeOfWord;
+		if (cpu.SupportsLDM && save_mask->NumMember() > 2) {
+			mask = 0;
+			for (nn = 0; nn < 32; nn++)
+				if (save_mask->isMember(nn))
+					mask = mask | (1LL << (nn-1));
+			//GenerateMonadic(op_reglist, 0, cg.MakeImmediate(mask, 16));
+			GenerateDiadic(op_ldm, 0, cg.MakeIndirect(regSP), cg.MakeImmediate(mask, 16));
+		}
+		else {
+			cnt2 = cnt = save_mask->NumMember() * sizeOfWord;
+			cnt = 0;
+			save_mask->resetPtr();
+			for (nn = save_mask->nextMember(); nn >= 0; nn = save_mask->nextMember()) {
+				GenerateDiadic(op_ldo, 0, makereg(nn), MakeIndexed(cnt, regSP));
+				cnt += sizeOfWord;
+			}
 		}
 	}
 	return (cnt2);
@@ -631,6 +645,7 @@ bool Function::GenDefaultCatch()
 
 int64_t Function::SizeofReturnBlock()
 {
+	return (2);
 	return ((int64_t)(IsLeaf ? 1 : doesJAL ? 2 : 1));
 }
 
@@ -643,27 +658,40 @@ void Function::SetupReturnBlock()
 	alstk = false;
 	GenerateMonadic(op_hint,0,MakeImmediate(begin_return_block));
 	if (cpu.SupportsLink) {
-		if (stkspace < 65536 * 8) {
+		if (stkspace < 32767 - SizeofReturnBlock() * sizeOfWord) {
 			GenerateMonadic(op_link, 0, MakeImmediate(SizeofReturnBlock() * sizeOfWord + stkspace));
+//			GenerateMonadic(op_link, 0, MakeImmediate(stkspace));
 			//spAdjust = pl.tail;
 			alstk = true;
 		}
-		else
-			GenerateMonadic(op_link, 0, MakeImmediate(SizeofReturnBlock() * sizeOfWord));
+		else {
+			GenerateMonadic(op_link, 0, MakeImmediate(32760));
+			GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(SizeofReturnBlock() * sizeOfWord + stkspace - 32760));
+			//GenerateMonadic(op_link, 0, MakeImmediate(SizeofReturnBlock() * sizeOfWord));
+			alstk = true;
+		}
 	}
 	else {
 		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(SizeofReturnBlock() * sizeOfWord));
 		GenerateDiadic(op_sto, 0, makereg(regFP), MakeIndirect(regSP));
+		GenerateDiadic(op_mov, 0, makereg(regFP), makereg(regSP));
+		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(stkspace));
+		alstk = true;
 	}
+	// Put this marker here so that storing the link register relative to the
+	// frame pointer counts as a frame pointer reference.
+	GenerateMonadic(op_hint, 0, MakeImmediate(end_return_block));
 	//	GenerateTriadic(op_stdp, 0, makereg(regFP), makereg(regZero), MakeIndirect(regSP));
 	n = 0;
 	if (!currentFn->IsLeaf && doesJAL) {
 		n |= 2;
+		/*
 		if (alstk) {
 			GenerateDiadic(op_sto, 0, makereg(regLR), MakeIndexed(1 * sizeOfWord + stkspace, regSP));
 		}
 		else
-			GenerateDiadic(op_sto, 0, makereg(regLR), MakeIndexed(1 * sizeOfWord, regSP));
+		*/
+			GenerateDiadic(op_sto, 0, makereg(regLR), MakeIndexed(1 * sizeOfWord + stkspace, regSP));
 	}
 	/*
 	switch (n) {
@@ -676,13 +704,12 @@ void Function::SetupReturnBlock()
 	retlab = nextlabel++;
 	ap = MakeDataLabel(retlab, regZero);
 	ap->mode = am_imm;
-	if (!cpu.SupportsLink)
-		GenerateDiadic(op_mov, 0, makereg(regFP), makereg(regSP));
-	if (!alstk) {
-		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(stkspace));
+	//if (!cpu.SupportsLink)
+	//	GenerateDiadic(op_mov, 0, makereg(regFP), makereg(regSP));
+	//if (!alstk) {
+	//	GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(stkspace));
 		//spAdjust = pl.tail;
-	}
-	GenerateMonadic(op_hint, 0, MakeImmediate(end_return_block));
+//	}
 }
 
 // Generate a return statement.
@@ -854,8 +881,9 @@ void Function::GenerateReturn(Statement* stmt)
 	}
 	else if (currentFn->IsLeaf)
 		toAdd = 0;
-	else
-		toAdd = sizeOfWord;
+	else // ???
+		toAdd = 0;
+	//	toAdd = sizeOfWord;
 
 	if (epilog) {
 		epilog->Generate();
@@ -866,10 +894,10 @@ void Function::GenerateReturn(Statement* stmt)
 	// The return address is between these and the parameters. Parameters can be deallocated
 	// during the return. For leaf routines, the return address is not present, so it is 
 	// safe to combine the de-allocations.
-	if (!currentFn->IsLeaf) {
-		GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));
-		toAdd = 0;
-	}
+	//if (!currentFn->IsLeaf) {
+	//	GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));
+	//	toAdd = 0;
+	//}
 
 	// If Pascal calling convention remove parameters from stack by adding to stack pointer
 	// based on the number of parameters. However if a non-auto register parameter is
