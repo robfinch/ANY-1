@@ -63,20 +63,20 @@ bool PeepList::HasCall(OCODE *ip)
 	return (false);
 }
 
-bool PeepList::FindTarget(OCODE *ip, int reg)
+OCODE* PeepList::FindTarget(OCODE *ip, int reg, OCODE* eip)
 {
-	for (; ip; ip = ip->fwd) {
+	for (; ip != eip; ip = ip->fwd) {
 		if (ip->HasTargetReg()) {
 			if (ip->opcode == op_call || ip->opcode == op_jal || ip->opcode==op_jsr) {
 				if (reg == regFirstArg || reg == regFirstArg+1)
-					return (true);
+					return (ip);
 			}
 			if (ip->oper1->preg == reg)
-				return (true);
+				return (ip);
 		}
 	}
 	//Dump("=====PeepList=====\n");
-	return (false);
+	return (nullptr);
 }
 
 void PeepList::InsertBefore(OCODE *an, OCODE *cd)
@@ -697,6 +697,7 @@ void PeepList::OptInstructions()
 			case op_ldp:		ip->OptLoadHalf(); break;
 			case op_ldo:		ip->OptLoadWord(); break;
 			case op_sxb:	ip->OptSxb();	break;
+			case op_sxw:	ip->OptSxw();	break;
 			case op_br:
 			case op_beq:	ip->OptBeq(); break;
 			case op_bne:	ip->OptBne(); break;
@@ -722,6 +723,8 @@ void PeepList::OptInstructions()
 			case op_seq:	ip->OptScc(); break;
 			case op_sne:	ip->OptScc(); break;
 			case op_sll:	ip->OptSll(); break;
+			case op_zxb:	ip->OptZxb();	break;
+			case op_zxw:	ip->OptZxw();	break;
 			}
 		}
 	}
@@ -738,21 +741,37 @@ void PeepList::OptInstructions()
 
 void PeepList::OptLoopInvariants(OCODE *loophead)
 {
-	OCODE *ip2, *ip3, *ip4, *ip5;
+	OCODE *ip2, *ip3, *ip4, *ip5, *otail, *loopend;
 	bool canHoist;
 	bool hsx;
+	bool fcall = false;
 
-	return;
+	if (!opt_loop_invariant)
+		return;
 	if (loophead == nullptr)
 		return;
 	ip3 = ip4 = loophead;
-	for (ip2 = currentFn->pl.tail; ip2 && ip2 != ip4; ip2 = ip2->back) {
+	otail = currentFn->pl.tail;
+	loopend = nullptr;
+	for (ip2 = loophead; ip2 != loopend; ip2 = ip2->fwd) {
 		canHoist = true;
-		if (ip2->opcode == op_label || ip2->opcode == op_remark || ip2->opcode == op_hint)
+		if (ip2->opcode == op_label || ip2->opcode == op_remark)
 			continue;
 		// We don't want to move these outside the loop.
+		if (ip2->opcode == op_hint && ip2->oper1->offset->i == begin_func_call) {
+			fcall = true;
+			continue;
+		}
+		if (ip2->opcode == op_hint && ip2->oper1->offset->i == end_func_call) {
+			fcall = false;
+			continue;
+		}
+		if (fcall)
+			continue;
+		if (ip2->opcode == op_hint)
+			continue;
 		if (ip2->insn->IsFlowControl())
-			canHoist = false;
+			continue;
 		// A store operation might be invariant, but stores can have side effects
 		// eg. I/O updates.
 		//if (ip2->insn) {
@@ -766,16 +785,45 @@ void PeepList::OptLoopInvariants(OCODE *loophead)
 				case am_direct:
 					break;
 				case am_indx2:
-					if (currentFn->pl.FindTarget(ip4, ip2->oper1->preg))
+					if (currentFn->pl.FindTarget(ip4, ip2->oper1->preg, loopend) != ip2) {
 						canHoist = false;
-					if (currentFn->pl.FindTarget(ip4, ip2->oper1->sreg))
+						continue;
+					}
+					if (currentFn->pl.FindTarget(ip4, ip2->oper1->sreg, loopend) != ip2) {
 						canHoist = false;
+						continue;
+					}
 					break;
 				default:
-					if (currentFn->pl.FindTarget(ip4, ip2->oper1->preg))
+					if (currentFn->pl.FindTarget(ip4, ip2->oper1->preg, loopend) != ip2) {
 						canHoist = false;
+						continue;
+					}
 					break;
 				}
+			}
+		}
+		else {
+			switch (ip2->oper1->mode) {
+			case am_imm:
+			case am_direct:
+				break;
+			case am_indx2:
+				if (currentFn->pl.FindTarget(ip4, ip2->oper1->preg, loopend) != ip2) {
+					canHoist = false;
+					continue;
+				}
+				if (currentFn->pl.FindTarget(ip4, ip2->oper1->sreg, loopend) != ip2) {
+					canHoist = false;
+					continue;
+				}
+				break;
+			default:
+				if (currentFn->pl.FindTarget(ip4, ip2->oper1->preg, loopend) != ip2) {
+					canHoist = false;
+					continue;
+				}
+				break;
 			}
 		}
 		if (ip2->oper2) {
@@ -784,14 +832,20 @@ void PeepList::OptLoopInvariants(OCODE *loophead)
 			case am_direct:
 				break;
 			case am_indx2:
-				if (currentFn->pl.FindTarget(ip4, ip2->oper2->preg))
+				if (currentFn->pl.FindTarget(ip4, ip2->oper2->preg, loopend) != ip2) {
 					canHoist = false;
-				if (currentFn->pl.FindTarget(ip4, ip2->oper2->sreg))
+					continue;
+				}
+				if (currentFn->pl.FindTarget(ip4, ip2->oper2->sreg, loopend) != ip2) {
 					canHoist = false;
+					continue;
+				}
 				break;
 			default:
-				if (currentFn->pl.FindTarget(ip4, ip2->oper2->preg))
+				if (currentFn->pl.FindTarget(ip4, ip2->oper2->preg, loopend) != ip2) {
 					canHoist = false;
+					continue;
+				}
 				break;
 			}
 		}
@@ -801,14 +855,20 @@ void PeepList::OptLoopInvariants(OCODE *loophead)
 			case am_direct:
 				break;
 			case am_indx2:
-				if (currentFn->pl.FindTarget(ip4, ip2->oper3->preg))
+				if (currentFn->pl.FindTarget(ip4, ip2->oper3->preg, loopend) != ip2) {
 					canHoist = false;
-				if (currentFn->pl.FindTarget(ip4, ip2->oper3->sreg))
+					continue;
+				}
+				if (currentFn->pl.FindTarget(ip4, ip2->oper3->sreg, loopend) != ip2) {
 					canHoist = false;
+					continue;
+				}
 				break;
 			default:
-				if (currentFn->pl.FindTarget(ip4, ip2->oper3->preg))
+				if (currentFn->pl.FindTarget(ip4, ip2->oper3->preg, loopend) != ip2) {
 					canHoist = false;
+					continue;
+				}
 				break;
 			}
 		}
@@ -818,39 +878,36 @@ void PeepList::OptLoopInvariants(OCODE *loophead)
 			case am_direct:
 				break;
 			case am_indx2:
-				if (currentFn->pl.FindTarget(ip4, ip2->oper4->preg))
+				if (currentFn->pl.FindTarget(ip4, ip2->oper4->preg, loopend) != ip2) {
 					canHoist = false;
-				if (currentFn->pl.FindTarget(ip4, ip2->oper4->sreg))
+					continue;
+				}
+				if (currentFn->pl.FindTarget(ip4, ip2->oper4->sreg, loopend) != ip2) {
 					canHoist = false;
+					continue;
+				}
 				break;
 			default:
-				if (currentFn->pl.FindTarget(ip4, ip2->oper4->preg))
+				if (currentFn->pl.FindTarget(ip4, ip2->oper4->preg, loopend) != ip2) {
 					canHoist = false;
+					continue;
+				}
 				break;
 			}
 		}
 		// Move the code outside of the loop.
 		if (canHoist) {
-			if (ip2 == currentFn->pl.tail)
-				currentFn->pl.tail = ip2->back;
-			hsx = false;
-			ip5 = ip2->fwd;
-			if (ip5) {
-				if (ip2->insn->IsIntegerLoad() && ip5->insn->IsExt()) {
-					if (ip2->oper1->preg == ip5->oper1->preg)
-						hsx = true;
-				}
-			}
-			else
-				ip5 = ip2;
-			currentFn->pl.Remove(ip2);
-			currentFn->pl.InsertAfter(loophead, ip2);
-			if (hsx) {
-				currentFn->pl.Remove(ip5);
-				currentFn->pl.InsertAfter(loophead, ip5);
-			}
-			ip4 = ip3;
-			ip3 = ip5;
+			currentFn->pl.Add(OCODE::Clone(ip2));
+			if (loopend == nullptr)
+				loopend = currentFn->pl.tail;
+			ip2->MarkRemove();
+		}
+	}
+	// Add the remaining code in the loop.
+	for (ip2 = loophead; ip2 && ip2 != otail; ip2 = ip2->fwd) {
+		if (!ip2->remove) {
+			currentFn->pl.Add(OCODE::Clone(ip2));
+			ip2->Remove();
 		}
 	}
 }

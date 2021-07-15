@@ -1550,6 +1550,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 	sym = nullptr;
 
 	// Call the function
+	GenerateHint(begin_func_call);
 	if( node->p[0]->nodetype == en_nacon || node->p[0]->nodetype == en_cnacon ) {
 		s = gsearch(*node->p[0]->sp);
  		sym = s->fi;
@@ -1698,6 +1699,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 		&& sym->sym->tp 
 		&& sym->sym->tp->GetBtp()
 		&& sym->sym->tp->GetBtp()->IsFloatType()) {
+		GenerateHint(end_func_call);
 		if (!(flags & am_novalue))
 			return (makereg(regFirstArg));
 		else
@@ -1708,6 +1710,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 		&& sym->sym->tp
 		&& sym->sym->tp->GetBtp()
 		&& sym->sym->tp->GetBtp()->IsVectorType()) {
+		GenerateHint(end_func_call);
 		if (!(flags & am_novalue))
 			return (makevreg(1));
 		else
@@ -1728,8 +1731,10 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 				ap = makereg(regZero);
 			ap->isPtr = sym->sym->tp->GetBtp()->type == bt_pointer;
 		}
-		else
+		else {
+			GenerateHint(end_func_call);
 			return(makereg(regZero));
+		}
 	}
 	else {
 		if (!(flags & am_novalue)) {
@@ -1737,9 +1742,12 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 			GenerateDiadic(op_mov, 0, ap, makereg(regFirstArg));
 			regs[regFirstArg].modified = true;
 		}
-		else
+		else {
+			GenerateHint(end_func_call);
 			return(makereg(regZero));
+		}
 	}
+	GenerateHint(end_func_call);
 	return (ap);
 	/*
 	else {

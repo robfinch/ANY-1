@@ -171,6 +171,7 @@ extern int opt_nopeep;
 extern int opt_noexpr;
 extern int opt_nocgo;
 extern int opt_size;
+extern int opt_loop_invariant;
 extern int exceptions;
 extern int mixedSource;
 extern Function *currentFn;

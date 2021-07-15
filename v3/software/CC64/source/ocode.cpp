@@ -537,6 +537,17 @@ void OCODE::OptLoadWord()
 
 void OCODE::OptSxb()
 {
+	OCODE* ip;
+
+	ip = back;
+	if (oper1->preg == oper2->preg) {
+		if (ip->opcode == op_ldb) {
+			if (ip->oper1->preg == oper1->preg) {
+				MarkRemove();
+				optimized++;
+			}
+		}
+	}
 	if (fwd == nullptr)
 		return;
 	if (fwd->opcode != op_and)
@@ -1408,6 +1419,56 @@ void OCODE::OptPush()
 		}
 	}
 }
+
+// Remove SXW after LDW
+void OCODE::OptSxw()
+{
+	OCODE* ip;
+
+	ip = back;
+	if (oper1->preg != oper2->preg)
+		return;
+	if (ip->opcode == op_ldw) {
+		if (ip->oper1->preg == oper1->preg) {
+			MarkRemove();
+			optimized++;
+		}
+	}
+}
+
+// Remove ZXW after LDWU
+void OCODE::OptZxw()
+{
+	OCODE* ip;
+
+	ip = back;
+	if (oper1->preg != oper2->preg)
+		return;
+	if (ip->opcode == op_ldwu) {
+		if (ip->oper1->preg == oper1->preg) {
+			MarkRemove();
+			optimized++;
+		}
+	}
+}
+
+// Remove ZXB after LDBU
+void OCODE::OptZxb()
+{
+	OCODE* ip;
+
+	ip = back;
+	if (oper1->preg != oper2->preg)
+		return;
+	if (ip->opcode == op_ldbu) {
+		if (ip->oper1->preg == oper1->preg) {
+			MarkRemove();
+			optimized++;
+		}
+	}
+}
+
+
 
 void OCODE::storeHex(txtoStream& ofs)
 {

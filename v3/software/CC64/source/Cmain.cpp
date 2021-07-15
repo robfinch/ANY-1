@@ -194,18 +194,20 @@ int	options(char *s)
         for (nn = 2; s[nn]; nn++) {
             switch(s[nn]) {
             case 'r':     opt_noregs = TRUE; break;
-			case 'p':     ::opt_nopeep = TRUE; break;
+						case 'p':     ::opt_nopeep = TRUE; break;
             case 'x':     opt_noexpr = TRUE; break;
-			case 'c':	  opt_nocgo = TRUE; break;
-			case 's':		opt_size = TRUE; break;
+						case 'c':	  opt_nocgo = TRUE; break;
+						case 's':		opt_size = TRUE; break;
+						case 'l':	opt_loop_invariant = FALSE; break;
             }
         }
         if (nn==2) {
             opt_noregs = TRUE;
             ::opt_nopeep = TRUE;
             opt_noexpr = TRUE;
-			opt_nocgo = TRUE;
+						opt_nocgo = TRUE;
             optimize = FALSE;
+						opt_loop_invariant = FALSE;
         }
     }
 	else if (s[1]=='f') {

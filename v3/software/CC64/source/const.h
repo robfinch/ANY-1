@@ -318,7 +318,9 @@ enum e_hint {
 	begin_restore_regvars,
 	end_restore_regvars,
 	begin_regvar_init,
-	end_regvar_init
+	end_regvar_init,
+	begin_func_call,
+	end_func_call
 };
 
 #define LR		1

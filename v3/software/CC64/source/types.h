@@ -255,7 +255,7 @@ public:
 	void flush();
 	void SetLabelReference();
 	void EliminateUnreferencedLabels();
-	bool FindTarget(OCODE *ip, int reg);
+	OCODE* FindTarget(OCODE *ip, int reg, OCODE* eip = nullptr);
 
 	void Dump(char *msg);
 	BasicBlock *Blockize();
@@ -999,6 +999,9 @@ public:
 	void OptBeq();
 	void OptScc();
 	void OptSll();
+	void OptSxw();
+	void OptZxb();
+	void OptZxw();
 
 	static OCODE *loadHex(txtiStream& ifs);
 	void store(txtoStream& ofs);

@@ -53,6 +53,7 @@ void Instruction::SetMap()
 bool Instruction::IsFlowControl()
 {
 	if (opcode == op_jal ||
+		opcode == op_bal ||
 		opcode == op_jmp ||
 		opcode == op_ret ||
 		opcode == op_rts ||
