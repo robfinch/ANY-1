@@ -134,7 +134,7 @@ int OCODE::GetTargetReg(int *rg1, int *rg2) const
 			*rg2 = 0;
 			return (0);
 		default:
-			if (oper1->mode == am_fpreg) {
+			if (oper1->mode == am_reg) {
 				*rg1 = oper1->preg;
 				*rg2 = 0;
 				return (1);
@@ -423,7 +423,7 @@ void OCODE::OptLoad()
 	else if (oper2->tp && oper2->tp->IsFloatType()) {
 		if (oper2->offset->f128.IsZero()) {
 			opcode = op_mov;
-			oper2->mode = am_fpreg;
+			oper2->mode = am_reg;
 			oper2->preg = 0;
 			optimized++;
 			return;
@@ -1171,7 +1171,7 @@ void OCODE::OptHint()
 			if (back->HasTargetReg()) {
 				int rg1, rg2;
 				back->GetTargetReg(&rg1, &rg2);
-				if (!(fwd->oper1->mode == am_fpreg && back->opcode & 0x7fff == op_ldi)) {
+				if (!(fwd->oper1->mode == am_reg && back->opcode & 0x7fff == op_ldi)) {
 					// Search forward to see if the target register is used anywhere.
 					for (frwd = fwd->fwd; frwd; frwd = frwd->fwd) {
 						// If the register has been targeted again, it is okay to opt.

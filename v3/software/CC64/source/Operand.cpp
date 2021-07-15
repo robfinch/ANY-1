@@ -76,7 +76,7 @@ bool Operand::IsSameType(Operand *ap1, Operand *ap2)
 char Operand::fpsize()
 {
 	if (type == stddouble.GetIndex())
-		return 'd';
+		return ' ';
 	if (type == stdquad.GetIndex())
 		return 'q';
 	if (type == stdflt.GetIndex())
@@ -87,15 +87,15 @@ char Operand::fpsize()
 	if (FloatSize)
 		return (FloatSize);
 	if (offset == nullptr)
-		return ('d');
+		return (' ');
 	if (offset->tp == nullptr)
-		return ('d');
+		return (' ');
 	switch (offset->tp->precision) {
 	case 32:	return ('s');
-	case 64:	return ('d');
+	case 64:	return (' ');
 	case 96:	return ('t');
 	case 128:	return ('q');
-	default:	return ('d');
+	default:	return (' ');
 	}
 }
 
@@ -121,7 +121,7 @@ Operand *Operand::GenerateSignExtend(int isize, int osize, int flags)
 		return (ap);
 	if (ap->isUnsigned)
 		return (ap);
-	if (ap->mode != am_reg && ap->mode != am_fpreg) {
+	if (ap->mode != am_reg) {
 		ap1 = GetTempRegister();
 		cg.GenerateLoad(ap1, ap, isize, isize);
 		ReleaseTempRegister(ap);
@@ -196,17 +196,17 @@ void Operand::MakeLegal(int flags, int size)
 			// If there is a choice between r0 and #0 choose r0.
 			else if (flags & am_imm) {
 				if (tp && tp->IsFloatType()) {
-					if (flags & am_fpreg) {
+					if (flags & am_reg) {
 						if (offset->f128.IsZero()) {
-							mode = am_fpreg;
+							mode = am_reg;
 							preg = 0;
 						}
 					}
 				}
 				else if (tp && tp->IsPositType()) {
-					if (flags & am_preg) {
+					if (flags & am_reg) {
 						if (offset->posit.val == 0) {
-							mode = am_preg;
+							mode = am_reg;
 							preg = 0;
 						}
 					}
@@ -235,11 +235,11 @@ void Operand::MakeLegal(int flags, int size)
 			}
 			break;
 		case am_fpreg:
-			if (flags & am_fpreg)
+			if (flags & am_reg)
 				return;
 			break;
 		case am_preg:
-			if (flags & am_preg)
+			if (flags & am_reg)
 				return;
 			break;
 		case am_creg:
@@ -335,7 +335,7 @@ void Operand::MakeLegal(int flags, int size)
 			cg.GenerateLoad(ap2, this, size, size);
 			break;
 		}
-		mode = am_fpreg;
+		mode = am_reg;
 		switch (ap2->fpsize()) {
 		case 'd':	type = stddouble.GetIndex(); break;
 		case 's': type = stddouble.GetIndex(); break;
@@ -531,9 +531,9 @@ void Operand::storeHex(txtoStream& ofs)
 	case am_reg:
 		ofs.printf("R%02X", (int)preg);
 		break;
-	case am_fpreg:
-		ofs.printf("FP%02X", (int)preg);
-		break;
+	//case am_fpreg:
+	//	ofs.printf("FP%02X", (int)preg);
+	//	break;
 	case am_imm:
 		ofs.printf("#");
 		offset->storeHex(ofs);
@@ -566,7 +566,7 @@ Operand *Operand::loadHex(txtiStream& ifs)
 		ifs.read(buf, 1);
 		switch (buf[0]) {
 		case 'P':
-			oper->mode = am_fpreg;
+			oper->mode = am_reg;
 			ifs.read(buf, 2);
 			buf[2] = '\0';
 			oper->preg = strtoul(buf, nullptr, 16);
@@ -619,8 +619,8 @@ void Operand::store(txtoStream& ofs)
 		ofs.printf("%s", RegMoniker(preg));
 		break;
 	case am_ind:
-		if (preg == 0)
-			printf("hello");
+		//if (preg == 0)
+		//	printf("hello");
 		ofs.printf("[%s]", RegMoniker(preg));
 		break;
 	case am_indx:

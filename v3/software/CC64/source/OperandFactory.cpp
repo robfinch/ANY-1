@@ -249,8 +249,8 @@ Operand *OperandFactory::makefpreg(int r)
 {
 	Operand *ap;
 	ap = allocOperand();
-	ap->mode = am_fpreg;
-	ap->preg = r|0x20;
+	ap->mode = am_reg;
+	ap->preg = r;// | 0x20;
 	ap->type = stddouble.GetIndex();
 	return (ap);
 }

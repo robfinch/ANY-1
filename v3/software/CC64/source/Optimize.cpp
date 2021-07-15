@@ -738,7 +738,7 @@ static void opt0(ENODE **node)
 						if ((*node)->nodetype == en_udiv)
 							ep->nodetype = en_shru;
 						else
-							ep->nodetype = ep->p[0]->isUnsigned ? en_shru : en_shr;
+							ep->nodetype = en_shr;// ep->p[0]->isUnsigned ? en_shru : en_shr;???B
           }
         }
         break;
@@ -872,15 +872,21 @@ static void opt0(ENODE **node)
                     opt0(&(ep->p[0]));
                     opt0(&(ep->p[1]));
                     break;
-						// en_tempref comes from typecasting
 						case en_void:
+							opt0(&(ep->p[0]));
+							opt0(&(ep->p[1]));
+							break;
+						// en_tempref comes from typecasting
+						// The value for a cast is really ep->p[1]
+						// The type of the cast is from ep->p[0]
 						case en_cast:
 							opt0(&(ep->p[0]));
 							opt0(&(ep->p[1]));
-							//if (ep->p[0]->nodetype == en_tempref) {
-							//	(*node)->nodetype = ep->p[1]->nodetype;
-							//	*node = ep->p[1];
-							//}
+							if (ep->p[0]->nodetype == en_tempref) {
+								//(*node)->nodetype = ep->p[1]->nodetype;
+								*node = ep->p[1];
+								(*node)->nodetype = ep->p[0]->nodetype;
+							}
 							break;
 	case en_addrof:
 		opt0(&(ep->p[0]));

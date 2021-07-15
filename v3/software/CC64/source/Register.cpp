@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2012-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2012-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -144,8 +144,8 @@ void initRegStack()
 	Function *sym = currentFn;
 
 	next_reg = regFirstTemp;
-	next_fpreg = regFirstTemp|0x20;
-	next_preg = regFirstTemp|0x40;
+	next_fpreg = regFirstTemp;
+	next_preg = regFirstTemp;
 	next_vreg = regFirstTemp;
 	next_vmreg = 1;
     next_breg = 5;
@@ -212,7 +212,7 @@ void SpillRegister(Operand *ap, int number)
 
 void SpillFPRegister(Operand *ap, int number)
 {
-	GenerateDiadic(op_fsto,0,ap,cg.MakeIndexed(currentFn->GetTempBot()-ap->deep*sizeOfWord,regFP));
+	GenerateDiadic(op_sto,0,ap,cg.MakeIndexed(currentFn->GetTempBot()-ap->deep*sizeOfWord,regFP));
 	if (pass==1)
 		max_stack_use = max(max_stack_use, (ap->deep+1) * sizeOfWord);
 	fpreg_stack[fpreg_stack_ptr].Operand = ap;
@@ -451,8 +451,8 @@ Operand *GetTempFPRegister()
     fpreg_alloc[fpreg_alloc_ptr].reg = next_fpreg;
     fpreg_alloc[fpreg_alloc_ptr].Operand = ap;
     fpreg_alloc[fpreg_alloc_ptr].f.isPushed = 'F';
-    if (next_fpreg++ >= regLastTemp|0x20)
-    	next_fpreg = regFirstTemp|0x20;		/* wrap around */
+    if (next_fpreg++ >= regLastTemp)
+    	next_fpreg = regFirstTemp;		/* wrap around */
     if (fpreg_alloc_ptr++ == MAX_REG_STACK)
 		fatal("GetTempFPRegister(): register stack overflow");
 	return (ap);
@@ -687,8 +687,8 @@ void ReleaseTempRegister(Operand *ap)
 		if (ap->preg >= frg|0x20 && ap->preg <= (unsigned)regLastTemp|0x20) {
 			if (fpreg_in_use[ap->preg]==-1)
 				return;
-			if (next_fpreg-- <= frg|0x20)
-				next_fpreg = regLastTemp|0x20;
+			if (next_fpreg-- <= frg)
+				next_fpreg = regLastTemp;
 			number = fpreg_in_use[ap->preg];
 			fpreg_in_use[ap->preg] = -1;
 			if (fpreg_alloc_ptr-- == 0)
@@ -812,6 +812,7 @@ int TempInvalidate(int *fsp, int* psp)
 	}
 	memset(reg_in_use, -1, sizeof(reg_in_use));
 
+	/*
 	save_fpreg_alloc_ptr = fpreg_alloc_ptr;
 	memcpy(save_fpreg_alloc, fpreg_alloc, sizeof(save_fpreg_alloc));
 	memcpy(save_fpreg_in_use, fpreg_in_use, sizeof(save_fpreg_in_use));
@@ -823,8 +824,7 @@ int TempInvalidate(int *fsp, int* psp)
 				fpreg_alloc[i].Operand->mode = am_fpreg;
 				SpillFPRegister(fpreg_alloc[i].Operand, i);
 				fpreg_alloc[i].Operand->mode = mode;
-    			//GenerateTempRegPush(reg_alloc[i].reg, /*reg_alloc[i].Operand->mode*/am_reg, i, sp);
-    			stacked_fpregs[sp].reg = fpreg_alloc[i].reg;
+					stacked_fpregs[sp].reg = fpreg_alloc[i].reg;
     			stacked_fpregs[sp].Operand = fpreg_alloc[i].Operand;
     			stacked_fpregs[sp].f.allocnum = i;
     			(*fsp)++;
@@ -833,6 +833,8 @@ int TempInvalidate(int *fsp, int* psp)
     		}
         }
 	}
+	*/
+	/*
 	save_preg_alloc_ptr = preg_alloc_ptr;
 	memcpy(save_preg_alloc, preg_alloc, sizeof(save_preg_alloc));
 	memcpy(save_preg_in_use, preg_in_use, sizeof(save_preg_in_use));
@@ -844,7 +846,6 @@ int TempInvalidate(int *fsp, int* psp)
 				preg_alloc[i].Operand->mode = am_preg;
 				SpillPositRegister(preg_alloc[i].Operand, i);
 				preg_alloc[i].Operand->mode = mode;
-				//GenerateTempRegPush(reg_alloc[i].reg, /*reg_alloc[i].Operand->mode*/am_reg, i, sp);
 				stacked_pregs[sp].reg = preg_alloc[i].reg;
 				stacked_pregs[sp].Operand = preg_alloc[i].Operand;
 				stacked_pregs[sp].f.allocnum = i;
@@ -854,6 +855,7 @@ int TempInvalidate(int *fsp, int* psp)
 			}
 		}
 	}
+	*/
 	wrapno = 0;
 	reg_alloc_ptr = 0;
 	memset(reg_in_use, -1, sizeof(reg_in_use));
@@ -870,10 +872,10 @@ void TempRevalidate(int sp, int fsp, int psp)
 	int nn;
 	int64_t mask;
 
+	/*
 	for (nn = psp - 1; nn >= 0; nn--) {
 		if (stacked_pregs[nn].Operand)
 			LoadPositRegister(stacked_pregs[nn].Operand->preg, stacked_pregs[nn].f.allocnum);
-		//GenerateTempRegPop(stacked_regs[nn].reg, /*stacked_regs[nn].Operand->mode*/am_reg, stacked_regs[nn].f.allocnum,sp-nn-1);
 	}
 	preg_alloc_ptr = save_preg_alloc_ptr;
 	memcpy(preg_alloc, save_preg_alloc, sizeof(preg_alloc));
@@ -882,12 +884,11 @@ void TempRevalidate(int sp, int fsp, int psp)
 	for (nn = fsp-1; nn >= 0; nn--) {
 		if (stacked_fpregs[nn].Operand)
 			LoadFPRegister(stacked_fpregs[nn].Operand->preg, stacked_fpregs[nn].f.allocnum);
-		//GenerateTempRegPop(stacked_regs[nn].reg, /*stacked_regs[nn].Operand->mode*/am_reg, stacked_regs[nn].f.allocnum,sp-nn-1);
 	}
 	fpreg_alloc_ptr = save_fpreg_alloc_ptr;
 	memcpy(fpreg_alloc, save_fpreg_alloc, sizeof(fpreg_alloc));
 	memcpy(fpreg_in_use, save_fpreg_in_use, sizeof(fpreg_in_use));
-
+	*/
 	mask = 0;
 	for (nn = sp-1; nn >= 0; nn--) {
 		if (!(mask & (1LL << stacked_regs[nn].Operand->preg)))

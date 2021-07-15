@@ -45,12 +45,12 @@ bool ENODE::IsEqualOperand(Operand *a, Operand *b)
 char ENODE::fsize()
 {
 	switch (etype) {
-	case bt_float:	return ('d');
-	case bt_double:	return ('d');
+	case bt_float:	return (' ');
+	case bt_double:	return (' ');
 	case bt_triple:	return ('t');
 	case bt_quad:	return ('q');
 	case bt_posit: return (' ');
-	default:	return ('d');
+	default:	return (' ');
 	}
 }
 
@@ -193,7 +193,7 @@ int ENODE::GetNaturalSize()
 	case en_vmuls:	case en_vdivs:
 	case en_add:    case en_sub:	case en_ptrdif:
 	case en_ext:		case en_extu:
-	case en_mul:    case en_mulu:
+	case en_mul:    case en_mulu:	case en_mulf:
 	case en_div:	case en_udiv:
 	case en_mod:    case en_umod:
 	case en_and:    case en_or:     case en_xor:
@@ -246,6 +246,17 @@ int ENODE::GetNaturalSize()
 		return (p[0]->GetNaturalSize());
 	case en_addrof:
 		return (sizeOfPtr);
+	case en_bytendx:
+		return (1);
+	case en_wydendx:
+		return (2);
+	case en_aggregate:
+		return (p[0]->GetNaturalSize());
+	case en_list:
+		if (p[1])
+			return (p[0]->GetNaturalSize() + p[1]->GetNaturalSize());
+		else
+			return (p[0]->GetNaturalSize());
 	default:
 		printf("DIAG - natural size error %d.\n", nodetype);
 		break;
@@ -1221,11 +1232,11 @@ Operand *ENODE::GenSafeHook(int flags, int size)
 	if (!opt_nocgo) {
 		ap4 = GetTempRegister();
 		ap1 = cg.GenerateExpression(p[0], am_creg, size);
-		ap2 = cg.GenerateExpression(p[1]->p[0], am_reg | am_fpreg | am_preg, size);
-		ap3 = cg.GenerateExpression(p[1]->p[1], am_reg | am_fpreg | am_preg, size);
-		if (ap2->mode == am_fpreg || ap3->mode == am_fpreg)
+		ap2 = cg.GenerateExpression(p[1]->p[0], am_reg, size);
+		ap3 = cg.GenerateExpression(p[1]->p[1], am_reg, size);
+		if (ap2->tp->IsFloatType() || ap3->tp->IsFloatType())
 			goto j1;
-		if (ap2->mode == am_preg || ap3->mode == am_preg)
+		if (ap2->tp->IsPositType() || ap3->tp->IsPositType())
 			goto j1;
 		n1 = currentFn->pl.Count(ip1);
 		if (n1 < 20 && !currentFn->pl.HasCall(ip1)) {
@@ -1509,8 +1520,8 @@ Operand *ENODE::GenDivMod(int flags, int size, int op)
 	//	swap_nodes(node);
 	if (op == op_fdiv) {
 		ap3 = GetTempFPRegister();
-		ap1 = cg.GenerateExpression(p[0], am_fpreg, 8);
-		ap2 = cg.GenerateExpression(p[1], am_fpreg, 8);
+		ap1 = cg.GenerateExpression(p[0], am_reg, sizeOfFPD);
+		ap2 = cg.GenerateExpression(p[1], am_reg, sizeOfFPD);
 	}
 	else {
 		ap3 = GetTempRegister();
@@ -1553,9 +1564,9 @@ Operand *ENODE::GenMultiply(int flags, int size, int op)
 		square = !opt_nocgo;
 	if (op == op_fmul) {
 		ap3 = GetTempFPRegister();
-		ap1 = cg.GenerateExpression(p[0], am_fpreg, size);
+		ap1 = cg.GenerateExpression(p[0], am_reg, size);
 		if (!square)
-			ap2 = cg.GenerateExpression(p[1], am_fpreg, size);
+			ap2 = cg.GenerateExpression(p[1], am_reg, size);
 	}
 	else {
 		ap3 = GetTempRegister();
@@ -1599,7 +1610,7 @@ Operand *ENODE::GenerateUnary(int flags, int size, int op)
 
 	if (IsFloatType()) {
 		ap2 = GetTempFPRegister();
-		ap = cg.GenerateExpression(p[0], am_fpreg, size);
+		ap = cg.GenerateExpression(p[0], am_reg, size);
 		if (op == op_neg)
 			op = op_fneg;
 		GenerateDiadic(op, fsize(), ap2, ap);
@@ -1642,9 +1653,9 @@ Operand *ENODE::GenerateBinary(int flags, int size, int op)
 		ap3 = GetTempFPRegister();
 		if (IsEqual(p[0], p[1]))
 			dup = !opt_nocgo;
-		ap1 = cg.GenerateExpression(p[0], am_fpreg, size);
+		ap1 = cg.GenerateExpression(p[0], am_reg, size);
 		if (!dup)
-			ap2 = cg.GenerateExpression(p[1], am_fpreg, size);
+			ap2 = cg.GenerateExpression(p[1], am_reg, size);
 		// Generate a convert operation ?
 		if (!dup) {
 			if (ap1->fpsize() != ap2->fpsize()) {
@@ -1801,8 +1812,8 @@ Operand *ENODE::GenerateAssignAdd(int flags, int size, int op)
 		return (ap3);
 	}
 	if (IsFloatType()) {
-		ap1 = cg.GenerateExpression(p[0], am_fpreg | am_mem, ssize);
-		ap2 = cg.GenerateExpression(p[1], am_fpreg, size);
+		ap1 = cg.GenerateExpression(p[0], am_reg | am_mem, ssize);
+		ap2 = cg.GenerateExpression(p[1], am_reg, size);
 		if (op == op_add)
 			op = op_fadd;
 		else if (op == op_sub)
@@ -1831,12 +1842,12 @@ Operand *ENODE::GenerateAssignAdd(int flags, int size, int op)
 			mr->isConst = ap1->isConst && ap2->isConst;
 		}
 	}
-	else if (ap1->mode == am_fpreg) {
-		GenerateTriadic(op, ap1->fpsize(), ap1, ap1, ap2);
-		ReleaseTempReg(ap2);
-		ap1->MakeLegal( flags, size);
-		return (ap1);
-	}
+	//else if (ap1->mode == am_fpreg) {
+	//	GenerateTriadic(op, ap1->fpsize(), ap1, ap1, ap2);
+	//	ReleaseTempReg(ap2);
+	//	ap1->MakeLegal( flags, size);
+	//	return (ap1);
+	//}
 	else {
 		GenMemop(op, ap1, ap2, ssize, etype);
 	}
@@ -1860,7 +1871,7 @@ Operand *ENODE::GenerateAssignLogic(int flags, int size, int op)
 		ap3 = GenerateBitfieldAssignLogic(flags, size, op);
 		return (ap3);
 	}
-	ap1 = cg.GenerateExpression(p[0], am_all & ~am_fpreg, ssize);
+	ap1 = cg.GenerateExpression(p[0], am_all, ssize);
 	// Some of the logic operations don't support immediate mode, so we check
 	ap2 = cg.GenerateExpression(p[1], Instruction::Get(op)->amclass3, size);
 	if (ap1->mode == am_reg) {

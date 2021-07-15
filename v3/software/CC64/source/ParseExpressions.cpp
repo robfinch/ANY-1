@@ -1691,6 +1691,7 @@ TYP *Expression::ParseCastExpression(ENODE **node)
 	ENODE *ep1, *ep2;
 	Declaration decl;
 	SYM* sp;
+	bool madenode;
 
   Enter("ParseCast ");
   *node = (ENODE *)NULL;
@@ -1999,22 +2000,18 @@ TYP *Expression::ParseAddOps(ENODE **node)
 		// Divide the result by the size of the pointed to object.
 		if (!oper && (tp1->type == bt_pointer) && (tp2->type == bt_pointer) && (sz1==sz2))
 		{
-			if (sz1 == 1 || sz1 == 2 || sz1 == 4 || sz1 == 8 || sz1 == 16 || sz1 == 32 || sz1 == 64 || sz1 == 128 ||
-				sz1==256 || sz1==512 || sz1==1024 || sz1==2048 || sz1==4096 || sz1==8192 || sz1==16384 || sz1==32768) {
+
+			if (cpu.SupportsPtrdif && (sz1 == 1 || sz1 == 2 || sz1 == 4 || sz1 == 8 || sz1 == 16 || sz1 == 32 || sz1 == 64 || sz1 == 128 ||
+				sz1==256 || sz1==512 || sz1==1024 || sz1==2048 || sz1==4096 || sz1==8192 || sz1==16384 || sz1==32768)) {
 				ep1 = makenode(en_ptrdif, ep1, ep2);
 				ep1->p[4] = makeinode(en_icon, (int64_t)pwrof2(sz1));
 			}
-			else {
-				ep1 = makenode(en_ptrdif, ep1, ep2);
-				ep1->p[4] = makeinode(en_icon, (int64_t)0);
+			else
+			{
+				ep1 = makenode(en_sub, ep1, ep2);
 				ep4 = makeinode(en_icon, sz1);
-				ep1 = makenode(en_div, ep1, ep4);
+				ep1 = makenode(en_div, ep1, ep4);	// This op may be changed to a shift right by optimization
 			}
-			//else {
-			//	ep1 = makenode(en_sub, ep1, ep2);
-			//	ep4 = makeinode(en_icon, sz1);
-			//	ep1 = makenode(en_div, ep1, ep4);
-			//}
 			tp1 = &stduint;
 		}
 		else {
@@ -2665,6 +2662,7 @@ TYP *Expression::ParseAssignOps(ENODE **node)
 	ENODE *ep1, *ep2, *ep3;
   TYP *tp1, *tp2;
   int op;
+	bool madenode;
 
   Enter("Assignop");
   *node = (ENODE *)NULL;
@@ -2691,8 +2689,9 @@ ascomm2:
 					//}
 					//else
 					{
-						tp1 = forcefit(&ep2, tp2, &ep1, tp1, false, false);
+						tp1 = forcefit(&ep2, tp2, &ep1, tp1, true, true);
 						ep1 = makenode(op, ep1, ep2);
+						ep1->tp = tp1;
 						ep1->esize = tp1->size;
 						ep1->etype = tp1->type;
 						ep1->isUnsigned = tp1->isUnsigned;

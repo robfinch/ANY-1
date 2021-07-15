@@ -371,7 +371,7 @@ void Function::SaveFPRegisterVars()
 			GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), cg.MakeImmediate(fprmask->NumMember() * 8));
 			fprmask->resetPtr();
 			for (nn = fprmask->lastMember(); nn >= 0; nn = fprmask->prevMember()) {
-				GenerateDiadic(op_fsto, 0, makefpreg(nregs - 1 - nn), MakeIndexed(cnt, regSP));
+				GenerateDiadic(op_sto, 0, makereg(nregs - 1 - nn), MakeIndexed(cnt, regSP));
 				cnt += sizeOfWord;
 			}
 		}
@@ -731,9 +731,9 @@ void Function::GenerateReturn(Statement* stmt)
 		isFloat = sym->tp->GetBtp() && sym->tp->GetBtp()->IsFloatType();
 		isPosit = sym->tp->GetBtp() && sym->tp->GetBtp()->IsPositType();
 		if (isFloat)
-			ap = cg.GenerateExpression(stmt->exp, am_fpreg, sizeOfFP);
+			ap = cg.GenerateExpression(stmt->exp, am_reg, sizeOfFP);
 		else if (isPosit)
-			ap = cg.GenerateExpression(stmt->exp, am_preg, sizeOfPosit);
+			ap = cg.GenerateExpression(stmt->exp, am_reg, sizeOfPosit);
 		else
 			ap = cg.GenerateExpression(stmt->exp, am_reg | am_imm, sizeOfWord);
 		GenerateMonadic(op_hint, 0, MakeImmediate(2));
@@ -788,20 +788,20 @@ void Function::GenerateReturn(Statement* stmt)
 			}
 			else {
 				if (sym->tp->GetBtp()->IsFloatType() || sym->tp->GetBtp()->IsPositType())
-					GenerateDiadic(op_fmov, 0, makefpreg(regFirstArg), ap);
+					GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
 				else if (sym->tp->GetBtp()->IsVectorType())
 					GenerateDiadic(op_mov, 0, makevreg(regFirstArg), ap);
 				else
 					GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
 			}
 		}
-		else if (ap->mode == am_fpreg) {
+		else if (ap->mode == am_reg) {
 			if (isFloat)
-				GenerateDiadic(op_fmov, 0, makefpreg(regFirstArg), ap);
+				GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
 			else
 				GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
 		}
-		else if (ap->mode == am_preg) {
+		else if (ap->mode == am_reg) {
 			if (isPosit)
 				GenerateDiadic(op_mov, 0, compiler.of.makepreg(regFirstArg), ap);
 			else
@@ -1331,8 +1331,8 @@ void Function::BuildParameterList(int *num, int *numa)
 	onp = nparms;
 	nparms = 0;
 	reg = regFirstArg;
-	fpreg = regFirstArg|0x20;
-	preg = regFirstArg | 0x40;
+	fpreg = regFirstArg;
+	preg = regFirstArg;
 	// Parameters will be inserted into the symbol's parameter list when
 	// declarations are processed.
 	//if (strcmp(sym->name->c_str(), "__Skip") == 0)
@@ -1355,12 +1355,12 @@ void Function::BuildParameterList(int *num, int *numa)
 		sp1->value.i = poffset;
 		noParmOffset = false;
 		if (sp1->tp->IsFloatType()) {
-			if (fpreg > regLastArg|0x20)
+			if (reg > regLastArg)
 				sp1->IsRegister = false;
 			if (sp1->IsRegister && sp1->tp->size < 11) {
-				sp1->reg = sp1->IsAuto ? fpreg | 0x8000 : fpreg;
-				fpreg++;
-				if ((fpreg & 0x8000) == 0) {
+				sp1->reg = sp1->IsAuto ? reg | 0x8000 : reg;
+				reg++;
+				if ((reg & 0x8000) == 0) {
 					noParmOffset = true;
 					sp1->value.i = -1;
 				}
@@ -1369,12 +1369,12 @@ void Function::BuildParameterList(int *num, int *numa)
 				sp1->IsRegister = false;
 		}
 		else if (sp1->tp->IsPositType()) {
-			if (preg > regLastArg | 0x40)
+			if (reg > regLastArg)
 				sp1->IsRegister = false;
 			if (sp1->IsRegister && sp1->tp->size < 11) {
-				sp1->reg = sp1->IsAuto ? preg | 0x8000 : preg;
-				preg++;
-				if ((preg & 0x8000) == 0) {
+				sp1->reg = sp1->IsAuto ? reg | 0x8000 : reg;
+				reg++;
+				if ((reg & 0x8000) == 0) {
 					noParmOffset = true;
 					sp1->value.i = -1;
 				}

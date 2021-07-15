@@ -28,7 +28,7 @@
 int64_t GetIntegerExpression(ENODE **pnode)       /* simple integer value */
 { 
 	TYP *tp;
-	ENODE *node;
+	ENODE *node, *n2, *n3;
 	Expression exp;
 
 	tp = exp.ParseNonCommaExpression(&node);
@@ -43,31 +43,34 @@ int64_t GetIntegerExpression(ENODE **pnode)       /* simple integer value */
 		fatal("Compiler Error: GetIntegerExpression: node is NULL");
 		return (0);
 	}
-	if (node->nodetype == en_add) {
-		if (node->p[0]->nodetype == en_labcon && node->p[1]->nodetype == en_icon) {
+	n2 = node;
+	if (n2->nodetype == en_add) {
+		if (n2->p[0]->nodetype == en_labcon && n2->p[1]->nodetype == en_icon) {
 			if (pnode)
-				*pnode = node;
-			return (node->i);
+				*pnode = n2;
+			return (n2->i);
 		}
-		if (node->p[0]->nodetype == en_icon && node->p[1]->nodetype == en_labcon) {
+		if (n2->p[0]->nodetype == en_icon && n2->p[1]->nodetype == en_labcon) {
 			if (pnode)
-				*pnode = node;
-			return (node->i);
+				*pnode = n2;
+			return (n2->i);
 		}
+
 	}
 	if (node->nodetype != en_icon && node->nodetype != en_cnacon && node->nodetype != en_labcon) {
 		// A type case is represented by a tempref node associated with a value.
 		// There may be an integer typecast to another value that can be used.
-		if (node->nodetype == en_void || node->nodetype==en_cast) {
-			if (node->p[0]->nodetype == en_tempref) {
-				if (node->p[1]->nodetype == en_icon) {
+		n2 = node;
+		if (n2->nodetype == en_void || n2->nodetype == en_cast) {
+			if (n2->p[0]->nodetype == en_tempref) {
+				if (n2->p[1]->nodetype == en_icon) {
 					if (pnode)
-						*pnode = node;
-					return (node->p[1]->i);
+						*pnode = n2;
+					return (n2->p[1]->i);
 				}
 			}
 		}
-    printf("\r\nnode:%d \r\n", node->nodetype);
+//    printf("\r\nnode:%d \r\n", node->nodetype);
 		error(ERR_INT_CONST);
 		return (0);
 	}

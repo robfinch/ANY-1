@@ -157,6 +157,7 @@ int main(int argc, char **argv)
 	cpu.SupportsBitfield = false;
 	cpu.SupportsLDM = true;
 	cpu.SupportsSTM = true;
+	cpu.SupportsPtrdif = false;
 
 //	printf("c64 starting...\r\n");
 	while(--argc) {

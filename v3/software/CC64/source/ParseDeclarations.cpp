@@ -1443,6 +1443,7 @@ void Declaration::ParseAssign(SYM *sp)
 	Expression exp;
 	exp.head = head;
 	exp.tail = tail;
+	bool madenode;
 
 	if (parsingParameterList) {
 		GetConstExpression(&ep2);

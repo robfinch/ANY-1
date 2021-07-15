@@ -280,7 +280,7 @@ Statement *Statement::ParseIf()
 	}
 	if (needpa)
 		needpunc(closepa, 19);
-	else if (lastst != kw_then)
+	else if (lastst != kw_then && lastst != begin)
 		error(ERR_SYNTAX);
 	if (lastst == kw_then)
 		NextToken();
@@ -405,16 +405,30 @@ Statement *Statement::ParseThrow()
 	snp->num = tp->GetHash();
 	if (lastst != end)
 		needpunc(semicolon, 38);
+	if (looplevel == foreverlevel)
+		loopexit = TRUE;
 	return (snp);
 }
 
 Statement *Statement::ParseBreak()
 {
 	Statement *snp;
+	TYP* tp;
 
 	snp = MakeStatement(st_break, TRUE);
-	if (lastst != end)
-		needpunc(semicolon, 39);
+	if (lastst != semicolon) {
+		currentFn->DoesThrow = TRUE;
+		loopexit = TRUE;
+		snp = MakeStatement(st_throw, TRUE);
+		tp = expression(&(snp->exp));
+		snp->num = tp->GetHash();
+		if (lastst != end)
+			needpunc(semicolon, 38);
+		if (looplevel == foreverlevel)
+			loopexit = TRUE;
+		return (snp);
+	}
+	needpunc(semicolon, 39);
 	if (looplevel == foreverlevel)
 		loopexit = TRUE;
 	return (snp);
@@ -427,6 +441,10 @@ Statement *Statement::ParseContinue()
 	snp = MakeStatement(st_continue, TRUE);
 	if (lastst != end)
 		needpunc(semicolon, 40);
+	else if (lastst == id) {
+		snp->label = (int64_t*)stringlit(lastid);
+		needpunc(semicolon, 39);
+	}
 	return (snp);
 }
 
@@ -564,6 +582,9 @@ Statement *Statement::ParseCompound()
 		TRACE(printf("Compound <%s>\r\n", lastid);)
 			if (strcmp(lastid, "clockbug") == 0)
 				printf("clockbug\r\n");
+		if (lastst == id) {
+			snp->label = (int64_t*)stringlit(lastid);
+		}
 		NextToken();
 	}
 	ad.Parse(NULL, &snp->ssyms);
@@ -773,6 +794,10 @@ void Statement::repcse()
 			block->prolog->repcse();
 			block->repcse_compound();
 			block->epilog->repcse();
+			break;
+		case st_break:
+			if (block->exp)
+				block->exp->repexpr();
 			break;
 		case st_return:
 		case st_throw:

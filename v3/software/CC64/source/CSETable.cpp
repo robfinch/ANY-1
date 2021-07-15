@@ -228,7 +228,7 @@ int CSETable::AllocateFPRegisters()
 						}
 						if (alloc) {
 							csp->reg = reg++;
-							csp->reg |= 0x20;
+							//csp->reg |= 0x20;
 						}
 						else
 							csp->reg = -1;
@@ -327,7 +327,7 @@ void CSETable::InitializeTempRegs()
 			{
 				if (exptr->tp || true) {
 					initstack();
-					ap = cg.GenerateExpression(exptr, am_reg | am_imm | am_mem | am_fpreg | am_preg, exptr->tp ? exptr->tp->size : sizeOfWord);
+					ap = cg.GenerateExpression(exptr, am_reg | am_imm | am_mem, exptr->tp ? exptr->tp->size : sizeOfWord);
 					ap2 = csp->isfp ? makefpreg(csp->reg) : csp->isPosit ? compiler.of.makepreg(csp->reg) : makereg(csp->reg);
 					if (csp->isfp | csp->isPosit) {
 						ap2->type = ap->type;
@@ -335,25 +335,26 @@ void CSETable::InitializeTempRegs()
 					}
 					ap2->isPtr = ap->isPtr;
 					if (ap->mode == am_imm) {
-						if (ap2->mode == am_fpreg) {
-							ap3 = GetTempRegister();
-							ap3->tp = ap->tp;
-							GenerateDiadic(op_ldi, 0, ap3, ap);
-							GenerateDiadic(op_mov, 0, ap2, ap3);
-							ReleaseTempReg(ap3);
-						}
-						else if (ap2->mode == am_preg) {
-							ap3 = GetTempRegister();
-							ap3->tp = ap->tp;
-							GenerateDiadic(op_ldi, 0, ap3, ap);
-							GenerateDiadic(op_mov, 0, ap2, ap3);
-							ReleaseTempReg(ap3);
-						}
-						else {
+						//if (ap2->mode == am_fpreg) {
+						//	ap3 = GetTempRegister();
+						//	ap3->tp = ap->tp;
+						//	GenerateDiadic(op_ldi, 0, ap3, ap);
+						//	GenerateDiadic(op_mov, 0, ap2, ap3);
+						//	ReleaseTempReg(ap3);
+						//}
+						//else if (ap2->mode == am_preg) {
+						//	ap3 = GetTempRegister();
+						//	ap3->tp = ap->tp;
+						//	GenerateDiadic(op_ldi, 0, ap3, ap);
+						//	GenerateDiadic(op_mov, 0, ap2, ap3);
+						//	ReleaseTempReg(ap3);
+						//}
+						//else
+						{
 							cg.GenerateLoadConst(ap, ap2);
 						}
 					}
-					else if (ap->mode == am_reg | ap->mode == am_fpreg || ap->mode == am_preg) {
+					else if (ap->mode == am_reg) {
 						GenerateDiadic(op_mov, 0, ap2, ap);
 					}
 					else {
@@ -425,18 +426,19 @@ int CSETable::AllocateRegisterVars()
 		csp->reg = -1;
 
 	AllocateGPRegisters();
-	AllocateFPRegisters();
-	AllocatePositRegisters();
+	//AllocateFPRegisters();
+	//AllocatePositRegisters();
 	AllocateVectorRegisters();
 
 	// Generate bit masks of allocated registers
 	for (csp = First(); csp; csp = Next()) {
 		if (csp->exp) {
-			if (csp->exp->IsFloatType())// && !csp->exp->constflag)
-				GenerateRegMask(csp, fpmask, fprmask);
-			else if (csp->exp->IsPositType())// && !csp->exp->constflag)
-				GenerateRegMask(csp, pmask, prmask);
-			else if (csp->exp->etype == bt_vector)
+			//if (csp->exp->IsFloatType())// && !csp->exp->constflag)
+			//	GenerateRegMask(csp, fpmask, fprmask);
+			//else if (csp->exp->IsPositType())// && !csp->exp->constflag)
+			//	GenerateRegMask(csp, pmask, prmask);
+			//else
+			if (csp->exp->etype == bt_vector)
 				GenerateRegMask(csp, vrmask, vmask);
 			else
 				GenerateRegMask(csp, mask, rmask);
@@ -451,8 +453,8 @@ int CSETable::AllocateRegisterVars()
 	cg.GenerateHint(begin_save_regvars);
 	SaveRegisterVars(rmask);
 	cg.GenerateHint(end_save_regvars);
-	SaveFPRegisterVars(fprmask);
-	SavePositRegisterVars(prmask);
+	//SaveFPRegisterVars(fprmask);
+	//SavePositRegisterVars(prmask);
 
 	save_mask = mask;
 	fpsave_mask = fpmask;

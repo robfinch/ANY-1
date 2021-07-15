@@ -180,7 +180,7 @@ void doinit(SYM *sp)
 					|| sp->tp->GetBtp()->type == bt_ichar || sp->tp->GetBtp()->type == bt_iuchar
 					) {
 					sp->tp->numele = laststrlen;
-					sp->tp->size = laststrlen;
+					sp->tp->size = laststrlen * 2;
 				}
 			}
 		}

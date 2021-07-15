@@ -536,8 +536,14 @@ public:
 	static TYP *Make(int bt, int64_t siz);
 	static TYP *Copy(TYP *src);
 	bool IsScalar();
-	bool IsFloatType() const { return (type==bt_quad || type==bt_float || type==bt_double || type==bt_triple); };
-	bool IsPositType() const { return (type == bt_posit); };
+	bool IsFloatType() const { 
+		if (this == nullptr)
+			return (false);
+		return (type==bt_quad || type==bt_float || type==bt_double || type==bt_triple); };
+	bool IsPositType() const {
+		if (this == nullptr)
+			return (false);
+		return (type == bt_posit); };
 	bool IsVectorType() const { return (type==bt_vector); };
 	bool IsUnion() const { return (type==bt_union); };
 	bool IsStructType() const { return (type==bt_struct || type==bt_class || type==bt_union); };
@@ -1856,6 +1862,7 @@ public:
 	bool SupportsBitfield;
 	bool SupportsLDM;
 	bool SupportsSTM;
+	bool SupportsPtrdif;
 	void SetRealRegisters();
 	void SetVirtualRegisters();
 };
