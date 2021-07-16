@@ -645,7 +645,7 @@ bool Function::GenDefaultCatch()
 
 int64_t Function::SizeofReturnBlock()
 {
-	return (2);
+	return (Compiler::GetReturnBlockSize());
 	return ((int64_t)(IsLeaf ? 1 : doesJAL ? 2 : 1));
 }
 
@@ -658,21 +658,21 @@ void Function::SetupReturnBlock()
 	alstk = false;
 	GenerateMonadic(op_hint,0,MakeImmediate(begin_return_block));
 	if (cpu.SupportsLink) {
-		if (stkspace < 32767 - SizeofReturnBlock() * sizeOfWord) {
-			GenerateMonadic(op_link, 0, MakeImmediate(SizeofReturnBlock() * sizeOfWord + stkspace));
+		if (stkspace < 32767 - Compiler::GetReturnBlockSize()) {
+			GenerateMonadic(op_link, 0, MakeImmediate(Compiler::GetReturnBlockSize() + stkspace));
 //			GenerateMonadic(op_link, 0, MakeImmediate(stkspace));
 			//spAdjust = pl.tail;
 			alstk = true;
 		}
 		else {
 			GenerateMonadic(op_link, 0, MakeImmediate(32760));
-			GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(SizeofReturnBlock() * sizeOfWord + stkspace - 32760));
+			GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(Compiler::GetReturnBlockSize() + stkspace - 32760));
 			//GenerateMonadic(op_link, 0, MakeImmediate(SizeofReturnBlock() * sizeOfWord));
 			alstk = true;
 		}
 	}
 	else {
-		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(SizeofReturnBlock() * sizeOfWord));
+		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(Compiler::GetReturnBlockSize()));
 		GenerateDiadic(op_sto, 0, makereg(regFP), MakeIndirect(regSP));
 		GenerateDiadic(op_mov, 0, makereg(regFP), makereg(regSP));
 		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(stkspace));

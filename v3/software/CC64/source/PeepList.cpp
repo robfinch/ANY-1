@@ -734,7 +734,8 @@ void PeepList::OptInstructions()
 // But don't hoist expressions containing $a0 as that is the return
 // value from a function call.
 // This needs more work:
-// An incrementing expression incorrectly hoisted the load word
+// An incrementing expression incorrectly hoisted the load word. This
+// is now fixed.
 //		lw       	$v0,48[$fp]
 //		sub      	$v0, $v0, #1
 //		sw       	$v0, 48[$fp]
@@ -756,6 +757,12 @@ void PeepList::OptLoopInvariants(OCODE *loophead)
 	if (loophead == nullptr)
 		return;
 	otail = currentFn->pl.tail;
+	// otail should not be null, but if it is this could cause an issue with
+	// all of memory being used up as the loop is replicated over and over
+	// again. It is an issue with the compiler if otail is a null pointer.
+	// But we just bypass the optimization.
+	if (otail == nullptr)
+		return;
 	loopend = nullptr;
 	for (ip2 = loophead; ip2 != loopend; ip2 = ip2->fwd) {
 		canHoist = true;
