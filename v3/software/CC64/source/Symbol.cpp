@@ -149,6 +149,11 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
 
 	dfs.printf("\n<gsearch2> for: |%s|\n", (char *)na.c_str());
 	prefix = nullptr;
+	sp = currentSym;
+	if (sp) {
+		if (p = sp->Find(na))
+			return (p);
+	}
 	sp = nullptr;
 	// There might not be a current statement if global declarations are
 	// being processed.
@@ -535,6 +540,193 @@ int SYM::AdjustNbytes(int nbytes, int al, int ztype)
 	}
 	return (nbytes);
 }
+
+// Initialize the type. Unions can't be initialized. Oh yes they can.
+
+int64_t SYM::Initialize(ENODE* pnode, TYP* tp2, int opt)
+{
+	int64_t nbytes;
+	int base, nn;
+	int64_t sizes[100];
+	char idbuf[sizeof(lastid) + 1];
+	ENODE* node;
+	Expression exp;
+	bool init_array = false;
+
+	for (base = typ_sp - 1; base >= 0; base--) {
+		if (typ_vector[base]->isArray)
+			break;
+		if (typ_vector[base]->IsStructType())
+			break;
+	}
+	sizes[0] = typ_vector[min(base + 1, typ_sp - 1)]->size * typ_vector[0]->numele;
+	for (nn = 1; nn <= base; nn++)
+		sizes[nn] = sizes[nn - 1] * typ_vector[nn]->numele;
+
+	init_array = tp->type == bt_pointer && tp->val_flag;
+j1:
+	if (init_array) {
+		while (lastst == begin) {
+			brace_level++;
+			NextToken();
+		}
+	}
+	if (tp2)
+		tp = tp2;
+	else {
+		tp = typ_vector[max(base - brace_level, 0)];
+	}
+	do {
+		if (lastst == assign)
+			NextToken();
+		switch (tp->type) {
+		case bt_ubyte:
+		case bt_byte:
+			nbytes = initbyte(this,opt);
+			break;
+		case bt_uchar:
+		case bt_char:
+		case bt_enum:
+			nbytes = initchar(this, opt);
+			break;
+		case bt_ushort:
+		case bt_short:
+			nbytes = initshort(this,opt);
+			break;
+		case bt_pointer:
+			if (tp->val_flag)
+				nbytes = tp->InitializeArray(sizes[max(base - brace_level, 0)], this);
+			else
+				nbytes = InitializePointer(tp, opt, this);
+			break;
+		case bt_exception:
+		case bt_ulong:
+		case bt_long:
+			//strncpy(idbuf, lastid, sizeof(lastid));
+			//strncpy(lastid, pnode->sym->name->c_str(), sizeof(lastid));
+			//gNameRefNode = exp.ParseNameRef();
+			nbytes = initlong(this, opt);
+			//strncpy(lastid, idbuf, sizeof(lastid));
+			break;
+		case bt_struct:
+			nbytes = InitializeStruct(pnode);
+			break;
+		case bt_union:
+			nbytes = tp->InitializeUnion(this);
+			break;
+		case bt_quad:
+			nbytes = initquad(this, opt);
+			break;
+		case bt_float:
+		case bt_double:
+			nbytes = initfloat(this, opt);
+			break;
+		case bt_triple:
+			nbytes = inittriple(this, opt);
+			break;
+		case bt_posit:
+			nbytes = initPosit(this, opt);
+			break;
+		default:
+			error(ERR_NOINIT);
+			nbytes = 0;
+		}
+		//if (brace_level > 0) {
+		//	if (typ_vector[brace_level - 1]->val_flag) {
+
+		//	}
+		//}
+		if (tp2 != nullptr)
+			return (nbytes);
+		if (lastst != comma || brace_level == 0)
+			break;
+		//NextToken();
+		if (lastst == end)
+			break;
+	} while (0);
+j2:
+	if (init_array) {
+		while (lastst == end) {
+			brace_level--;
+			NextToken();
+		}
+		if (brace_level != 0) {
+			if (lastst == comma) {
+				NextToken();
+				if (lastst == end)
+					goto j2;
+				goto j1;
+			}
+		}
+	}
+	return (nbytes);
+}
+
+int64_t SYM::InitializeStruct(ENODE* node)
+{
+	SYM* sp, *hd;
+	int64_t nbytes;
+	int count;
+	Expression exp;
+	TYP* typ;
+	ENODE* node2;
+
+	//	needpunc(begin, 25);
+	nbytes = 0;
+	//sp = sp->GetPtr(tp->lst.GetHead());      /* start at top of symbol table */
+	hd = sp = this->GetPtr(this->tp->lst.GetHead());
+	count = 0;
+	typ = nullptr;
+	exp.ParseExpression(&node2, this);
+	if (lastst != end && lastst != semicolon)
+		error(ERR_PUNCT);
+	while (sp != 0) {
+		while (nbytes < sp->value.i) {     /* align properly */
+											 //                    nbytes += GenerateByte(0);
+			GenerateByte(0);
+			nbytes++;
+		}
+		currentSym = sp;
+		/*
+		if (typ == nullptr) {
+			typ = exp.ParsePostfixExpression(&node2, false);
+		}
+		if (typ != nullptr) {
+			if (lastst == assign)
+				NextToken();
+			if (node2->nodetype == en_ref && node2->sym != nullptr) {
+				if (node2->sym->name->compare(sp->name->c_str()) == 0) {
+					nbytes += sp->Initialize(node, sp->tp, 1);
+				}
+				else
+					nbytes += sp->Initialize(node, sp->tp, 0);
+			}
+			else
+				nbytes += sp->Initialize(node, sp->tp, 1);
+			typ = nullptr;
+		}
+		else
+		*/
+			nbytes += sp->Initialize(node, sp->tp, 0);
+		sp = sp->GetNextPtr();
+		if (sp == hd)
+			break;
+		count++;
+	}
+	if (sp == nullptr) {
+		if (lastst != end && lastst != semicolon) {
+			error(ERR_INITSIZE);
+			while (lastst != end && lastst != semicolon && lastst != end)
+				NextToken();
+		}
+	}
+	if (nbytes < tp->size)
+		genstorage(tp->size - nbytes);
+	//	needpunc(end, 26);
+	return (tp->size);
+}
+
+
 
 void SYM::storeHex(txtoStream& ofs)
 {

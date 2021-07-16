@@ -25,13 +25,16 @@
 //
 #include "stdafx.h"
 
-int64_t GetIntegerExpression(ENODE **pnode)       /* simple integer value */
+int64_t GetIntegerExpression(ENODE **pnode, SYM* symi, int opt=0)       /* simple integer value */
 { 
 	TYP *tp;
 	ENODE *node, *n2, *n3;
 	Expression exp;
 
-	tp = exp.ParseNonCommaExpression(&node);
+	if (opt)
+		tp = exp.ParseNonAssignExpression(&node, symi);
+	else
+		tp = exp.ParseNonCommaExpression(&node, symi);
 	if (node==NULL) {
 		error(ERR_SYNTAX);
 		return (0);
@@ -43,7 +46,10 @@ int64_t GetIntegerExpression(ENODE **pnode)       /* simple integer value */
 		fatal("Compiler Error: GetIntegerExpression: node is NULL");
 		return (0);
 	}
-	n2 = node;
+	//if (node->nodetype == en_assign)
+	//	n2 = node->p[1];
+	//else
+		n2 = node;
 	if (n2->nodetype == en_add) {
 		if (n2->p[0]->nodetype == en_labcon && n2->p[1]->nodetype == en_icon) {
 			if (pnode)
@@ -57,10 +63,9 @@ int64_t GetIntegerExpression(ENODE **pnode)       /* simple integer value */
 		}
 
 	}
-	if (node->nodetype != en_icon && node->nodetype != en_cnacon && node->nodetype != en_labcon) {
+	if (n2->nodetype != en_icon && n2->nodetype != en_cnacon && n2->nodetype != en_labcon) {
 		// A type case is represented by a tempref node associated with a value.
 		// There may be an integer typecast to another value that can be used.
-		n2 = node;
 		if (n2->nodetype == en_void || n2->nodetype == en_cast) {
 			if (n2->p[0]->nodetype == en_tempref) {
 				if (n2->p[1]->nodetype == en_icon) {
@@ -75,11 +80,11 @@ int64_t GetIntegerExpression(ENODE **pnode)       /* simple integer value */
 		return (0);
 	}
 	if (pnode)
-		*pnode = node;
-	return (node->i);
+		*pnode = n2;
+	return (n2->i);
 }
 
-Float128 *GetFloatExpression(ENODE **pnode)
+Float128 *GetFloatExpression(ENODE **pnode, SYM* symi)
 { 
 	TYP *tp;
 	ENODE *node;
@@ -87,7 +92,7 @@ Float128 *GetFloatExpression(ENODE **pnode)
 	Expression exp;
 
 	flt = (Float128 *)allocx(sizeof(Float128));
-	tp = exp.ParseNonCommaExpression(&node);
+	tp = exp.ParseNonCommaExpression(&node, symi);
 	if (node==NULL) {
 		error(ERR_SYNTAX);
 		return 0;
@@ -116,14 +121,14 @@ Float128 *GetFloatExpression(ENODE **pnode)
 	return (&node->f128);
 }
 
-Posit64 GetPositExpression(ENODE** pnode)
+Posit64 GetPositExpression(ENODE** pnode, SYM* symi)
 {
 	TYP* tp;
 	ENODE* node;
 	Posit64 flt;
 	Expression exp;
 
-	tp = exp.ParseNonCommaExpression(&node);
+	tp = exp.ParseNonCommaExpression(&node, symi);
 	if (node == NULL) {
 		error(ERR_SYNTAX);
 		return 0;
@@ -152,14 +157,14 @@ Posit64 GetPositExpression(ENODE** pnode)
 	return (node->posit);
 }
 
-int64_t GetConstExpression(ENODE **pnode)       /* simple integer value */
+int64_t GetConstExpression(ENODE **pnode, SYM* symi)       /* simple integer value */
 {
 	TYP *tp;
 	ENODE *node;
 	Float128 *flt;
 	Expression exp;
 
-	tp = exp.ParseNonCommaExpression(&node);
+	tp = exp.ParseNonCommaExpression(&node, symi);
 	if (node == NULL) {
 		error(ERR_SYNTAX);
 		return (0);

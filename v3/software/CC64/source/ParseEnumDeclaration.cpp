@@ -61,7 +61,7 @@ void Declaration::ParseEnum(TABLE *table)
 		tp->size = 2;
 		if (lastst==openpa) {
 			NextToken();
-			amt = (int)GetIntegerExpression((ENODE **)NULL);
+			amt = (int)GetIntegerExpression((ENODE **)NULL,nullptr,0);
 			needpunc(closepa,10);
 		}
     if( lastst != begin)
@@ -92,7 +92,7 @@ void Declaration::ParseEnumerationList(TABLE *table, int amt, SYM *parent)
     NextToken();
 		if (lastst==assign) {
 			NextToken();
-			sp->value.i = GetIntegerExpression((ENODE **)NULL);
+			sp->value.i = GetIntegerExpression((ENODE **)NULL,sp,0);
 			evalue = (int)sp->value.i+amt;
 		}
 		else

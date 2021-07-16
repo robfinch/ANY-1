@@ -152,6 +152,7 @@ int stmtdepth = 0;
 char nmspace[20][100];
 int bsave_mask;
 short int loop_active;
+ENODE* gNameRefNode;
 
 ANY1CodeGenerator cg;
 

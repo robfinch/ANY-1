@@ -256,6 +256,9 @@ extern int optimized;
 extern short int typ_sp;
 extern ANY1CodeGenerator cg;
 extern bool DataLabels[65535];
+extern ENODE* gNameRefNode;
+extern TYP* typ_vector[100];
+extern short int brace_level;
 
 // Analyze.c
 extern short int csendx;
@@ -319,9 +322,6 @@ extern void doinit(SYM *sp);
 // Func.c
 extern SYM *makeint(char *);
 extern void funcbody(SYM *sp);
-// Intexpr.c
-extern int64_t GetIntegerExpression(ENODE **p);
-extern Float128 *GetFloatExpression(ENODE **pnode);
 // Expr.c
 extern SYM *makeStructPtr(std::string name);
 extern ENODE *makenode(int nt, ENODE *v1, ENODE *v2);

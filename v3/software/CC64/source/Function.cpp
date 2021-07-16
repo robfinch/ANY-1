@@ -257,7 +257,7 @@ int Function::Parse()
 			ENODE* node;
 			Expression exp;
 
-			exp.nameref2(sp->sym->name->c_str(), &node, en_ref, FALSE, nullptr, nullptr);
+			exp.nameref2(sp->sym->name->c_str(), &node, en_ref, FALSE, nullptr, nullptr, sp->sym);
 			exp.CondDeref(&node, sp->sym->tp);
 			if (sp->sym->initexp)
 				sp->sym->initexp->p[0] = node;

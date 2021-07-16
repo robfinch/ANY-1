@@ -61,6 +61,7 @@ void doinit(SYM *sp)
 	std::streampos lblpoint;
 	TYP *tp;
 	int n;
+	ENODE* node;
 
 	sp->storage_pos = ofs.tellp();
   hasPointer = false;
@@ -173,7 +174,10 @@ void doinit(SYM *sp)
 			push_typ(tp);
 		}
 		brace_level = 0;
-		sp->tp->Initialize(nullptr, nullptr, 1);
+		strncpy(lastid, sp->name->c_str(), sizeof(lastid));
+		//gNameRefNode = exp.ParseNameRef(sp);
+		currentSym = sp;
+		sp->Initialize(nullptr, nullptr, 1);
 		if (sp->tp->numele == 0) {
 			if (sp->tp->GetBtp()) {
 				if (sp->tp->GetBtp()->type == bt_char || sp->tp->GetBtp()->type == bt_uchar
@@ -228,55 +232,55 @@ void doInitCleanup()
 	}
 }
 
-int64_t initbyte(int opt)
+int64_t initbyte(SYM* symi, int opt)
 {   
-	GenerateByte(opt ? (int)GetIntegerExpression((ENODE **)NULL) : 0);
+	GenerateByte(opt ? (int)GetIntegerExpression((ENODE **)NULL,symi,0) : 0);
     return (1LL);
 }
 
-int64_t initchar(int opt)
+int64_t initchar(SYM* symi, int opt)
 {   
-	GenerateChar(opt ? (int)GetIntegerExpression((ENODE **)NULL) : 0);
+	GenerateChar(opt ? (int)GetIntegerExpression((ENODE **)NULL,symi,0) : 0);
     return (2LL);
 }
 
-int64_t initshort(int opt)
+int64_t initshort(SYM* symi, int opt)
 {
-	GenerateHalf(opt ? (int)GetIntegerExpression((ENODE **)NULL) : 0);
+	GenerateHalf(opt ? (int)GetIntegerExpression((ENODE **)NULL,symi,0) : 0);
     return (4LL);
 }
 
-int64_t initlong(int opt)
+int64_t initlong(SYM* symi, int opt)
 {
-	GenerateLong(opt ? GetIntegerExpression((ENODE **)NULL) : 0);
+	GenerateLong(opt ? GetIntegerExpression((ENODE**)NULL,symi,0) : symi->enode ? symi->enode->i : 0);
     return (8LL);
 }
 
-int64_t initquad(int opt)
+int64_t initquad(SYM* symi, int opt)
 {
-	GenerateQuad(opt ? GetFloatExpression((ENODE **)NULL) : Float128::Zero());
+	GenerateQuad(opt ? GetFloatExpression((ENODE **)NULL, symi) : Float128::Zero());
 	return (16LL);
 }
 
-int64_t initfloat(int opt)
+int64_t initfloat(SYM* symi, int opt)
 {
-	GenerateFloat(opt ? GetFloatExpression((ENODE **)NULL): Float128::Zero());
+	GenerateFloat(opt ? GetFloatExpression((ENODE **)NULL, symi): Float128::Zero());
 	return (8LL);
 }
 
-int64_t initPosit(int opt)
+int64_t initPosit(SYM* symi, int opt)
 {
-	GeneratePosit(opt ? GetPositExpression((ENODE**)NULL) : 0);
+	GeneratePosit(opt ? GetPositExpression((ENODE**)NULL, symi) : 0);
 	return (8LL);
 }
 
-int64_t inittriple(int opt)
+int64_t inittriple(SYM* symi, int opt)
 {
-	GenerateQuad(opt ? GetFloatExpression((ENODE **)NULL) : Float128::Zero());
+	GenerateQuad(opt ? GetFloatExpression((ENODE **)NULL, symi) : Float128::Zero());
 	return (12LL);
 }
 
-int64_t InitializePointer(TYP *tp2, int opt)
+int64_t InitializePointer(TYP *tp2, int opt, SYM* symi)
 {   
 	SYM *sp;
 	ENODE *n = nullptr;
@@ -295,7 +299,7 @@ int64_t InitializePointer(TYP *tp2, int opt)
 		NextToken();
 		if (lastst == begin) {
 			NextToken();
-			lng = tp2->Initialize(nullptr, nullptr,1);
+			lng = tp2->Initialize(nullptr, nullptr,1, symi);
 			needpunc(end, 13);
 			needpunc(end, 14);
 			return (lng);
@@ -304,7 +308,8 @@ int64_t InitializePointer(TYP *tp2, int opt)
     if(lastst == bitandd) {     /* address of a variable */
         NextToken();
 				//tp = expression(&n);
-				tp = exp.ParseNonCommaExpression(&n);
+				n = nullptr;
+				tp = exp.ParseNonCommaExpression(&n, symi);
 				opt_const(&n);
 				if (n->nodetype != en_icon) {
 					if (n->nodetype == en_ref) {
@@ -380,7 +385,7 @@ int64_t InitializePointer(TYP *tp2, int opt)
 	//		GenerateLong(GetIntegerExpression(NULL));
 	//}
 	else {
-		lng = GetIntegerExpression(&n);
+		lng = GetIntegerExpression(&n,symi,0);
 		if (n && n->nodetype == en_cnacon) {
 			if (n->sp->length()) {
 				sp = gsearch(*n->sp);

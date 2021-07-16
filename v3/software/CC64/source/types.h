@@ -459,6 +459,7 @@ public:
         uint16_t wa[8];
         char *s;
     } value;
+	ENODE* enode;
 	Posit64 p;
 	Float128 f128;
 	TYP *tp;
@@ -497,7 +498,8 @@ public:
 } ;
 	void SetStorageOffset(TYP *head, int nbytes, int al, int ilc, int ztype);
 	int AdjustNbytes(int nbytes, int al, int ztype);
-
+	int64_t Initialize(ENODE* pnode, TYP* tp2, int opt);
+	int64_t InitializeStruct(ENODE*);
 	void storeHex(txtoStream& ofs);
 };
 
@@ -563,11 +565,11 @@ public:
 
 	// Initialization
 	int64_t GenerateT(TYP *tp, ENODE *node);
-	int64_t InitializeArray(int64_t sz);
-	int64_t InitializeStruct();
-	int64_t InitializeUnion();
-	int64_t Initialize(int64_t val);
-	int64_t Initialize(ENODE* node, TYP *, int opt);
+	int64_t InitializeArray(int64_t sz, SYM* symi);
+	int64_t InitializeStruct(ENODE*, SYM* symi);
+	int64_t InitializeUnion(SYM* symi);
+	int64_t Initialize(int64_t val, SYM* symi);
+	int64_t Initialize(ENODE* node, TYP *, int opt, SYM* symi);
 
 	// Serialization
 	void storeHex(txtoStream& ofs);
@@ -646,7 +648,7 @@ public:
 
 	ENODE* Clone();
 
-	void SetType(TYP* t) { tp = t; if (t) etype = t->type; val.typ = tp; };
+	void SetType(TYP* t) { if (this) { tp = t; if (t) etype = t->type; val.typ = tp; } };
 	bool IsPtr() { return (etype == bt_pointer || etype == bt_struct || etype == bt_union || etype == bt_class || nodetype == en_addrof); };
 	bool IsFloatType() { return (nodetype == en_addrof || nodetype == en_autofcon) ? false : (etype == bt_double || etype == bt_quad || etype == bt_float || etype == bt_triple); };
 	bool IsPositType() {
@@ -655,7 +657,7 @@ public:
 	bool IsVectorType() { return (etype == bt_vector); };
 	bool IsAutocon() { return (nodetype == en_autocon || nodetype == en_autofcon || nodetype == en_autopcon || nodetype == en_autovcon || nodetype == en_classcon); };
 	bool IsUnsignedType() { return (etype == bt_ubyte || etype == bt_uchar || etype == bt_ushort || etype == bt_ulong || etype == bt_pointer || nodetype==en_addrof || nodetype==en_autofcon || nodetype==en_autocon); };
-	bool IsRefType() {	return (nodetype == en_ref || etype==bt_struct || etype==bt_union || etype==bt_class);	};
+	bool IsRefType() { if (this) return (nodetype == en_ref || etype == bt_struct || etype == bt_union || etype == bt_class); else return (false); };
 	bool IsBitfield();
 	static bool IsEqualOperand(Operand *a, Operand *b);
 	char fsize();
@@ -780,40 +782,41 @@ public:
 	bool isMember;
 	TYP* head;
 	TYP* tail;
+	TYP* LHSType;
 	int sizeof_flag;
 	bool got_pa;
 	int parsingAggregate;
 private:
 	void SetRefType(ENODE** node);
 	ENODE* SetIntConstSize(TYP* tptr, int64_t val);
-	ENODE *ParseArgumentList(ENODE *hidden, TypeArray *typearray);
+	ENODE *ParseArgumentList(ENODE *hidden, TypeArray *typearray, SYM* symi);
 	ENODE* ParseCharConst(ENODE** node, int sz);
 	ENODE* ParseStringConst(ENODE** node);
 	ENODE* ParseStringConstWithSizePrefix(ENODE** node);
 	ENODE* ParseInlineStringConst(ENODE** node);
 	ENODE* ParseRealConst(ENODE** node);
 	ENODE* ParsePositConst(ENODE** node);
+	ENODE* ParseAggregateConst(ENODE** node);
 	ENODE* ParseFloatMax();
 	ENODE* ParseThis(ENODE** node);
-	ENODE* ParseAggregate(ENODE** node);
-	ENODE* ParseNameRef();
+	ENODE* ParseAggregate(ENODE** node, SYM* typi);
 	ENODE* ParseTypenum();
-	ENODE* ParseNew(bool autonew);
-	ENODE* ParseDelete();
-	ENODE* ParseAddressOf();
-	ENODE* ParseMulf();
-	ENODE* ParseBytndx();
-	ENODE* ParseWydndx();
+	ENODE* ParseNew(bool autonew, SYM* symi);
+	ENODE* ParseDelete(SYM* symi);
+	ENODE* ParseAddressOf(SYM* symi);
+	ENODE* ParseMulf(SYM* symi);
+	ENODE* ParseBytndx(SYM* symi);
+	ENODE* ParseWydndx(SYM* symi);
 	// Unary Expression Parsing
-	ENODE* ParseMinus();
-	ENODE* ParseNot();
-	ENODE* ParseCom();
-	ENODE* ParseStar();
-	ENODE* ParseSizeof();
+	ENODE* ParseMinus(SYM* symi);
+	ENODE* ParseNot(SYM* symi);
+	ENODE* ParseCom(SYM* symi);
+	ENODE* ParseStar(SYM* symi);
+	ENODE* ParseSizeof(SYM* symi);
 
-	ENODE* ParseDotOperator(TYP* tp1, ENODE* ep1);
+	ENODE* ParseDotOperator(TYP* tp1, ENODE* ep1, SYM* symi);
 	ENODE* ParsePointsTo(TYP* tp1, ENODE* ep1);
-	ENODE* ParseOpenpa(TYP* tp1, ENODE* ep1);
+	ENODE* ParseOpenpa(TYP* tp1, ENODE* ep1, SYM* symi);
 	ENODE* ParseOpenbr(TYP*tp1, ENODE* ep1);
 	ENODE* AdjustForBitArray(int pop, TYP* tp1, ENODE* ep1);
 
@@ -821,24 +824,23 @@ private:
 
 	TYP* deref(ENODE** node, TYP* tp);
 
-	TYP *ParsePrimaryExpression(ENODE **node, int got_pa);
-	TYP *ParsePostfixExpression(ENODE **node, int got_pa);
-	TYP *ParseCastExpression(ENODE **node);
-	TYP *ParseMultOps(ENODE **node);
-	TYP *ParseAddOps(ENODE **node);
-	TYP *ParseShiftOps(ENODE **node);
-	TYP *ParseRelationalOps(ENODE **node);
-	TYP *ParseEqualOps(ENODE **node);
-	TYP *ParseBitwiseAndOps(ENODE **node);
-	TYP *ParseBitwiseXorOps(ENODE **node);
-	TYP *ParseBitwiseOrOps(ENODE **node);
-	TYP *ParseAndOps(ENODE **node);
-	TYP *ParseSafeAndOps(ENODE **node);
-	TYP *ParseOrOps(ENODE **node);
-	TYP *ParseSafeOrOps(ENODE **node);
-	TYP *ParseConditionalOps(ENODE **node);
-	TYP *ParseNonAssignExpression(ENODE **node);
-	TYP *ParseCommaOp(ENODE **node);
+	TYP *ParsePrimaryExpression(ENODE **node, int got_pa, SYM* symi);
+	TYP *ParseCastExpression(ENODE **node, SYM* symi);
+	TYP *ParseMultOps(ENODE **node, SYM* symi);
+	TYP *ParseAddOps(ENODE **node, SYM* symi);
+	TYP *ParseShiftOps(ENODE **node, SYM* symi);
+	TYP *ParseRelationalOps(ENODE **node, SYM* symi);
+	TYP *ParseEqualOps(ENODE **node, SYM* symi);
+	TYP *ParseBitwiseAndOps(ENODE **node, SYM* symi);
+	TYP *ParseBitwiseXorOps(ENODE **node, SYM* symi);
+	TYP *ParseBitwiseOrOps(ENODE **node, SYM* symi);
+	TYP *ParseAndOps(ENODE **node, SYM* symi);
+	TYP *ParseSafeAndOps(ENODE **node, SYM* symi);
+	TYP *ParseOrOps(ENODE **node, SYM* symi);
+	TYP *ParseSafeOrOps(ENODE **node, SYM* symi);
+	TYP *ParseConditionalOps(ENODE **node, SYM* symi);
+	TYP *ParseCommaOp(ENODE **node, SYM* symi);
+	ENODE* MakeNameNode(SYM* sym);
 	ENODE* MakeStaticNameNode(SYM* sym);
 	ENODE* MakeThreadNameNode(SYM* sp);
 	ENODE* MakeGlobalNameNode(SYM* sp);
@@ -856,16 +858,19 @@ private:
 	ENODE* FindLastMulu(ENODE*, ENODE*);
 public:
 	Expression();
-	TYP* ParseUnaryExpression(ENODE** node, int got_pa);
+	ENODE* ParseNameRef(SYM* symi);
+	TYP* ParseUnaryExpression(ENODE** node, int got_pa, SYM* symi);
 	TYP* CondDeref(ENODE** node, TYP* tp);
 	ENODE* MakeAutoNameNode(SYM* sp);
-	TYP* nameref(ENODE** node, int nt);
-	TYP* nameref2(std::string name, ENODE** node, int nt, bool alloc, TypeArray* typearray, TABLE* tbl);
+	TYP* nameref(ENODE** node, int nt, SYM* symi);
+	TYP* nameref2(std::string name, ENODE** node, int nt, bool alloc, TypeArray* typearray, TABLE* tbl, SYM* symi);
 	// The following is called from declaration processing, so is made public
-	TYP *ParseAssignOps(ENODE **node);
-	TYP *ParseNonCommaExpression(ENODE **node);
+	TYP *ParseAssignOps(ENODE **node, SYM* symi);
+	TYP* ParsePostfixExpression(ENODE** node, int got_pa, SYM* symi);
+	TYP *ParseNonCommaExpression(ENODE **node, SYM* symi);
+	TYP* ParseNonAssignExpression(ENODE** node, SYM* symi);
 	//static TYP *ParseBinaryOps(ENODE **node, TYP *(*xfunc)(ENODE **), int nt, int sy);
-	TYP *ParseExpression(ENODE **node);
+	TYP *ParseExpression(ENODE **node, SYM* symi);
 	Function* MakeFunction(int symnum, SYM* sp, bool isPascal);
 	SYM* FindMember(TYP* tp1, char* name);
 	SYM* FindMember(TABLE* tbl, char* name);

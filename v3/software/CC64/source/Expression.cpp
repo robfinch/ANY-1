@@ -15,6 +15,7 @@ Expression::Expression()
 
 	head = (TYP*)nullptr;
 	tail = (TYP*)nullptr;
+	LHSType = (TYP*)nullptr;
 	sizeof_flag = 0;
 	totsz = 0;
 	got_pa = false;
@@ -292,7 +293,7 @@ ENODE* Expression::ParseThis(ENODE** node)
 	return (pnode);
 }
 
-ENODE* Expression::ParseAggregate(ENODE** node)
+ENODE* Expression::ParseAggregate(ENODE** node, SYM* symi)
 {
 	ENODE* pnode;
 	TYP* tptr;
@@ -303,15 +304,18 @@ ENODE* Expression::ParseAggregate(ENODE** node)
 	TYP* tptr2;
 	int64_t n;
 	int64_t pos = 0;
+	SYM* sp;
+	TABLE* tbl;
 
 	parsingAggregate++;
 	NextToken();
 	head = tail = nullptr;
 	list = makenode(en_list, nullptr, nullptr);
 	tptr2 = nullptr;
+	//tbl = symi->tp->lst.GetPtr(symi->tp->lst.GetHead());
 	while (lastst != end) {
 		if (lastst == openbr) {
-			n = GetConstExpression(&cnode);
+			n = GetConstExpression(&cnode, symi);
 			needpunc(closebr,49);
 			while (pos < n && pos < 1000000) {
 				pnode = makenode(en_void, nullptr, nullptr);
@@ -320,7 +324,8 @@ ENODE* Expression::ParseAggregate(ENODE** node)
 				pos++;
 			}
 		}
-		tptr = ParseNonCommaExpression(&pnode);
+		pnode = nullptr;
+		tptr = ParseNonCommaExpression(&pnode, symi);
 		if (pnode == nullptr)
 			return (nullptr);
 		if (!pnode->constflag)
@@ -350,12 +355,12 @@ ENODE* Expression::ParseAggregate(ENODE** node)
 	return (pnode);
 }
 
-ENODE* Expression::ParseNameRef()
+ENODE* Expression::ParseNameRef(SYM* symi)
 {
 	ENODE* pnode;
 	TYP* tptr;
 
-	tptr = nameref(&pnode, TRUE);
+	tptr = nameref(&pnode, TRUE, symi);
 	if (tptr == nullptr) {
 		if (currentSym) {
 			if (currentSym->name->compare(lastid) == 0) {
@@ -430,13 +435,13 @@ ENODE* Expression::ParseNameRef()
 	return (pnode);
 }
 
-ENODE* Expression::ParseMinus()
+ENODE* Expression::ParseMinus(SYM* symi)
 {
 	ENODE* ep1;
 	TYP* tp;
 
 	NextToken();
-	tp = ParseCastExpression(&ep1);
+	tp = ParseCastExpression(&ep1, symi);
 	if (tp == NULL) {
 		error(ERR_IDEXPECT);
 		return (nullptr);
@@ -463,13 +468,13 @@ ENODE* Expression::ParseMinus()
 	return (ep1);
 }
 
-ENODE* Expression::ParseNot()
+ENODE* Expression::ParseNot(SYM* symi)
 {
 	ENODE* ep1;
 	TYP* tp;
 
 	NextToken();
-	tp = ParseCastExpression(&ep1);
+	tp = ParseCastExpression(&ep1, symi);
 	if (tp == NULL) {
 		error(ERR_IDEXPECT);
 		return (nullptr);
@@ -482,13 +487,13 @@ ENODE* Expression::ParseNot()
 	return (ep1);
 }
 
-ENODE* Expression::ParseCom()
+ENODE* Expression::ParseCom(SYM* symi)
 {
 	ENODE* ep1;
 	TYP* tp;
 
 	NextToken();
-	tp = ParseCastExpression(&ep1);
+	tp = ParseCastExpression(&ep1, symi);
 	if (tp == NULL) {
 		error(ERR_IDEXPECT);
 		return (nullptr);
@@ -501,14 +506,14 @@ ENODE* Expression::ParseCom()
 	return (ep1);
 }
 
-ENODE* Expression::ParseStar()
+ENODE* Expression::ParseStar(SYM* symi)
 {
 	ENODE* ep1;
 	TYP* tp, *tp1;
 	int typ;
 
 	NextToken();
-	tp = ParseCastExpression(&ep1);
+	tp = ParseCastExpression(&ep1, symi);
 	if (tp == NULL) {
 		error(ERR_IDEXPECT);
 		return (nullptr);
@@ -540,7 +545,7 @@ j1:
 	return (ep1);
 }
 
-ENODE* Expression::ParseSizeof()
+ENODE* Expression::ParseSizeof(SYM* symi)
 {
 	Declaration decl;
 	ENODE* ep1;
@@ -572,7 +577,7 @@ ENODE* Expression::ParseSizeof()
 	}
 	else if (flag2) {
 		sizeof_flag++;
-		tp = ParseCastExpression(&ep1);
+		tp = ParseCastExpression(&ep1, symi);
 		sizeof_flag--;
 		if (tp == 0) {
 			error(ERR_SYNTAX);
@@ -583,7 +588,7 @@ ENODE* Expression::ParseSizeof()
 	}
 	else {
 		sizeof_flag++;
-		tp = ParseUnaryExpression(&ep1, false);
+		tp = ParseUnaryExpression(&ep1, false, symi);
 		sizeof_flag--;
 		if (tp == 0) {
 			error(ERR_SYNTAX);
@@ -630,7 +635,7 @@ ENODE* Expression::ParseTypenum()
 	return (ep1);
 }
 
-ENODE* Expression::ParseNew(bool autonew)
+ENODE* Expression::ParseNew(bool autonew, SYM* symi)
 {
 	ENODE* ep1, *ep2, * ep3, * ep4, * ep5;
 	TYP* tp, * tp1;
@@ -670,7 +675,7 @@ ENODE* Expression::ParseNew(bool autonew)
 	}
 	else {
 		sizeof_flag++;
-		tp = ParseUnaryExpression(&ep1, got_pa);
+		tp = ParseUnaryExpression(&ep1, got_pa, symi);
 		sizeof_flag--;
 		if (tp == 0) {
 			error(ERR_SYNTAX);
@@ -689,7 +694,7 @@ ENODE* Expression::ParseNew(bool autonew)
 	return (ep1);
 }
 
-ENODE* Expression::ParseDelete()
+ENODE* Expression::ParseDelete(SYM* symi)
 {
 	ENODE* ep1, *ep2;
 	TYP* tp;
@@ -702,7 +707,7 @@ ENODE* Expression::ParseDelete()
 
 		if (lastst == openbr)
 			NextToken();
-		tp = ParseCastExpression(&ep1);
+		tp = ParseCastExpression(&ep1, symi);
 		if (needbr)
 			needpunc(closebr, 50);
 		tp = deref(&ep1, tp);
@@ -713,13 +718,13 @@ ENODE* Expression::ParseDelete()
 	return (ep1);
 }
 
-ENODE* Expression::ParseAddressOf()
+ENODE* Expression::ParseAddressOf(SYM* symi)
 {
 	ENODE* ep1, * ep2;
 	TYP* tp, * tp1;
 
 	NextToken();
-	tp = ParseCastExpression(&ep1);
+	tp = ParseCastExpression(&ep1, symi);
 	if (tp == NULL) {
 		error(ERR_IDEXPECT);
 		return (nullptr);
@@ -754,16 +759,18 @@ ENODE* Expression::ParseAddressOf()
 	return (ep1);
 }
 
-ENODE* Expression::ParseMulf()
+ENODE* Expression::ParseMulf(SYM* symi)
 {
 	ENODE* ep1, * ep2;
 	TYP* tp, * tp1, * tp2;
 
 	NextToken();
 	needpunc(openpa, 46);
-	tp1 = ParseNonCommaExpression(&ep1);
+	ep1 = nullptr;
+	tp1 = ParseNonCommaExpression(&ep1, symi);
 	needpunc(comma, 47);
-	tp2 = ParseNonCommaExpression(&ep2);
+	ep2 = nullptr;
+	tp2 = ParseNonCommaExpression(&ep2, symi);
 	needpunc(closepa, 48);
 	ep1 = makenode(en_mulf, ep1, ep2);
 	ep1->isUnsigned = TRUE;
@@ -773,17 +780,19 @@ ENODE* Expression::ParseMulf()
 	return (ep1);
 }
 
-ENODE* Expression::ParseBytndx()
+ENODE* Expression::ParseBytndx(SYM* symi)
 {
 	ENODE* ep1, * ep2;
 	TYP* tp, * tp1, * tp2;
 
 	NextToken();
 	needpunc(openpa, 46);
-	tp1 = ParseNonCommaExpression(&ep1);
+	ep1 = nullptr;
+	tp1 = ParseNonCommaExpression(&ep1, symi);
 	needpunc(comma, 47);
-	tp2 = ParseNonCommaExpression(&ep2);
+	tp2 = ParseNonCommaExpression(&ep2, symi);
 	needpunc(closepa, 48);
+	ep2 = nullptr;
 	ep1 = makenode(en_bytendx, ep1, ep2);
 	ep1->esize = sizeOfWord;
 	tp = &stdint;
@@ -791,16 +800,18 @@ ENODE* Expression::ParseBytndx()
 	return (ep1);
 }
 
-ENODE* Expression::ParseWydndx()
+ENODE* Expression::ParseWydndx(SYM* symi)
 {
 	ENODE* ep1, * ep2;
 	TYP* tp, * tp1, * tp2;
 
 	NextToken();
 	needpunc(openpa, 46);
-	tp1 = ParseNonCommaExpression(&ep1);
+	ep1 = nullptr;
+	tp1 = ParseNonCommaExpression(&ep1, symi);
 	needpunc(comma, 47);
-	tp2 = ParseNonCommaExpression(&ep2);
+	ep2 = nullptr;
+	tp2 = ParseNonCommaExpression(&ep2, symi);
 	needpunc(closepa, 48);
 	ep1 = makenode(en_wydendx, ep1, ep2);
 	ep1->esize = sizeOfWord;
@@ -960,7 +971,7 @@ j1:
 }
 
 
-ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1)
+ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi)
 {
 	TypeArray typearray;
 	ENODE* ep2, * ep3, * qnode;
@@ -977,7 +988,7 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1)
 	}
 	NextToken();       /* past -> or . */
 	if (tp1->IsVectorType()) {
-		ParseNonAssignExpression(&qnode);
+		ParseNonAssignExpression(&qnode, symi);
 		ep2 = makenode(en_shl, qnode, makeinode(en_icon, 3));
 		// The dot operation will deference the result below so the
 		// old dereference operation isn't needed. It is stripped 
@@ -1030,7 +1041,7 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1)
 		NextToken();
 		if (lastst == openpa) {
 			NextToken();
-			ep2 = ParseArgumentList(pep1, &typearray);
+			ep2 = ParseArgumentList(pep1, &typearray, symi);
 			typearray.Print();
 			sp = Function::FindExactMatch(ii, name, bt_long, &typearray)->sym;
 			if (sp) {
@@ -1071,6 +1082,9 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1)
 			ep1->isPascal = ep1->p[0]->isPascal;
 			ep1->constflag = ep1->p[0]->constflag;
 		}
+		else
+			ep1->constflag = TRUE;
+		ep1->sym = sp;
 		ep1->isUnsigned = iu;
 		ep1->esize = sizeOfWord;
 //		ep1->p[2] = pep1;
@@ -1114,7 +1128,7 @@ xit:
 	return (ep1);
 }
 
-ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1)
+ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1, SYM* symi)
 {
 	TypeArray typearray;
 	ENODE* ep2, * ep3, * ep4;
@@ -1152,7 +1166,7 @@ ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1)
 			ep4 = makenode(en_regvar, NULL, NULL);
 	}
 	//ep2 = ArgumentList(ep1->p[2],&typearray);
-	ep2 = ParseArgumentList(ep4, &typearray);
+	ep2 = ParseArgumentList(ep4, &typearray, symi);
 	typearray.Print();
 	dfs.printf("Got Type: %d", tp1->type);
 	if (tp1->type == bt_pointer) {
@@ -1531,6 +1545,47 @@ ENODE* Expression::MakeMemberNameNode(SYM* sp)
 	case en_fpregvar:	node->etype = sp->tp->type;	break;//sp->tp->type;
 	case en_pregvar:	node->etype = sp->tp->type;	break;//sp->tp->type;
 	default:			node->etype = bt_pointer;break;//sp->tp->type;
+	}
+	return (node);
+}
+
+ENODE* Expression::MakeNameNode(SYM *sp)
+{
+	ENODE* node;
+
+	node = nullptr;
+	switch (sp->storage_class) {
+
+	case sc_static:
+		node = MakeStaticNameNode(sp);
+		break;
+
+	case sc_thread:
+		node = MakeThreadNameNode(sp);
+		break;
+
+	case sc_global:
+		node = MakeGlobalNameNode(sp);
+		break;
+
+	case sc_external:
+		node = MakeExternNameNode(sp);
+		break;
+
+	case sc_const:
+		node = MakeConstNameNode(sp);
+		break;
+
+	case sc_member:
+		node = MakeMemberNameNode(sp);
+		break;
+
+	case sc_auto:
+		node = MakeAutoNameNode(sp);
+		break;
+
+	default:        /* auto and any errors */
+		error(ERR_ILLCLASS);
 	}
 	return (node);
 }

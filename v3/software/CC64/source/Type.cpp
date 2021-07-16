@@ -25,15 +25,6 @@
 //
 #include "stdafx.h"
 
-extern int64_t initbyte(int opt);
-extern int64_t initchar(int opt);
-extern int64_t initshort(int opt);
-extern int64_t initlong(int opt);
-extern int64_t initquad(int opt);
-extern int64_t initfloat(int opt);
-extern int64_t inittriple(int opt);
-extern int64_t initPosit(int opt);
-int64_t InitializePointer(TYP *, int opt);
 extern short int brace_level;
 TYP *typ_vector[100];
 short int typ_sp = 0;
@@ -678,13 +669,15 @@ bool TYP::IsSameUnionType(TYP* a, TYP* b)
 
 // Initialize the type. Unions can't be initialized. Oh yes they can.
 
-int64_t TYP::Initialize(ENODE* pnode, TYP *tp2, int opt)
+int64_t TYP::Initialize(ENODE* pnode, TYP *tp2, int opt, SYM* symi)
 {
 	int64_t nbytes;
 	TYP *tp;
 	int base, nn;
 	int64_t sizes[100];
+	char idbuf[sizeof(lastid)+1];
 	ENODE* node;
+	Expression exp;
 
 	for (base = typ_sp-1; base >= 0; base--) {
 		if (typ_vector[base]->isArray)
@@ -707,49 +700,55 @@ j1:
 		tp = typ_vector[max(base-brace_level,0)];
 	}
 	do {
+		if (lastst == assign)
+			NextToken();
 		switch (tp->type) {
 		case bt_ubyte:
 		case bt_byte:
-			nbytes = initbyte(opt);
+			nbytes = initbyte(symi, opt);
 			break;
 		case bt_uchar:
 		case bt_char:
 		case bt_enum:
-			nbytes = initchar(opt);
+			nbytes = initchar(symi, opt);
 			break;
 		case bt_ushort:
 		case bt_short:
-			nbytes = initshort(opt);
+			nbytes = initshort(symi, opt);
 			break;
 		case bt_pointer:
 			if (tp->val_flag)
-				nbytes = tp->InitializeArray(sizes[max(base-brace_level,0)]);
+				nbytes = tp->InitializeArray(sizes[max(base-brace_level,0)], symi);
 			else
-				nbytes = InitializePointer(tp, opt);
+				nbytes = InitializePointer(tp, opt, symi);
 			break;
 		case bt_exception:
 		case bt_ulong:
 		case bt_long:
-			nbytes = initlong(opt);
+			//strncpy(idbuf, lastid, sizeof(lastid));
+			//strncpy(lastid, pnode->sym->name->c_str(), sizeof(lastid));
+			//gNameRefNode = exp.ParseNameRef();
+			nbytes = initlong(symi, opt);
+			//strncpy(lastid, idbuf, sizeof(lastid));
 			break;
 		case bt_struct:
-			nbytes = tp->InitializeStruct();
+			nbytes = tp->InitializeStruct(pnode,symi);
 			break;
 		case bt_union:
-			nbytes = tp->InitializeUnion();
+			nbytes = tp->InitializeUnion(symi);
 			break;
 		case bt_quad:
-			nbytes = initquad(opt);
+			nbytes = initquad(symi,opt);
 			break;
 		case bt_float:
 		case bt_double:
-			nbytes = initfloat(opt);
+			nbytes = initfloat(symi,opt);
 			break;
 		case bt_triple:
-			nbytes = inittriple(opt);
+			nbytes = inittriple(symi, opt);
 			break;
 		case bt_posit:
-			nbytes = initPosit(opt);
+			nbytes = initPosit(symi, opt);
 			break;
 		default:
 			error(ERR_NOINIT);
@@ -784,7 +783,7 @@ j2:
 	return (nbytes);
 }
 
-int64_t TYP::InitializeArray(int64_t maxsz)
+int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 {
 	int64_t nbytes;
 	int64_t size;
@@ -792,7 +791,7 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 	char *str;
 	int64_t pos = 0;
 	int64_t n, nh;
-	ENODE* cnode;
+	ENODE* cnode, *node;
 	int64_t fill = 0;
 	int64_t poscount = 0;
 	Value* values;
@@ -828,7 +827,12 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 	ZeroMemory(bucketshi, 100 * sizeof(int64_t));
 	npos = 0;
 	recval = false;
-//	if (lastst == begin)
+	if (symi) {
+		node = symi->enode;
+
+	}
+	if (lastst == begin)
+		NextToken();
 	{
 //		NextToken();               /* skip past the brace */
 		for (n = 0; lastst != end; n++) {
@@ -841,12 +845,12 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 					return (nbytes);
 					//error(TOO_MANY_DESIGNATORS);
 				}
-				n = GetConstExpression(&cnode);
+				n = GetConstExpression(&cnode, symi);
 //				ofs.seekp(poses[n].poses);
 				//fill = min(1000000, n - pos + 1);
 				if (lastst == ellipsis) {
 					NextToken();
-					nh = GetConstExpression(&cnode);
+					nh = GetConstExpression(&cnode, symi);
 				}
 				else
 					nh = n;
@@ -953,13 +957,13 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 			else {
 				switch (GetBtp()->type) {
 				case bt_array:
-					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0, symi);
 					pos++;
 					break;
 				case bt_byte:
 				case bt_ubyte:
 					if (recval) {
-						values[npos].value.i = GetIntegerExpression(nullptr);
+						values[npos].value.i = GetIntegerExpression(nullptr,symi,0);
 						npos++;
 					}
 					spitout = false;
@@ -972,7 +976,7 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 						}
 					}
 					if (!spitout && !recval) {
-						GenerateByte(GetIntegerExpression(nullptr));
+						GenerateByte(GetIntegerExpression(nullptr,symi,0));
 						nbytes += 1;
 						pos++;
 					}
@@ -981,7 +985,7 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 				case bt_uchar:
 				case bt_ichar:
 					if (recval) {
-						values[npos].value.i = GetIntegerExpression(nullptr);
+						values[npos].value.i = GetIntegerExpression(nullptr,symi,0);
 						npos++;
 					}
 					spitout = false;
@@ -994,19 +998,19 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 						}
 					}
 					if (!spitout && !recval) {
-						GenerateChar(GetIntegerExpression(nullptr));
+						GenerateChar(GetIntegerExpression(nullptr,symi,0));
 						nbytes += 2;
 						pos++;
 					}
 					break;
 				case bt_class:
-					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0, symi);
 					pos++;
 					break;
 				case bt_double:
 				case bt_float:
 					if (recval) {
-						values[npos].f128 = GetFloatExpression(nullptr);
+						values[npos].f128 = GetFloatExpression(nullptr, symi);
 						npos++;
 					}
 					spitout = false;
@@ -1019,14 +1023,14 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 						}
 					}
 					if (!spitout && !recval) {
-						GenerateFloat(GetFloatExpression(nullptr));
+						GenerateFloat(GetFloatExpression(nullptr, symi));
 						nbytes += 8;
 						pos++;
 					}
 					break;
 				case bt_enum:
 					if (recval) {
-						values[npos].value.i = GetIntegerExpression(nullptr);
+						values[npos].value.i = GetIntegerExpression(nullptr,symi,0);
 						npos++;
 					}
 					spitout = false;
@@ -1039,7 +1043,7 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 						}
 					}
 					if (!spitout && !recval) {
-						GenerateChar(GetIntegerExpression(nullptr));
+						GenerateChar(GetIntegerExpression(nullptr,symi,0));
 						nbytes += 2;
 						pos++;
 					}
@@ -1047,7 +1051,7 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 				case bt_long:
 				case bt_ulong:
 					if (recval) {
-						values[npos].value.i = GetIntegerExpression(nullptr);
+						values[npos].value.i = GetIntegerExpression(nullptr,symi,0);
 						npos++;
 					}
 					spitout = false;
@@ -1060,7 +1064,7 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 						}
 					}
 					if (!spitout && !recval) {
-						GenerateLong(GetIntegerExpression(nullptr));
+						GenerateLong(GetIntegerExpression(nullptr,symi,0));
 						nbytes += 8;
 						pos++;
 					}
@@ -1068,7 +1072,7 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 				case bt_short:
 				case bt_ushort:
 					if (recval) {
-						values[npos].value.i = GetIntegerExpression(nullptr);
+						values[npos].value.i = GetIntegerExpression(nullptr,symi,0);
 						npos++;
 					}
 					spitout = false;
@@ -1081,7 +1085,7 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 						}
 					}
 					if (!spitout && !recval) {
-						GenerateHalf(GetIntegerExpression(nullptr));
+						GenerateHalf(GetIntegerExpression(nullptr,symi,0));
 						nbytes += 4;
 						pos++;
 					}
@@ -1090,12 +1094,12 @@ int64_t TYP::InitializeArray(int64_t maxsz)
 					if (fill > 0) {
 						while (fill > 0) {
 							fill--;
-							nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+							nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0, symi);
 							pos++;
 						}
 					}
 					else {
-						nbytes += GetBtp()->Initialize(nullptr, GetBtp(), 1);
+						nbytes += GetBtp()->Initialize(nullptr, GetBtp(), 1, symi);
 						pos++;
 					}
 					break;
@@ -1281,12 +1285,12 @@ xit:
 	return (nbytes);
 }
 
-int64_t TYP::InitializeStruct()
+int64_t TYP::InitializeStruct(ENODE* node, SYM* symi)
 {
 	SYM *sp;
 	int64_t nbytes;
 	int count;
-
+	
 //	needpunc(begin, 25);
 	nbytes = 0;
 	sp = sp->GetPtr(lst.GetHead());      /* start at top of symbol table */
@@ -1297,7 +1301,7 @@ int64_t TYP::InitializeStruct()
 			GenerateByte(0);
 			nbytes++;
 		}
-		nbytes += sp->tp->Initialize(nullptr, sp->tp, 1);
+		nbytes += sp->tp->Initialize(node, sp->tp, 1, symi);
 		if (lastst == comma)
 			NextToken();
 		else if (lastst == end || lastst==semicolon) {
@@ -1388,7 +1392,7 @@ int64_t TYP::GenerateT(TYP *tp, ENODE *node)
 	return (nbytes);
 }
 
-int64_t TYP::InitializeUnion()
+int64_t TYP::InitializeUnion(SYM* symi)
 {
 	SYM *sp, *osp;
 	int64_t nbytes;
@@ -1399,7 +1403,7 @@ int64_t TYP::InitializeUnion()
 	int count;
 
 	nbytes = 0;
-	val = GetConstExpression(&node);
+	val = GetConstExpression(&node, symi);
 	if (node == nullptr)	// syntax error in GetConstExpression()
 		return (0);
 	sp = sp->GetPtr(lst.GetHead());      /* start at top of symbol table */
@@ -1416,7 +1420,7 @@ int64_t TYP::InitializeUnion()
 				found = true;
 				while (lastst == comma && count < sp->tp->numele) {
 					NextToken();
-					val = GetConstExpression(&node);
+					val = GetConstExpression(&node, symi);
 					//nbytes = node->esize;
 					nbytes += GenerateT(tp, node);
 					count++;

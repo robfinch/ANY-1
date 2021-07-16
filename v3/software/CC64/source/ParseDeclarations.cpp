@@ -170,14 +170,14 @@ void Declaration::ParseInterrupt()
 	NextToken();
 	if (lastst == openpa) {
 		NextToken();
-		sp_init = GetIntegerExpression(nullptr);
+		sp_init = GetIntegerExpression(nullptr,nullptr,0);
 		/*
 		if (lastst!=id)
 				error(ERR_IDEXPECT);
 		*/
 		if (lastst == comma) {
 			NextToken();
-			DoesContextSave = GetIntegerExpression(nullptr);
+			DoesContextSave = GetIntegerExpression(nullptr,nullptr,0);
 		}
 		needpunc(closepa,49);
 		//stkname = my_strdup(lastid);
@@ -914,7 +914,7 @@ void Declaration::ParseBitfieldSpec(bool isUnion)
 {
 	dfs.puts("<ParseBitfieldSpec>");
 	NextToken();
-	bit_width = (int)GetIntegerExpression((ENODE **)NULL);
+	bit_width = (int)GetIntegerExpression((ENODE **)NULL,nullptr,0);
 	if (isUnion)
 		bit_offset = 0;
 	else
@@ -1083,7 +1083,7 @@ void Declaration::ParseSuffixOpenbr()
 		NextToken();
 	}
 	else if(head != NULL) {
-		sz2 = (int)GetIntegerExpression((ENODE **)NULL);
+		sz2 = (int)GetIntegerExpression((ENODE **)NULL,nullptr,1);
 		temp1->size = sz2 * head->size;
 		temp1->numele = sz2;
 		temp1->dimen = head->dimen + 1;
@@ -1092,7 +1092,7 @@ void Declaration::ParseSuffixOpenbr()
 		needpunc(closebr,21);
 	}
 	else {
-		sz2 = (int)GetIntegerExpression((ENODE **)NULL);
+		sz2 = (int)GetIntegerExpression((ENODE **)NULL,nullptr,1);
 		temp1->size = sz2;
 		temp1->numele = sz2;
 		temp1->dimen = 1;
@@ -1403,7 +1403,7 @@ SYM *Declaration::ParseSuffix(SYM *sp)
 				NextToken();
 				currentSym = sp;
 				SetType(sp);
-				GetConstExpression(&node);
+				GetConstExpression(&node, sp);
 				sp->defval = node;
 			}
 			goto lxit;
@@ -1446,7 +1446,7 @@ void Declaration::ParseAssign(SYM *sp)
 	bool madenode;
 
 	if (parsingParameterList) {
-		GetConstExpression(&ep2);
+		GetConstExpression(&ep2, sp);
 		sp->defval = ep2;
 	}
 	else {
@@ -1464,7 +1464,8 @@ void Declaration::ParseAssign(SYM *sp)
 		tp1 = exp.CondDeref(&ep1, sp->tp);
 		//tp1 = exp.nameref(&ep1, TRUE);
 		op = en_assign;
-		tp2 = exp.ParseAssignOps(&ep2);
+		ep2 = nullptr;
+		tp2 = exp.ParseAssignOps(&ep2, sp);
 		if (tp2 == nullptr || !IsLValue(ep1))
 			error(ERR_LVALUE);
 		else {
@@ -1500,7 +1501,7 @@ void Declaration::DoDeclarationEnd(SYM *sp, SYM *sp1)
 			if (sp1) {
 				ep1 = nullptr;
 				// Build an expression that references the ctor.
-				tp1 = exp.nameref2(*sp->tp->sname, &ep1, TRUE, false, nullptr, nullptr);
+				tp1 = exp.nameref2(*sp->tp->sname, &ep1, TRUE, false, nullptr, nullptr, sp);
 				// Create a function call node for the ctor.
 				if (tp1 != nullptr) {
 					// Make an expresison that references the var name as the

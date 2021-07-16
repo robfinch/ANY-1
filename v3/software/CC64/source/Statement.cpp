@@ -276,7 +276,7 @@ Statement *Statement::ParseIf()
 		error(ERR_EXPREXPECT);
 	if (lastst == semicolon) {
 		NextToken();
-		snp->prediction = (GetIntegerExpression(NULL) & 1) | 2;
+		snp->prediction = (GetIntegerExpression(NULL,nullptr,0) & 1) | 2;
 	}
 	if (needpa)
 		needpunc(closepa, 19);
@@ -365,7 +365,7 @@ Statement *Statement::ParseCatch()
 	// restore it.
 	strncpy_s(buf, sizeof(buf), lastid, 199);
 	strncpy_s(lastid, sizeof(lastid), declid->c_str(), sizeof(lastid) - 1);
-	exp.nameref(&node, FALSE);
+	exp.nameref(&node, FALSE, sp);
 	strcpy_s(lastid, sizeof(lastid), buf);
 	snp->s1 = Statement::Parse();
 	// Empty statements return NULL
@@ -453,7 +453,7 @@ Statement *Statement::ParseStop()
 	Statement *snp;
 
 	snp = MakeStatement(st_stop, TRUE);
-	snp->num = (int)GetIntegerExpression(NULL);
+	snp->num = (int)GetIntegerExpression(NULL,nullptr,0);
 	if (lastst != end)
 		needpunc(semicolon, 43);
 	return snp;
@@ -555,7 +555,7 @@ Statement *Statement::ParseExpression()
 
 	dfs.printf("<ParseExpression>\n");
 	snp = MakeStatement(st_expr, FALSE);
-	if (exp.ParseExpression(&(snp->exp)) == NULL) {
+	if (exp.ParseExpression(&(snp->exp), nullptr) == NULL) {
 		error(ERR_EXPREXPECT);
 		NextToken();
 	}

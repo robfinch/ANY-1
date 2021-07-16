@@ -7,7 +7,11 @@ TYP *forcefit(ENODE **srcnode, TYP *srctp, ENODE **dstnode, TYP *dsttp, bool pro
 bool IsArgumentReg(int regno);
 bool IsCalleeSave(int regno);
 
-int64_t GetConstExpression(ENODE **pnode);
+// Intexpr.c
+extern int64_t GetIntegerExpression(ENODE** p, SYM* symi, int opt);
+extern Float128* GetFloatExpression(ENODE** pnode, SYM* symi);
+int64_t GetConstExpression(ENODE **pnode, SYM* symi);
+
 void GenMemop(int op, Operand *ap1, Operand *ap2, int ssize);
 void GenerateHint(int num);
 
@@ -77,6 +81,17 @@ extern int64_t round8(int64_t);
 extern int countLeadingBits(int64_t val);
 extern int countLeadingZeros(int64_t val);
 
-extern Posit64 GetPositExpression(ENODE** pnode);
+extern Posit64 GetPositExpression(ENODE** pnode, SYM* symi);
 extern void GeneratePosit(Posit64 val);
+
+extern int64_t initbyte(SYM* symi, int opt);
+extern int64_t initchar(SYM* symi, int opt);
+extern int64_t initshort(SYM* symi, int opt);
+extern int64_t initlong(SYM* symi, int opt);
+extern int64_t initquad(SYM* symi, int opt);
+extern int64_t initfloat(SYM* symi, int opt);
+extern int64_t inittriple(SYM* symi, int opt);
+extern int64_t initPosit(SYM* symi, int opt);
+extern int64_t InitializePointer(TYP*, int opt, SYM* symi);
+
 #endif
