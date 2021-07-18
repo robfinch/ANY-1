@@ -565,7 +565,7 @@ ENODE* Expression::ParseSizeof(SYM* symi)
 		tp = head;
 		tp1 = tail;
 		decl.ParseSpecifier(0, &sp, sc_none);
-		decl.ParsePrefix(FALSE);
+		decl.ParsePrefix(FALSE, nullptr);
 		if (decl.head != NULL)
 			ep1 = makeinode(en_icon, decl.head->size);
 		else {
@@ -618,7 +618,7 @@ ENODE* Expression::ParseTypenum()
 	tp = head;
 	tp1 = tail;
 	decl.ParseSpecifier(0, &sp, sc_none);
-	decl.ParsePrefix(FALSE);
+	decl.ParsePrefix(FALSE, nullptr);
 	if (head != NULL)
 		ep1 = makeinode(en_icon, head->GetHash());
 	else {
@@ -652,7 +652,7 @@ ENODE* Expression::ParseNew(bool autonew, SYM* symi)
 		tp = head;
 		tp1 = tail;
 		decl.ParseSpecifier(0, &sp, sc_none);
-		decl.ParsePrefix(FALSE);
+		decl.ParsePrefix(FALSE, nullptr);
 		if (head != NULL)
 			ep1 = makeinode(en_icon, head->size + 64);
 		else {
@@ -971,15 +971,17 @@ j1:
 }
 
 
-ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi)
+ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi, ENODE* parent)
 {
 	TypeArray typearray;
 	ENODE* ep2, * ep3, * qnode;
 	TYP* ptp1;
-	SYM* sp;
+	SYM* sp, *psp;
 	char* name;
 	int ii;
 	bool iu;
+	Function* fn;
+	bool skip_id = false;
 
 	ExpressionHasReference = true;
 	if (tp1 == nullptr) {
@@ -1006,8 +1008,8 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi)
 	ptp1 = tp1;
 	pep1 = ep1;
 	name = lastid;
-	sp = FindMember(tp1, name);
-	/*
+	//sp = FindMember(tp1, name);
+	
 	ii = tp1->lst.FindRising(name);
 	if (ii == 0) {
 		dfs.printf("Nomember1");
@@ -1025,7 +1027,7 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi)
 		error(ERR_PRIVATE);
 		goto xit;
 	}
-	*/
+	
 	if (sp == nullptr) {
 		dfs.printf("Nomember1");
 		error(ERR_NOMEMBER);
@@ -1043,12 +1045,18 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi)
 			NextToken();
 			ep2 = ParseArgumentList(pep1, &typearray, symi);
 			typearray.Print();
-			sp = Function::FindExactMatch(ii, name, bt_long, &typearray)->sym;
+			fn = Function::FindExactMatch(ii, name, bt_long, &typearray);
+			psp = sp;
+			sp = nullptr;
+			if (fn)
+				sp = fn->sym;
 			if (sp) {
 				//						sp = TABLE::match[TABLE::matchno-1];
 				ep3 = makesnode(en_cnacon, sp->name, sp->mangledName, sp->value.i);
+				ep3->sym = psp;
 				ep3->isPascal = sp->fi->IsPascal;
 				ep1 = makenode(en_fcall, ep3, ep2);
+				ep1->p[2] = parent;
 				ep1->isPascal = ep3->isPascal;
 				tp1 = sp->tp->GetBtp();
 				currentFn->IsLeaf = FALSE;
@@ -1066,6 +1074,7 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi)
 		goto j2;
 	}
 	else {
+		skip_id = true;
 	j2:
 		dfs.printf("tp1->type:%d", tp1->type);
 		iu = ep1->isUnsigned;
@@ -1095,7 +1104,8 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi)
 		ep1->SetType(tp1);
 		dfs.printf("tp1->type:%d", tp1->type);
 	}
-	NextToken();       /* past id */
+	if (skip_id)
+		NextToken();       /* past id */
 	dfs.printf("B");
 xit:
 	ep1->tp = tp1;
@@ -1147,7 +1157,7 @@ ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1, SYM* symi)
 	}
 	if (tp2->type == bt_vector_mask) {
 		NextToken();
-		tp1 = expression(&ep2);
+		tp1 = expression(&ep2, symi);
 		needpunc(closepa, 9);
 		ApplyVMask(ep2, ep1);
 		ep1 = ep2;
@@ -1221,7 +1231,9 @@ ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1, SYM* symi)
 		{
 			if (currentFn == nullptr)
 				currentFn = sp->fi;
-			if (!sp->fi->IsInline)
+			if (sp->fi == nullptr)
+				error(ERR_NOFUNC);
+			else if (!sp->fi->IsInline)
 				currentFn->IsLeaf = FALSE;
 		}
 		//else
@@ -1251,7 +1263,7 @@ ENODE* Expression::ParseOpenbr(TYP* tp1, ENODE* ep1)
 	}
 	NextToken();
 	if (tp1->type == bt_pointer) {
-		tp2 = expression(&rnode);
+		tp2 = expression(&rnode, nullptr);
 		tp3 = tp1;
 		tp4 = tp1;
 		if (rnode == nullptr) {
@@ -1262,7 +1274,7 @@ ENODE* Expression::ParseOpenbr(TYP* tp1, ENODE* ep1)
 	else {
 		tp2 = tp1;
 		rnode = pnode;
-		tp3 = expression(&pnode);
+		tp3 = expression(&pnode, nullptr);
 		if (tp3 == NULL) {
 			error(ERR_UNDEFINED);
 			throw new C64PException(ERR_UNDEFINED, 10);
@@ -1294,7 +1306,7 @@ ENODE* Expression::ParseOpenbr(TYP* tp1, ENODE* ep1)
 	if (tp1->type != bt_pointer) {
 		if (lastst == colon) {
 			NextToken();
-			tp3 = expression(&qnode);
+			tp3 = expression(&qnode, nullptr);
 			snode = qnode;
 			qnode = compiler.ef.Makenode(en_sub, pnode->Clone(), qnode);
 			//qnode = compiler.ef.Makenode(en_sub, qnode, makeinode(en_icon, 1));

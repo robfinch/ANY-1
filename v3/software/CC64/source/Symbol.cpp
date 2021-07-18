@@ -71,11 +71,16 @@ int SYM::GetIndex()
 
 bool SYM::IsTypedef()
 {
-	SYM* p, * q;
+	SYM* p, * q, *first, *next;
 
 	q = nullptr;
-	for (p = GetParentPtr(); p; p = GetParentPtr())
+	for (first = p = GetParentPtr(); p; p = next) {
 		q = p;
+		next = p->GetParentPtr();
+		if (next == first) {
+			break;
+		}
+	}
 	if (q)
 		if (q->storage_class == sc_typedef)
 			return (true);
@@ -145,7 +150,7 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
 {
 	SYM *sp;
 	Statement *st;
-	SYM *p;
+	SYM *p, *q;
 
 	dfs.printf("\n<gsearch2> for: |%s|\n", (char *)na.c_str());
 	prefix = nullptr;
@@ -207,6 +212,33 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
         			dfs.puts("</gsearch2>\n");
       				return (sp);
       			}
+						q = q->GetPtr(p->parent);
+						if (q)
+							dfs.printf("Looking at parents params %p\n", (char*)&q->fi->params);
+						while (q) {
+							if (q->fi->params.Find(na, rettype, typearray, exact)) {
+								sp = TABLE::match[TABLE::matchno - 1];
+								dfs.printf("Found as parameter\n");
+								dfs.puts("</gsearch2>\n");
+								return (sp);
+							}
+							q = q->GetPtr(p->parent);
+						}
+						q->GetPtr(p->lsyms.head);
+						if (q) {
+							dfs.printf("Looking at childs params %p\n", (char*)&q->fi->params);
+						}
+						while (q) {
+							if (q->fi->params.Find(na, rettype, typearray, exact)) {
+								sp = TABLE::match[TABLE::matchno - 1];
+								dfs.printf("Found as parameter\n");
+								dfs.puts("</gsearch2>\n");
+								return (sp);
+							}
+							q = q->GetNextPtr();
+							if (q == q->GetPtr(p->lsyms.head))
+								break;
+						}
     		  }
     			// Search for class member
     			dfs.printf("Looking at class members %p\n",(char *)&p->tp->lst);

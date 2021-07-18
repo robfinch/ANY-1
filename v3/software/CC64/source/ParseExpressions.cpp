@@ -709,6 +709,7 @@ TYP *Expression::nameref2(std::string name, ENODE **node,int nt,bool alloc,TypeA
 	TYP *tp;
 	std::string stnm;
 
+	*node = nullptr;
 	dfs.puts("<nameref2>\n");
 	if (tbl) {
 		dfs.printf("searching table for:%d:%s|",TABLE::matchno,(char *)name.c_str());
@@ -746,8 +747,12 @@ TYP *Expression::nameref2(std::string name, ENODE **node,int nt,bool alloc,TypeA
 				}
 				tb = ta;
 			}
-			if (!isSame)
-				sp = nullptr;
+			if (!isSame) {
+				if (TABLE::matchno > 1 && typearray == nullptr)
+					sp = TABLE::match[0];
+				else 
+					sp = nullptr;
+			}
 		}
 		else
 			sp = nullptr;
@@ -808,6 +813,8 @@ j1:
 	if (nt==TRUE)
 		NextToken();
 xit:
+	if (*node == nullptr)
+		throw new C64PException(1, 2);
 	(*node)->sym = sp;
 	if (sp) {
 		if (sp->fi)
@@ -826,16 +833,17 @@ TYP *Expression::nameref(ENODE **node,int nt, SYM* symi)
 
 	dfs.puts("<Nameref>");
 	dfs.printf("GSearchfor:%s|",lastid);
-	str = GetNamespace();
-	str += lastid;
-	gsearch2(str.c_str(), (__int16)bt_long, nullptr, false);
+	// Search locally first
+	gsearch2(lastid, (__int16)bt_long, nullptr, false);
 	if (TABLE::matchno == 0) {
-		gsearch2(lastid, (__int16)bt_long, nullptr, false);
-		tp = nameref2(lastid, node, nt, true, nullptr, nullptr, symi);
-	}
-	else {
+		str = GetNamespace();
+		str += lastid;
+		gsearch2(str.c_str(), (__int16)bt_long, nullptr, false);
 		tp = nameref2(str.c_str(), node, nt, true, nullptr, nullptr, symi);
 	}
+	else
+		tp = nameref2(lastid, node, nt, true, nullptr, nullptr, symi);
+
 	dfs.puts("</Nameref>\n");
 	return (tp);
 }
@@ -1052,7 +1060,7 @@ TYP *Expression::ParsePrimaryExpression(ENODE **node, int got_pa, SYM* symi)
   *node = (ENODE *)NULL;
   Enter("ParsePrimary ");
   if (got_pa) {
-    tptr = expression(&pnode);
+    tptr = expression(&pnode, symi);
     needpunc(closepa,7);
     *node = pnode;
 		if (pnode) {
@@ -1153,7 +1161,7 @@ TYP *Expression::ParsePrimaryExpression(ENODE **node, int got_pa, SYM* symi)
 
   case openpa:
     NextToken();
-    tptr = expression(&pnode);
+    tptr = expression(&pnode, symi);
 		if (pnode)
 			pnode->SetType(tptr);
     needpunc(closepa,8);
@@ -1229,10 +1237,18 @@ int IsLValue(ENODE *node)
 		return (IsLValue(node->p[0]) || IsLValue(node->p[1]));
 	case en_nacon:
 	case en_autocon:
-		return (node->etype == bt_pointer || node->etype == bt_struct || node->etype == bt_union || node->etype == bt_class);
+		return (node->etype == bt_pointer ||
+			node->etype == bt_struct ||
+			node->etype == bt_union ||
+			node->etype == bt_class ||
+			node->etype == bt_func ||
+			node->etype == bt_ifunc);
 	// A typecast will connect the types with a void node
 	case en_void:
 		return (IsLValue(node->p[1]));
+	// Pointer to function?
+	case en_cnacon:
+		return (true);
 	}
 /*
 	case en_cbc:
@@ -1409,7 +1425,7 @@ ENODE* Expression::AdjustForBitArray(int pop, TYP*tp1, ENODE* ep1)
 TYP *Expression::ParsePostfixExpression(ENODE **node, int got_pa, SYM* symi)
 {
 	TYP *tp1, *firstType = nullptr;
-	ENODE *ep1;
+	ENODE *ep1, *ep2;
 	bool classdet = false;
 	bool wasBr = false;
 
@@ -1460,9 +1476,11 @@ TYP *Expression::ParsePostfixExpression(ENODE **node, int got_pa, SYM* symi)
 			cnt = 0;
 			wasBr = false;
 			ep1 = AdjustForBitArray(pop, tp1, ep1);
+			ep2 = ep1;
 			ep1 = ParsePointsTo(tp1, ep1);
 			tp1 = ep1->tp;
-			ep1 = ParseDotOperator(tp1, ep1, symi);
+			ep1 = ParseDotOperator(tp1, ep1, symi, ep2);
+			//ep1->sym->parent = ep2->sym->GetIndex();
 			tp1 = ep1->tp;
 			ep1->constflag = true;
 			break;
@@ -1471,7 +1489,9 @@ TYP *Expression::ParsePostfixExpression(ENODE **node, int got_pa, SYM* symi)
 			cnt = 0;
 			wasBr = false;
 			ep1 = AdjustForBitArray(pop, tp1, ep1);
-			ep1 = ParseDotOperator(tp1, ep1, symi);
+			ep2 = ep1;
+			ep1 = ParseDotOperator(tp1, ep1, symi, ep2);
+			//ep1->sym->parent = ep2->sym->GetIndex();
 			ep1->constflag = true;
 			tp1 = ep1->tp;
 			break;
@@ -1708,7 +1728,7 @@ TYP *Expression::ParseCastExpression(ENODE **node, SYM* symi)
 		NextToken();
 		if (IsBeginningOfTypecast(lastst)) {
 			decl.ParseSpecifier(0, &sp, sc_none); // do cast declaration
-			decl.ParsePrefix(FALSE);
+			decl.ParsePrefix(FALSE, nullptr);
 			tp = decl.head;
 			tp1 = decl.tail;
 			needpunc(closepa, 5);
@@ -2897,8 +2917,8 @@ TYP *Expression::ParseExpression(ENODE **node, SYM* symi)
   return tp;
 }
 
-TYP *expression(ENODE **node)
+TYP *expression(ENODE **node, SYM* symi)
 {
 	Expression k;
-	return (k.ParseExpression(node, nullptr));
+	return (k.ParseExpression(node, symi));
 }

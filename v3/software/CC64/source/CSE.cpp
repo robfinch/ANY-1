@@ -56,8 +56,8 @@ int CSE::OptimizationDesireability()
 	// fast. Storing the address in a register can reduce the size of code.
 	// If the function name can be optimized to a register then
 	// a 16-bit compressed JAL can be used.
-	if (exp->nodetype == en_cnacon && !opt_size)
-		return (0);
+	if (exp->nodetype == en_cnacon)// && !opt_size)
+		return (uses);
 	// If the expression is volatile eg. reading I/O we don't want to
 	// replace it.
 	if (exp->isVolatile)

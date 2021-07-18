@@ -1552,6 +1552,8 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 	// Call the function
 	GenerateHint(begin_func_call);
 	if( node->p[0]->nodetype == en_nacon || node->p[0]->nodetype == en_cnacon ) {
+		if (node->p[2])
+			currentSym = node->p[2]->sym;
 		s = gsearch(*node->p[0]->sp);
  		sym = s->fi;
         i = 0;

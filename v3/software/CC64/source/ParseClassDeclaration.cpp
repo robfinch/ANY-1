@@ -261,13 +261,13 @@ void ClassDeclaration::ParseMembers(SYM *sym, int ztype)
 		}
 		if (lastst==kw_unique || lastst==kw_static) {
 			NextToken();
-      declare(sym,&(tp->lst),sc_static,slc,ztype);
+      declare(sym,&(tp->lst),sc_static,slc,ztype,nullptr);
 		}
 		else {
 			if(ztype == bt_struct || ztype==bt_class)
-				slc += declare(sym,&(tp->lst),sc_member,slc,ztype);
+				slc += declare(sym,&(tp->lst),sc_member,slc,ztype,nullptr);
 			else
-				slc = imax(slc,declare(sym,&(tp->lst),sc_member,0,ztype));
+				slc = imax(slc,declare(sym,&(tp->lst),sc_member,0,ztype,nullptr));
 		}
   }
 	bit_offset = 0;

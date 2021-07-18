@@ -180,7 +180,7 @@ Statement *Statement::ParseSwitch()
 	iflevel++;
 	looplevel++;
 	needpunc(openpa, 0);
-	if (expression(&(snp->exp)) == NULL)
+	if (expression(&(snp->exp), nullptr) == NULL)
 		error(ERR_EXPREXPECT);
 	if (lastst == semicolon) {
 		NextToken();

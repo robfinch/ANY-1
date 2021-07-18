@@ -73,7 +73,7 @@ Statement *Statement::ParseCheckStatement()
 {
 	Statement *snp;
 	snp = MakeStatement(st_check, TRUE);
-	if (expression(&(snp->exp)) == 0)
+	if (expression(&(snp->exp),nullptr) == 0)
 		error(ERR_EXPREXPECT);
 	needpunc(semicolon, 31);
 	return snp;
@@ -94,7 +94,7 @@ Statement *Statement::ParseWhile()
 		error(ERR_EXPREXPECT);
 	else {
 		NextToken();
-		if (expression(&(snp->exp)) == 0)
+		if (expression(&(snp->exp),nullptr) == 0)
 			error(ERR_EXPREXPECT);
 		needpunc(closepa, 13);
 		if (lastst == kw_do)
@@ -124,7 +124,7 @@ Statement *Statement::ParseUntil()
 		error(ERR_EXPREXPECT);
 	else {
 		NextToken();
-		if (expression(&(snp->exp)) == 0)
+		if (expression(&(snp->exp),nullptr) == 0)
 			error(ERR_EXPREXPECT);
 		needpunc(closepa, 14);
 		snp->s1 = Statement::Parse();
@@ -162,7 +162,7 @@ Statement *Statement::ParseDo()
 	else {
 		NextToken();
 		if (snp->stype != st_doloop) {
-			if (expression(&(snp->exp)) == 0)
+			if (expression(&(snp->exp),nullptr) == 0)
 				error(ERR_EXPREXPECT);
 		}
 		if (lastst != end)
@@ -185,13 +185,13 @@ Statement *Statement::ParseFor()
 	if ((iflevel > maxPn - 1) && isThor)
 		error(ERR_OUTOFPREDS);
 	needpunc(openpa, 16);
-	if (expression(&(snp->initExpr)) == NULL)
+	if (expression(&(snp->initExpr),nullptr) == NULL)
 		snp->initExpr = (ENODE *)NULL;
 	needpunc(semicolon, 32);
-	if (expression(&(snp->exp)) == NULL)
+	if (expression(&(snp->exp),nullptr) == NULL)
 		snp->exp = (ENODE *)NULL;
 	needpunc(semicolon, 17);
-	if (expression(&(snp->incrExpr)) == NULL)
+	if (expression(&(snp->incrExpr),nullptr) == NULL)
 		snp->incrExpr = (ENODE *)NULL;
 	needpunc(closepa, 18);
 	snp->s1 = Statement::Parse();
@@ -272,7 +272,7 @@ Statement *Statement::ParseIf()
 	if (lastst != openpa)
 		needpa = false;
 	NextToken();
-	if (expression(&(snp->exp)) == 0)
+	if (expression(&(snp->exp),nullptr) == 0)
 		error(ERR_EXPREXPECT);
 	if (lastst == semicolon) {
 		NextToken();
@@ -387,7 +387,7 @@ Statement *Statement::ParseReturn()
 
 	loopexit = TRUE;
 	snp = MakeStatement(st_return, TRUE);
-	expression(&(snp->exp));
+	expression(&(snp->exp),nullptr);
 	if (lastst != end)
 		needpunc(semicolon, 37);
 	return (snp);
@@ -401,7 +401,7 @@ Statement *Statement::ParseThrow()
 	currentFn->DoesThrow = TRUE;
 	loopexit = TRUE;
 	snp = MakeStatement(st_throw, TRUE);
-	tp = expression(&(snp->exp));
+	tp = expression(&(snp->exp),nullptr);
 	snp->num = tp->GetHash();
 	if (lastst != end)
 		needpunc(semicolon, 38);
@@ -420,7 +420,7 @@ Statement *Statement::ParseBreak()
 		currentFn->DoesThrow = TRUE;
 		loopexit = TRUE;
 		snp = MakeStatement(st_throw, TRUE);
-		tp = expression(&(snp->exp));
+		tp = expression(&(snp->exp),nullptr);
 		snp->num = tp->GetHash();
 		if (lastst != end)
 			needpunc(semicolon, 38);

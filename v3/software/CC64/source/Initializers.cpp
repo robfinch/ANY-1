@@ -50,6 +50,17 @@ static void pad(char *p, int n)
 	p[nn + 1] = '\0';
 }
 
+static bool IsFuncptrAssign(SYM* sp)
+{
+	if (sp->tp->type == bt_pointer) {
+		if (sp->tp->GetBtp()->type == bt_func || sp->tp->GetBtp()->type == bt_ifunc) {
+			if (sp->initexp) {
+				return (true);
+			}
+		}
+	}
+}
+
 void doinit(SYM *sp)
 {
 	static bool first = true;
@@ -77,7 +88,12 @@ void doinit(SYM *sp)
 	if (sp->isConst) {
     oseg = rodataseg;
   }
-	if (sp->storage_class == sc_thread) {
+	if (IsFuncptrAssign(sp)) {
+		algn = sizeOfWord;
+		seg(oseg == noseg ? dataseg : oseg, algn);          /* initialize into data segment */
+		nl();                   /* start a new line in object */
+	}
+	else if (sp->storage_class == sc_thread) {
         if (sp->tp->type==bt_struct || sp->tp->type==bt_union)
            algn = imax(sp->tp->alignment,8);
         else if (sp->tp->type==bt_pointer)// && sp->tp->val_flag)
@@ -142,7 +158,7 @@ void doinit(SYM *sp)
         GenerateByte(1);
         goto xit;
     }
-	else if( lastst != assign) {
+	else if( lastst != assign && !IsFuncptrAssign(sp)) {
 		hasPointer = sp->tp->FindPointer();
 		genstorage(sp->tp->size);
 	}
@@ -150,8 +166,25 @@ void doinit(SYM *sp)
 		ENODE* node;
 		Expression exp;
 
-		NextToken();
-		if (lastst == bitandd) {
+		if (!IsFuncptrAssign(sp)) {
+			NextToken();
+			if (lastst == bitandd) {
+				ENODE* n;
+				char buf[400];
+				char buf2[40];
+				if (sp->storage_class == sc_global)
+					strcpy(buf2, "endpublic\n");
+				else
+					strcpy(buf2, "");
+				sprintf(buf, "%s:\ndco %s_dat\n%s%s_dat:\n", lbl, sp->name->c_str(), buf2, lbl);
+				ofs.seekp(lblpoint);
+				ofs.write(buf);
+				//			while (lastst != begin && lastst != semicolon && lastst != my_eof)
+				//				NextToken();
+
+			}
+		}
+		else {
 			ENODE* n;
 			char buf[400];
 			char buf2[40];
@@ -159,32 +192,35 @@ void doinit(SYM *sp)
 				strcpy(buf2, "endpublic\n");
 			else
 				strcpy(buf2, "");
-			sprintf(buf, "%s:\ndco %s_dat\n%s%s_dat:\n", lbl, sp->name->c_str(), buf2, lbl);
+			sprintf(buf, "%s:\ndco %s_func\n", lbl, sp->name->c_str());
 			ofs.seekp(lblpoint);
 			ofs.write(buf);
-//			while (lastst != begin && lastst != semicolon && lastst != my_eof)
-//				NextToken();
+			//			while (lastst != begin && lastst != semicolon && lastst != my_eof)
+			//				NextToken();
 
 		}
-		hasPointer = sp->tp->FindPointer();
-		typ_sp = 0;
-		tp = sp->tp;
-		push_typ(tp);
-		while (tp = tp->GetBtp()) {
+		hasPointer = false;
+		if (!IsFuncptrAssign(sp)) {
+			hasPointer = sp->tp->FindPointer();
+			typ_sp = 0;
+			tp = sp->tp;
 			push_typ(tp);
-		}
-		brace_level = 0;
-		strncpy(lastid, sp->name->c_str(), sizeof(lastid));
-		//gNameRefNode = exp.ParseNameRef(sp);
-		currentSym = sp;
-		sp->Initialize(nullptr, nullptr, 1);
-		if (sp->tp->numele == 0) {
-			if (sp->tp->GetBtp()) {
-				if (sp->tp->GetBtp()->type == bt_char || sp->tp->GetBtp()->type == bt_uchar
-					|| sp->tp->GetBtp()->type == bt_ichar || sp->tp->GetBtp()->type == bt_iuchar
-					) {
-					sp->tp->numele = laststrlen;
-					sp->tp->size = laststrlen * 2;
+			while (tp = tp->GetBtp()) {
+				push_typ(tp);
+			}
+			brace_level = 0;
+			strncpy(lastid, sp->name->c_str(), sizeof(lastid));
+			//gNameRefNode = exp.ParseNameRef(sp);
+			currentSym = sp;
+			sp->Initialize(nullptr, nullptr, 1);
+			if (sp->tp->numele == 0) {
+				if (sp->tp->GetBtp()) {
+					if (sp->tp->GetBtp()->type == bt_char || sp->tp->GetBtp()->type == bt_uchar
+						|| sp->tp->GetBtp()->type == bt_ichar || sp->tp->GetBtp()->type == bt_iuchar
+						) {
+						sp->tp->numele = laststrlen;
+						sp->tp->size = laststrlen * 2;
+					}
 				}
 			}
 		}
@@ -205,7 +241,8 @@ void doinit(SYM *sp)
 		ofs.seekp(endpoint);
 		genst_cumulative = 0;
 	}
-    endinit();
+	if (!IsFuncptrAssign(sp))
+		endinit();
 	if (sp->storage_class == sc_global)
 		ofs.printf("\nendpublic\n");
 xit:
@@ -420,9 +457,14 @@ void endinit()
     if (lastst!=closepa)
       error(ERR_PUNCT);
   }
-  else if( lastst != comma && lastst != semicolon && lastst != end) {
-		error(ERR_PUNCT);
-	while( lastst != comma && lastst != semicolon && lastst != end)
+  else if( lastst != comma && lastst != semicolon && lastst != end && lastst != assign) {
+		if (lastst == openpa)
+			return;
+		if (lastst == closepa)
+			NextToken();
+		else
+			error(ERR_PUNCT);
+	while( lastst != comma && lastst != semicolon && lastst != end && lastst != assign)
     NextToken();
   }
 }

@@ -1375,8 +1375,9 @@ Operand* CodeGenerator::GenerateImmToMemAssign(Operand* ap1, Operand* ap2, int s
 		GenerateStore(makereg(regZero), ap1, ssize);
 	}
 	else {
-		if (ap2->offset->i >= -32 && ap2->offset->i < 32)
+		if (ap2->offset->nodetype == en_icon && ap2->offset->i >= -32 && ap2->offset->i < 32) {
 			GenerateStore(ap2, ap1, ssize);
+		}
 		else {
 			ap3 = GetTempRegister();
 			GenerateLoadConst(ap2, ap3);

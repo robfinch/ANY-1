@@ -6,10 +6,13 @@ Declaration::Declaration()
 {
 	head = (TYP*)nullptr;
 	tail = (TYP*)nullptr;
+	next = nullptr;
 	bit_max = 64;
 	bit_offset = 0;
 	bit_width = 64;
 	bit_next = 0;
+	funcdecl = 0;
+	decl_level = 0;
 }
 
 Function* Declaration::MakeFunction(int symnum, SYM* sym, bool isPascal, bool isInline) {

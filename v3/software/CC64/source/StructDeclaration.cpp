@@ -34,6 +34,79 @@ extern bool isPrivate;
 
 int16_t typeno = bt_last;
 
+int StructDeclaration::ParseTag(TABLE* table, e_bt ztype)
+{
+  SYM* sp;
+  ENODE nd;
+  ENODE* pnd = &nd;
+  int ret = 0;
+
+  if ((sp = tagtable.Find(lastid, false)) == NULL) {
+    sp = allocSYM();
+    sp->SetName(*(new std::string(lastid)));
+    sp->tp = allocTYP();
+    sp->tp->type = (e_bt)ztype;
+    sp->tp->typeno = typeno++;
+    sp->tp->lst.Clear();
+    sp->storage_class = sc_type;
+    sp->tp->sname = new std::string(*sp->name);
+    sp->tp->alignment = 0;
+    NextToken();
+
+    ParseAttributes(sp);
+
+    // Could be a forward structure declaration like:
+    // struct buf;
+    if (lastst == semicolon) {
+      ret = 1;
+      tagtable.insert(sp);
+      table->insert(sp);
+      NextToken();
+    }
+    // Defining a pointer to an unknown struct ?
+    else if (lastst == star) {
+      tagtable.insert(sp);
+      table->insert(sp);
+    }
+    else if (lastst != begin)
+      error(ERR_INCOMPLETE);
+    else {
+      tagtable.insert(sp);
+      table->insert(sp);
+      NextToken();
+      ParseMembers(sp, ztype);
+    }
+  }
+  // Else it is a known structure
+  else {
+    NextToken();
+    ParseAttributes(sp);
+    if (lastst == begin) {
+      NextToken();
+      ParseMembers(sp, ztype);
+    }
+  }
+  head = sp->tp;
+  return (ret);
+}
+
+void StructDeclaration::ParseAttributes(SYM* sym)
+{
+  ENODE nd;
+  ENODE* pnd = &nd;
+
+  for (;;) {
+    if (lastst == kw_attribute)
+      ParseAttribute(nullptr);
+    else if (lastst == kw_align) {
+      NextToken();
+      sym->tp->alignment = (int)GetIntegerExpression(&pnd, sym, 0);
+    }
+    else
+      break;
+  }
+}
+
 void StructDeclaration::ParseAttribute(SYM* sym)
 {
   int opa_cnt = 0;
@@ -61,6 +134,49 @@ void StructDeclaration::ParseAttribute(SYM* sym)
 }
 
 
+SYM* StructDeclaration::CreateSymbol(char *nmbuf, TABLE* table, e_bt ztype, int* fwd)
+{
+  SYM* sp;
+  ENODE nd;
+  ENODE* pnd = &nd;
+
+  sp = allocSYM();
+  sp->SetName(*(new std::string(nmbuf)));
+  sp->tp = allocTYP();
+  sp->tp->type = (e_bt)ztype;
+  sp->tp->typeno = typeno++;
+  sp->tp->lst.Clear();
+  sp->storage_class = sc_type;
+  sp->tp->sname = new std::string(*sp->name);
+  sp->tp->alignment = 0;
+
+  ParseAttributes(sp);
+
+  // Could be a forward structure declaration like:
+  // struct buf;
+  if (lastst == semicolon) {
+    *fwd = 1;
+    tagtable.insert(sp);
+    table->insert(sp);
+    NextToken();
+  }
+  // Defining a pointer to an unknown struct ?
+  else if (lastst == star) {
+    tagtable.insert(sp);
+    table->insert(sp);
+  }
+  else if (lastst != begin)
+    error(ERR_INCOMPLETE);
+  else {
+    tagtable.insert(sp);
+    table->insert(sp);
+    NextToken();
+    ParseMembers(sp, ztype);
+  }
+  return (sp);
+}
+
+
 int StructDeclaration::Parse(TABLE* table, int ztype, SYM** sym)
 {
   SYM *sp;
@@ -81,133 +197,19 @@ int StructDeclaration::Parse(TABLE* table, int ztype, SYM** sym)
 	bit_width = -1;
   if (lastst == kw_attribute)
     ParseAttribute(nullptr);
-  if(lastst == id) {
-    if((sp = tagtable.Find(lastid,false)) == NULL) {
-      sp = allocSYM();
-  		sp->SetName(*(new std::string(lastid)));
-      sp->tp = allocTYP();
-      sp->tp->type = (e_bt)ztype;
-		  sp->tp->typeno = typeno++;
-      sp->tp->lst.Clear();
-      sp->storage_class = sc_type;
-      sp->tp->sname = new std::string(*sp->name);
-      sp->tp->alignment = 0;
-      NextToken();
-
-      for (;;) {
-        if (lastst == kw_attribute)
-          ParseAttribute(nullptr);
-        else if (lastst == kw_align) {
-          NextToken();
-          sp->tp->alignment = (int)GetIntegerExpression(&pnd,sp,0);
-        }
-        else
-          break;
-      }
-
-			// Could be a forward structure declaration like:
-			// struct buf;
-			if (lastst==semicolon) {
-				ret = 1;
-        tagtable.insert(sp);
-        table->insert(sp);
-        NextToken();
-			}
-			// Defining a pointer to an unknown struct ?
-			else if (lastst == star) {
-        tagtable.insert(sp);
-        table->insert(sp);
-      }
-      else if(lastst != begin)
-        error(ERR_INCOMPLETE);
-      else {
-        tagtable.insert(sp);
-        table->insert(sp);
-        NextToken();
-        ParseMembers(sp, ztype);
-      }
-    }
-    // Else it is a known structure
-		else {
-      NextToken();
-      for (;;) {
-        if (lastst == kw_attribute)
-          ParseAttribute(nullptr);
-        else if (lastst == kw_align) {
-          NextToken();
-          sp->tp->alignment = (int)GetIntegerExpression(&pnd,sp,0);
-        }
-        else
-          break;
-      }
-			if (lastst==begin) {
-        NextToken();
-        ParseMembers(sp, ztype);
-			}
-		}
-    head = sp->tp;
+  if (lastst == id) {
+    if (ParseTag(table, (e_bt)ztype))
+      ret = 1;
   }
   // Else there was no tag identifier
   else {
-    sprintf(nmbuf, "__noname%d", cnt);
+    sprintf(nmbuf, "__noname_tag%d", cnt);
     cnt++;
-    if ((sp = tagtable.Find(nmbuf, false)) == NULL) {
-      sp = allocSYM();
-      sp->SetName(*(new std::string(nmbuf)));
-      sp->tp = allocTYP();
-      sp->tp->type = (e_bt)ztype;
-      sp->tp->typeno = typeno++;
-      sp->tp->lst.Clear();
-      sp->storage_class = sc_type;
-      sp->tp->sname = new std::string(*sp->name);
-      sp->tp->alignment = 0;
-
-      for (;;) {
-        if (lastst == kw_attribute)
-          ParseAttribute(nullptr);
-        else if (lastst == kw_align) {
-          NextToken();
-          sp->tp->alignment = (int)GetIntegerExpression(&pnd,sp,0);
-        }
-        else
-          break;
-      }
-
-      // Could be a forward structure declaration like:
-      // struct buf;
-      if (lastst == semicolon) {
-        ret = 1;
-        tagtable.insert(sp);
-        table->insert(sp);
-        NextToken();
-      }
-      // Defining a pointer to an unknown struct ?
-      else if (lastst == star) {
-        tagtable.insert(sp);
-        table->insert(sp);
-      }
-      else if (lastst != begin)
-        error(ERR_INCOMPLETE);
-      else {
-        tagtable.insert(sp);
-        table->insert(sp);
-        NextToken();
-        ParseMembers(sp, ztype);
-      }
-    }
+    sp = CreateSymbol(nmbuf, table, (e_bt)ztype, &ret);
     // Else it is a known structure
-    else {
+    if (false) {
       NextToken();
-      for (;;) {
-        if (lastst == kw_attribute)
-          ParseAttribute(nullptr);
-        else if (lastst == kw_align) {
-          NextToken();
-          sp->tp->alignment = (int)GetIntegerExpression(&pnd,sp,0);
-        }
-        else
-          break;
-      }
+      ParseAttributes(sp);
       if (lastst == begin) {
         NextToken();
         ParseMembers(sp, ztype);
@@ -272,9 +274,9 @@ void StructDeclaration::ParseMembers(SYM *sym, int ztype)
 		priv = isPrivate;
 		isPrivate = false;    
 		if(ztype == bt_struct || ztype==bt_class)
-			slc += declare(sym,&(sym->tp->lst),sc_member,slc,ztype);
+			slc += declare(sym,&(sym->tp->lst),sc_member,slc,ztype,nullptr);
 		else // union
-			slc = imax(slc,declare(sym,&(sym->tp->lst),sc_member,0,ztype));
+			slc = imax(slc,declare(sym,&(sym->tp->lst),sc_member,0,ztype,nullptr));
 		isPrivate = priv;
 	}
 	bit_offset = 0;

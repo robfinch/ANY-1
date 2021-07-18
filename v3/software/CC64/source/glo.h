@@ -328,7 +328,6 @@ extern ENODE *makenode(int nt, ENODE *v1, ENODE *v2);
 extern ENODE *makeinode(int nt, int64_t v1);
 extern ENODE *makesnode(int nt, std::string *v1, std::string *v2, int64_t i);
 extern TYP *nameref(ENODE **node,int);
-extern TYP *expression(ENODE **node);
 extern int IsLValue(ENODE *node);
 extern Operand *GenerateExpression(ENODE *node, int flags, int size);
 extern int GetNaturalSize(ENODE *node);
@@ -423,6 +422,7 @@ extern Instruction *GetInsn(int);
 extern char inpline[100000];
 extern bool ExpressionHasReference;
 extern Object *_GarbageList;
+extern TABLE* gCurrentTbl;
 
 extern txtoStream irfs;
 extern CSet* ru, * rru;

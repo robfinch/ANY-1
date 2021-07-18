@@ -233,6 +233,8 @@ TYP *forcefit(ENODE **srcnode, TYP *srctp, ENODE **dstnode, TYP *dsttp, bool pro
 			case bt_float:	*srcnode = makenode(en_d2i, *srcnode, nullptr); return (dsttp);
 			case bt_double: *srcnode = makenode(en_d2i, *srcnode, nullptr); return (dsttp);
 			case bt_posit:  *srcnode = makenode(en_p2i, *srcnode, nullptr); return (dsttp);
+			case bt_func:
+			case bt_ifunc:	return (dsttp);
 			default:	goto j1;
 			}
 			*dstnode = makenode(nt, *srcnode, *dstnode);

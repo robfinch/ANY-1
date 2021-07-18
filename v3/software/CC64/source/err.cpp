@@ -46,7 +46,7 @@ static char *errtextstr[] = {
 	"E Illegal class",
 	"E block",
 	"E No pointer",
-	"E No function",
+	"E Trying to invoke or call a non-function or method",
 	"E No member",
 	"E LValue required",
 	"E Dereference",

@@ -7,6 +7,8 @@ TYP *forcefit(ENODE **srcnode, TYP *srctp, ENODE **dstnode, TYP *dsttp, bool pro
 bool IsArgumentReg(int regno);
 bool IsCalleeSave(int regno);
 
+extern TYP* expression(ENODE** node, SYM* symi);
+
 // Intexpr.c
 extern int64_t GetIntegerExpression(ENODE** p, SYM* symi, int opt);
 extern Float128* GetFloatExpression(ENODE** pnode, SYM* symi);

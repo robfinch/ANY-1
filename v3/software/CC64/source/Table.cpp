@@ -79,6 +79,7 @@ void TABLE::insert(SYM *sp)
 	int s1,s2,s3;
 	std::string nm;
 	SYM *sp1;
+	SYM* sp2;
 //  std::string sig;
 
 	if (sp == nullptr || this == nullptr ) {
@@ -91,7 +92,10 @@ void TABLE::insert(SYM *sp)
   }
   else
     dfs.printf("Insert %s into %p", (char *)sp->name->c_str(), (char *)this);
-    dfs.printf("(%s)\n",owner ? (char *)SYM::GetPtr(owner)->name->c_str(): (char *)"");
+		sp2 = SYM::GetPtr(owner);
+		if (sp2 != nullptr)
+			if (sp2->name != nullptr)
+				dfs.printf("(%s)\n",owner ? (char *)SYM::GetPtr(owner)->name->c_str(): (char *)"");
 //  sig = sp->BuildSignature();
 	if (tab==&gsyms[0]) {
 	  dfs.printf("Insert into global table\n");
@@ -192,7 +196,7 @@ int TABLE::Find(std::string na,__int16 rettype, TypeArray *typearray, bool exact
 //		dfs.printf("s2:%d ",s2);
 //		dfs.printf("s3:%d\n",s3);
 		if(((s1&s2)|(s1&s3)|(s2&s3))==0) {
-		  dfs.printf("Match\n");
+		  dfs.printf(":Match");
 			match[matchno] = thead;
 			matchno++;
 			if (matchno > 98)
@@ -201,7 +205,7 @@ int TABLE::Find(std::string na,__int16 rettype, TypeArray *typearray, bool exact
 			if (exact) {
 				ta = thead->fi->GetProtoTypes();
 				if (ta->IsEqual(typearray)) {
-				  dfs.printf("Exact match");
+				  dfs.printf(":Exact match");
 				  ta->Print();
 				  typearray->Print();
 				  delete ta;
@@ -317,4 +321,23 @@ SYM** TABLE::GetParameters()
 		}
 	}
 	return (&params[0]);
+}
+
+void TABLE::AddTo(TABLE* dst)
+{
+	SYM* thead, * first, *next;
+
+	thead = SYM::GetPtr(head);
+	first = thead;
+	while (thead != nullptr) {
+		next = thead->GetNextPtr();
+		if (thead->IsParameter) {
+			dst->insert(thead);
+		}
+		thead = next;
+		if (thead == first) {
+			dfs.printf("Circular list.\n");
+			throw new C64PException(ERR_CIRCULAR_LIST, 1);
+		}
+	}
 }

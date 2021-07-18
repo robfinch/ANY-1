@@ -29,7 +29,6 @@
 std::string *declid;
 //char *Declaration::declid = (char *)NULL;
 TABLE tagtable;
-TABLE scrap_table;
 TYP stdconst;
 TYP stdvector;
 TYP *stdvectormask;
@@ -68,7 +67,6 @@ bool isPrivate = true;
 SYM *currentClass;
 int mangledNames = FALSE;
 int defaultcc = 1;
-std::string* UnknownFuncName();
 
 bool IsDeclBegin(int st)
 {
@@ -89,16 +87,6 @@ char *my_strdup(char *s)
 	memcpy(p,s,sizeof(char)*(n));
 	p[n] = '\0';
 	return (p);
-}
-
-std::string* UnknownFuncName()
-{
-	static int fn = 0;
-	char buf[300];
-
-	fn++;
-	sprintf_s(buf, sizeof(buf), "_UnknownFn%d", fn);
-	return new std::string(buf);
 }
 
 void Declaration::SetType(SYM *sp)
@@ -941,7 +929,7 @@ void Declaration::ParseBitfieldSpec(bool isUnion)
 	dfs.puts("</ParseBitfieldSpec>\n");
 }
 
-SYM *Declaration::ParsePrefixId(SYM* symi)
+SYM *Declaration::ParsePrefixId()
 {
 	SYM *sp;
 
@@ -949,20 +937,15 @@ SYM *Declaration::ParsePrefixId(SYM* symi)
 	if (declid) delete declid;
 	declid = new std::string(lastid);
 	dfs.printf("B|%s|",(char *)declid->c_str());
-	if (symi) {
-		sp = symi;
-	}
-	else {
-		sp = allocSYM();
-		dfs.printf("C");
-		if (funcdecl == 1) {
-			sp->fi = MakeFunction(sp->id, sp, defaultcc == 1, false);
-			if (nparms > 19)
-				error(ERR_TOOMANY_PARAMS);
-			else {
-				names[nparms].str = *declid;
-				nparms++;
-			}
+	sp = allocSYM();
+	dfs.printf("C"); 
+	if (funcdecl==1) {
+		sp->fi = MakeFunction(sp->id, sp, defaultcc==1, false);
+		if (nparms > 19)
+			error(ERR_TOOMANY_PARAMS);
+		else {
+			names[nparms].str = *declid;
+			nparms++;
 		}
 	}
 	dfs.printf("D"); 
@@ -976,21 +959,15 @@ SYM *Declaration::ParsePrefixId(SYM* symi)
 		ParseBitfieldSpec(isUnion);
 		goto lxit;	// no ParseDeclarationSuffix()
 	}
-	goto lxit;
-	//sp->SetName(*declid);
-	if (lastst != closepa)
-		sp = ParseSuffix(sp);
-	else {
-		//NextToken();
-		sp = ParseSuffix(sp);
-	}
+	sp->SetName(*declid);
+	sp = ParseSuffix(sp);
 	lxit:
 	dfs.puts("</ParsePrefixId>");
-	return (sp);
+	return sp;
 }
 
 // ()
-SYM *Declaration::ParsePrefixOpenpa(bool isUnion, SYM* symi)
+SYM *Declaration::ParsePrefixOpenpa(bool isUnion)
 {
 	TYP *temp1, *temp2, *temp3, *temp4;
 	SYM *sp;
@@ -1003,7 +980,7 @@ SYM *Declaration::ParsePrefixOpenpa(bool isUnion, SYM* symi)
 	// Do we have (getchar)()
 	// This processing is difficult to do with a loop, so a recursive
 	// call is made.
-	sp = ParsePrefix(isUnion, symi); 
+	sp = ParsePrefix(isUnion); 
 	needpunc(closepa,20);
 	// Head could be NULL still if a type hasn't been found
 	// eg. int (getchar)();
@@ -1034,14 +1011,13 @@ SYM *Declaration::ParsePrefixOpenpa(bool isUnion, SYM* symi)
 // There may be only a single identifier in the prefix. This identifier may
 // contain a class spec or namespace spec.
 
-SYM *Declaration::ParsePrefix(bool isUnion, SYM* symi)
+SYM *Declaration::ParsePrefix(bool isUnion)
 {   
-	TYP *temp1, *temp2, *temp3;
-	SYM *sp, *symo, *sp1;
-	ParameterDeclaration pd;
-	static int level = 0;
+	TYP *temp1;
+	SYM *sp;
 
 	dfs.printf("<ParseDeclPrefix>(%d)\n",lastst);
+
 	sp = nullptr;
 j1:
 	switch (lastst) {
@@ -1053,127 +1029,25 @@ j1:
 
 //		case ellipsis:
 	case id:
-		sp1 = sp = ParsePrefixId(symi);
-		if (lastst == closepa) {
-			goto lxit;
-		}
-		sp = ParseSuffix(sp);
-		lastst;
-		if (lastst == begin)
-			needParseFunction = 2;
-		/*
-		if (lastst == begin) {
-			if (sp1->tp == nullptr)
-				sp1->tp = head;
-			if (sp1->fi == nullptr) {
-				sp1->fi = MakeFunction(sp1->number, sp1, isPascal, isInline);
-				sp1->tp = head;
-				gsyms->insert(sp1);
-			}
-			sp1->fi->Function::Parse();
-		}
-		*/
+		sp = ParsePrefixId();
 		goto lxit;
 
 	case star:
 		bit_max = sizeOfPtr * 8;
 		dfs.putch('*');
+		temp1 = TYP::Make(bt_pointer,sizeOfPtr);
+		temp1->btp = head->GetIndex();
+		head = temp1;
+		if(tail == NULL)
+			tail = head;
 		NextToken();
 		if (lastst==closepa)
 			goto lxit;
-		//temp2 = head;
-		//temp3 = tail;
-		sp = ParsePrefix(isUnion, symi);
-		if (sp == nullptr) {
-			sp = allocSYM();
-			sp->SetName(*UnknownFuncName());
-		}
-		if (sp->fi == nullptr) {
-			sp->fi = MakeFunction(sp->number, sp, isPascal, isInline);
-			sp->tp = head;
-			gsyms->insert(sp);
-		}
-		sp = ParseSuffix(sp);
-		temp1 = TYP::Make(bt_pointer, sizeOfPtr);
-		temp1->btp = head->GetIndex();
-		head = temp1;
-		if (tail == NULL)
-			tail = head;
-		lastst;
-		if (lastst == begin)
-			needParseFunction = 2;
-		goto lxit;
-		//head = temp2;
-		//tail = temp3;
-		//if (lastst == closepa)
-		//	NextToken();
-		//needpunc(closepa, 61);
-		lastst;
-		if (lastst == openpa) {
-			funcdecl = 1;
-			NextToken();
-			if (sp == nullptr) {
-				sp = allocSYM();
-			}
-			if (sp->fi == nullptr) {
-				sp->fi = MakeFunction(sp->number, sp, isPascal, isInline);
-			}
-			parsingParameterList++;
-			temp2 = head;
-			temp3 = tail;
-			ParseFunctionJ2(sp->fi);	// will get the ')'
-			head = temp2;
-			tail = temp3;
-			parsingParameterList--;
-			funcdecl = 0;
-		}
-		lastst;
+		sp = ParsePrefix(isUnion);
 		goto lxit;
 
 	case openpa:
-		NextToken();
-		funcdecl = 1;
-		level++;
-		declare(symi, 0, 0, &symo);
-		level--;
-		funcdecl = 0;
-		//funcdecl--;
-		//sp = ParsePrefixOpenpa(isUnion, symi);
-		needpunc(closepa, 60);
-		if (currentStmt) {
-			if (currentStmt->stype == st_compound) {
-				if (level == 0) {
-					if (lastst == openpa) {
-						NextToken();
-						pd.Parse(1, true);
-						needpunc(closepa, 60);
-					}
-				}
-			}
-		}
-		else {
-			lastst;
-			sp = 
-				ParseSuffix(sp);
-			sp = symo;
-			temp1 = TYP::Make(bt_pointer, sizeOfPtr);
-			temp1->btp = head->GetIndex();
-			head = temp1;
-			if (tail == NULL)
-				tail = head;
-			lastst;
-			if (lastst == begin)
-				needParseFunction = 2;
-		}
-
-		//if (symo == nullptr) {
-		//	if (lastst == closepa)
-		//		NextToken();
-		//}
-		//else if (!symo->fi)
-		//	needpunc(closepa, 60);
-		//else if (!symo->fi->hasParameters)
-		//	needpunc(closepa, 60);
+		sp = ParsePrefixOpenpa(isUnion);
 		goto lxit;
 
 	default:
@@ -1292,7 +1166,7 @@ void Declaration::ParseFunctionAttribute(Function *sym)
 	needpunc(closepa,0);
 }
 
-Function* Declaration::ParseFunctionJ2(Function* sp)
+void Declaration::ParseFunctionJ2(Function* sp)
 {
 	int fd;
 	std::string odecl;
@@ -1301,8 +1175,6 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 	int nump = 0;
 	int numa = 0;
 	Function* cf;
-	SYM* sym;
-	ParameterDeclaration pd;
 
 	dfs.printf("r");
 	//cf = currentFn;
@@ -1313,9 +1185,6 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 	// Parse parameter list for a function pointer defined within
 	// a structure.
 	if (parsingParameterList || isStructDecl) {
-		//sym = allocSYM();
-		//sym->fi = MakeFunction(sym->id, sym, defaultcc == 1, isInline);
-		//sym->SetName(*UnknownFuncName());
 		dfs.printf("s ");
 		fd = funcdecl;
 		needParseFunction = FALSE;
@@ -1333,28 +1202,23 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 		//				SetType(sp);
 		cf = currentFn;
 		currentFn = sp;
-		nump = sp->NumParms;
 		sp->BuildParameterList(&nump, &numa);
 		currentFn = cf;
 		needParseFunction = 0;
 		dfs.printf("Set false\n");
 		//				sp->parms = sym;
 		sp->NumParms = nump;
-//		if (cf != nullptr)
-//			sp->params.AddTo(&cf->params);
 		isStructDecl = isd;
 		head = tempHead;
 		tail = tempTail;
 		if (declid) delete declid;
 		declid = new std::string(odecl);
 		funcdecl = fd;
-		// There may be more parameters in the list.???
+		// There may be more parameters in the list.
 		if (lastst == comma) {
-			return (sp);
+			return;
 		}
 		needpunc(closepa, 23);
-		if (lastst == assign)
-			return (sp);
 
 		if (lastst == begin) {
 			needParseFunction = 2;
@@ -1369,12 +1233,12 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 		// Could be a function prototype in a parameter list followed by a comma.
 		else if (lastst == comma && parsingParameterList > 0) {
 			sp->params.CopyTo(&sp->proto);
-			return (sp);
+			return;
 		}
 		// If the declaration is ending in a semicolon then it was really
 		// a function prototype, so move the parameters to the prototype
 		// area.
-		else if (lastst == semicolon || lastst == closepa) {
+		else if (lastst == semicolon) {
 			sp->params.CopyTo(&sp->proto);
 		}
 		else {
@@ -1391,7 +1255,6 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 		//				if (lastst==begin) {
 		//					ParseFunction(sp);
 		//				}
-		return (sp);
 	}
 	/*
 	else {
@@ -1411,18 +1274,16 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 		}
 	}
 	*/
-	needpunc(closepa,63);
 	dfs.printf("Y");
 	sp->PrintParameterTypes();
 	dfs.printf("X");
-	return (sp);
 }
 
 // Take care of following open parenthesis (). These indicate a function
 // call. There may or may not be following parameters. A following '{' is
 // looked for and if found a flag is set to parse the function body.
 
-Function* Declaration::ParseSuffixOpenpa(Function *sp)
+void Declaration::ParseSuffixOpenpa(Function *sp)
 {
 	TYP *temp1, *temp2;
 	TYP *tempHead, *tempTail;
@@ -1442,21 +1303,11 @@ Function* Declaration::ParseSuffixOpenpa(Function *sp)
 	NextToken();
 	sp->IsPascal = isPascal;
 	sp->IsInline = isInline;
-	sp->IsUnknown = true;
-	/*
-	if (currentClass == nullptr) {
-		if (!gsyms->Find(sp->sym->name->c_str()))
-			gsyms->insert(sp->sym);
-	}
-	else {
-		if (!gCurrentTbl->Find(sp->sym->name->c_str()))
-			gCurrentTbl->insert(sp->sym);
-	}
-	*/
+
 	// An asterik before the function name indicates a function pointer but only
 	// if it's bracketed properly, otherwise it could be the return value that's
 	// a pointer.
-	isFuncPtr = head->type==bt_pointer;
+	//  isFuncPtr = head->type==bt_pointer;
 	temp1 =(TYP *) TYP::Make(bt_func,0/*isFuncPtr ? bt_func : bt_ifunc,0*/);
 	temp1->val_flag = 1;
 	dfs.printf("o ");
@@ -1475,9 +1326,9 @@ Function* Declaration::ParseSuffixOpenpa(Function *sp)
 	}
 	dfs.printf("p ");
 	if (tail==NULL) {
-		/*if (temp1->GetBtp())
+		if (temp1->GetBtp())
 			tail = temp1->GetBtp();
-		else*/
+		else
 			tail = temp1;
 	}
 	dfs.printf("q ");
@@ -1494,24 +1345,23 @@ Function* Declaration::ParseSuffixOpenpa(Function *sp)
 			sp->NumParms = 0;
 			sp->numa = 0;
 		}
-	  //else {
-		 // if (lastst != semicolon) {
-			//	sp = ParseFunctionJ2(sp);
-			//	return (sp);
-			//}
-	  //  temp1->type = bt_func;
-		 // needParseFunction = 0;
-		 // dfs.printf("Set false\n");
-	  //}
+	  else {
+		  if (lastst != semicolon) {
+				ParseFunctionJ2(sp);
+				return;
+			}
+	    temp1->type = bt_func;
+		  needParseFunction = 0;
+		  dfs.printf("Set false\n");
+	  }
 	  currentFn = sp;
 	  sp->NumParms = 0;
 	  sp->numa = 0;
   }
 	else {
-		sp = ParseFunctionJ2(sp);
+		ParseFunctionJ2(sp);
 	}
   dfs.printf("</openpa>\n");
-	return(sp);
 }
 
 
@@ -1523,11 +1373,9 @@ SYM *Declaration::ParseSuffix(SYM *sp)
 {
 	TYP* tp;
 	ENODE* node;
-	SYM* sp1;
 
 	dfs.printf("<ParseDeclSuffix>\n");
 
-	sp1 = sp;
 	while(true) {
 		switch (lastst) {
 
@@ -1541,26 +1389,13 @@ SYM *Declaration::ParseSuffix(SYM *sp)
 			// to stuff the parameter / protoype list so we may as well create
 			// the symbol here if it isn't yet defined.
 			if (sp == nullptr) {
-				sp1 = allocSYM();
-				sp1->fi = MakeFunction(sp1->number, sp1, defaultcc == 1, isInline);
-				sp1->name = UnknownFuncName();
+				sp = allocSYM();
+				sp->fi = MakeFunction(sp->id, sp, defaultcc == 1, isInline);
 			}
 			else if (sp->fi == nullptr) {
-				sp1->fi = MakeFunction(sp1->number, sp1, defaultcc == 1, isInline);
-				if (sp == nullptr)
-					sp1->SetName(*UnknownFuncName());
-				else
-					sp1->SetName(*sp->name);
+				sp->fi = MakeFunction(sp->id, sp, defaultcc == 1, isInline);
 			}
-			//else {
-			//	sp1 = allocSYM();
-			//	sp1->fi = MakeFunction(sp1->number, sp1, defaultcc == 1, isInline);
-			//	sp1->name = UnknownFuncName();
-			//	sp1->parent = sp->id;
-			//}
-			parsingParameterList++;
-			ParseSuffixOpenpa(sp1->fi);
-			parsingParameterList--;
+			ParseSuffixOpenpa(sp->fi);
 			goto lxit;
 
 		case assign:
@@ -1579,7 +1414,7 @@ SYM *Declaration::ParseSuffix(SYM *sp)
 	}
 lxit:
 	dfs.printf("</ParseDeclSuffix>\n");
-	return (sp1);
+	return (sp);
 }
 
 void Declaration::AssignParameterName()
@@ -1630,7 +1465,7 @@ void Declaration::ParseAssign(SYM *sp)
 		//tp1 = exp.nameref(&ep1, TRUE);
 		op = en_assign;
 		ep2 = nullptr;
-		tp2 = exp.ParseAssignOps(&ep2, nullptr);
+		tp2 = exp.ParseAssignOps(&ep2, sp);
 		if (tp2 == nullptr || !IsLValue(ep1))
 			error(ERR_LVALUE);
 		else {
@@ -1673,7 +1508,6 @@ void Declaration::DoDeclarationEnd(SYM *sp, SYM *sp1)
 					// argument to the ctor.
 					ep2 = makesnode(en_nacon, sp->name, sp->mangledName, sp->value.i);
 					ep1 = makenode(en_fcall, ep1, ep2);
-					//ep1->p[2] = tp1;
 				}
 				sp->initexp = ep1;
 			}
@@ -1806,12 +1640,9 @@ int Declaration::ParseFunction(TABLE* table, SYM* sp, e_sc al)
 	dfs.printf("J");
 	if (needParseFunction) {
 		needParseFunction = FALSE;
-		if (sp->fi == nullptr)
-			sp->fi = MakeFunction(sp->number, sp, isPascal, isInline);
 		currentFn = sp->fi;
 		fn_doneinit = sp->fi->Parse();
 		if (lastst == closepa) {
-			return(0);
 			NextToken();
 			if (lastst == openpa) {
 				int np, na;
@@ -1883,10 +1714,8 @@ int Declaration::ParseFunction(TABLE* table, SYM* sp, e_sc al)
 		//         }
 	dfs.printf("K");
 	if ((al == sc_global || al == sc_static || al == sc_thread) && !fn_doneinit &&
-		sp->tp->type != bt_func && sp->tp->type != bt_ifunc && sp->storage_class != sc_typedef) {
-		if (sp->fi == nullptr)
+		sp->tp->type != bt_func && sp->tp->type != bt_ifunc && sp->storage_class != sc_typedef)
 		doinit(sp);
-	}
 	return (0);
 }
 
@@ -1923,25 +1752,24 @@ void Declaration::FigureStructOffsets(int64_t bgn, SYM* sp)
  *      be processed. ztype should be bt_struct for normal and in
  *      structure ParseSpecifierarations and sc_union for in union ParseSpecifierarations.
  */
-int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
-{
-	SYM* sp;
-	SYM* sp1;
-	Function* fn;
-	TYP* dhead, * tp1, * tp2;
-	ENODE* ep1, * ep2;
+int Declaration::declare(SYM *parent,TABLE *table,e_sc al,int ilc,int ztype)
+{ 
+	SYM *sp;
+	SYM *sp1;
+	Function *fn;
+	TYP *dhead, *tp1, *tp2;
+	ENODE *ep1, *ep2;
 	int op;
 	int fn_doneinit = 0;
 	bool flag;
 	int parentBytes = 0;
 	std::string name;
 	std::string tmpstr;
-	int nbytes;
+  int nbytes;
+	static int decl_level = 0;
 	int itdef;
 	int insState = 0;
 	SYM* fp;
-	TABLE* table = itable;
-	e_sc al = istorage_class;
 
 	itdef = isTypedef;
 	decl_level++;
@@ -1955,25 +1783,22 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 	if (ParseSpecifier(table, &sp, al)) {
 		goto xit1;
 	}
-	gCurrentTbl = table;
 	ofs.write(" ");
 	dfs.printf("B");
 	dhead = head;
-	for (;;) {
-		if (declid) delete declid;
+	for(;;) {
+	  if (declid) delete declid;
 		declid = nullptr;
 		dfs.printf("b");
 		bit_width = -1;
-		sp = ParsePrefix(ztype == bt_union, nullptr);
-		if (symo)
-			*symo = sp;
+		sp = ParsePrefix(ztype==bt_union);
 		if (dhead->type == bt_bit) {
 			if (head->isArray) {
 				head->size += 7;
 				head->size /= 8;
 			}
 		}
-		if (declid == nullptr)
+		if (declid==nullptr)
 			declid = new std::string("");
 		if (al == sc_static) {
 			tmpstr = GetNamespace();
@@ -1983,7 +1808,7 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 		// If a function declaration is taking place and just the type is
 		// specified without a parameter name, assign an internal compiler
 		// generated name.
-		if (funcdecl > 0 && funcdecl != 10 && declid->length() == 0)
+		if (funcdecl>0 && funcdecl != 10 && declid->length()==0)
 			AssignParameterName();
 
 		dfs.printf("C");
@@ -2002,12 +1827,12 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 			SetType(sp);
 			fp = FindSymbol(sp, table);
 			// If storage has already been allocated, go back and blank it out.
-			if (fp && fp->storage_pos != 0 && funcdecl == 0) {
+			if (fp && fp->storage_pos != 0) {
 				int cnt = 0;
 				std::streampos cpos = ofs.tellp();
 				std::streampos pos = fp->storage_pos;
 				ofs.seekp(fp->storage_pos);
-				while (pos < fp->storage_endpos&& fp->storage_endpos > fp->storage_pos&& cnt < 65536) {
+				while (pos < fp->storage_endpos && fp->storage_endpos > fp->storage_pos && cnt < 65536) {
 					cnt++;
 					ofs.write(" ");
 				}
@@ -2020,13 +1845,13 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 			isRegister = false;
 			sp->IsAuto = isAuto;
 			sp->IsParameter = parsingParameterList > 0;
-			if (sp->parent <= 0)// was nullptr
+			if (sp->parent < 0)// was nullptr
 				sp->parent = parent->GetIndex();
 			if (al == sc_member)
 				sp->IsPrivate = isPrivate;
 			else
 				sp->IsPrivate = false;
-			sp->SetName(classname->length() > 0 ? *classname : sp->name->length() > 0 ? *sp->name : *declid);
+			sp->SetName(classname->length() > 0 ? *classname : *declid);
 			dfs.printf("D");
 			if (classname) delete classname;
 			classname = new std::string("");
@@ -2070,61 +1895,49 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 					sp->storage_endpos = ofs.tellp();
 					return (nbytes);
 				}
-			//			}
+//			}
 		}
-		if (funcdecl > 0) {
+		if (funcdecl>0) {
 			if (lastst == closepa) {
 				goto xit1;
 			}
 			if (lastst == comma) {
-				goto xit1;
 				break;
 				NextToken();
 				if (IsDeclBegin(lastst) == false)
 					goto xit1;
 				head = dhead;
 				continue;
-				//				break;
+//				break;
 			}
-			if (lastst == semicolon) {
-				goto xit1;
-			}
-			if (lastst == assign) {
-				ParseAssign(sp);
-				if (lastst == semicolon)
-					goto xit1;
+			if (lastst==semicolon) {
+				break;
 			}
 		}
-		else if (catchdecl == TRUE) {
-			if (lastst == closepa)
+		else if (catchdecl==TRUE) {
+			if (lastst==closepa)
 				goto xit1;
 		}
 
 		// If semi-colon is encountered we are at the end of the declaration.
 		else if (lastst == semicolon) {
 			DoDeclarationEnd(sp, sp1);
-			goto xit1;
 			break;	// semicolon
 		}
 
 		// Handle an assignment
 		else if (lastst == assign) {
 			ParseAssign(sp);
-			if (lastst == semicolon) {
-				goto xit1;
+			if (lastst==semicolon)
 				break;
-			}
 		}
 		// See if there is a list of variable declarations
-		if (lastst == comma)
-			NextToken();
-		//needpunc(comma,24);
-		if (IsDeclBegin(lastst) == false)
-			goto xit1;//break;
-		head = dhead;
-		goto xit1;
-	}
-	NextToken();
+    needpunc(comma,24);
+    if(IsDeclBegin(lastst) == false)
+      break;
+    head = dhead;
+  }
+  NextToken();
 xit1:
 	if (sp)
 		sp->storage_endpos = ofs.tellp();
@@ -2133,20 +1946,13 @@ xit1:
 			TYP* tp;
 			tp = sp->tp->Copy(sp->tp);
 			sp->tp = tp;
-			FigureStructOffsets(0, sp);
+			FigureStructOffsets(0,sp);
 		}
 	}
 	dfs.printf("</declare>\n");
 	isTypedef = itdef;
 	decl_level--;
-	return (nbytes);
-}
-
-int Declaration::declare(SYM *parent,TABLE *table,e_sc al,int ilc,int ztype, SYM** symo)
-{ 
-	itable = table;
-	istorage_class = al;
-	return (declare(parent, ilc, ztype, symo));
+  return (nbytes);
 }
 
 void GlobalDeclaration::Parse()
@@ -2185,7 +1991,7 @@ void GlobalDeclaration::Parse()
 		  isInline = true;
 		  break;
 		case id:
-			lc_static += declare(NULL, &gsyms[0], sc_global, lc_static, bt_struct,nullptr);
+			lc_static += declare(NULL, &gsyms[0], sc_global, lc_static, bt_struct);
 			isInline = false;
 			break;
 		case ellipsis:
@@ -2205,24 +2011,24 @@ void GlobalDeclaration::Parse()
 				case kw_enum: case kw_void: case kw_bit:
 				case kw_float: case kw_double: case kw_float128: case kw_posit:
 		case kw_vector: case kw_vector_mask:
-                lc_static += declare(NULL,&gsyms[0],sc_global,lc_static,bt_struct,nullptr);
+                lc_static += declare(NULL,&gsyms[0],sc_global,lc_static,bt_struct);
 				isInline = false;
 				break;
         case kw_thread:
 				NextToken();
-                lc_thread += declare(NULL,&gsyms[0],sc_thread,lc_thread,bt_struct,nullptr);
+                lc_thread += declare(NULL,&gsyms[0],sc_thread,lc_thread,bt_struct);
 				isInline = false;
 				break;
 		case kw_register:
 			NextToken();
       error(ERR_ILLCLASS);
-      lc_static += declare(NULL,&gsyms[0],sc_global,lc_static,bt_struct,nullptr);
+      lc_static += declare(NULL,&gsyms[0],sc_global,lc_static,bt_struct);
 			isInline = false;
 			break;
 		case kw_private:
         case kw_static:
                 NextToken();
-				lc_static += declare(NULL,&gsyms[0],sc_static,lc_static,bt_struct,nullptr);
+				lc_static += declare(NULL,&gsyms[0],sc_static,lc_static,bt_struct);
 				isInline = false;
                 break;
     case kw_extern:
@@ -2243,7 +2049,7 @@ j1:
 				else if (lastst==kw_oscall || lastst==kw_interrupt || lastst==kw_nocall || lastst==kw_naked)
 					NextToken();
           ++global_flag;
-          declare(NULL,&gsyms[0],sc_external,0,bt_struct,nullptr);
+          declare(NULL,&gsyms[0],sc_external,0,bt_struct);
           isInline = false;
           --global_flag;
           break;
@@ -2328,7 +2134,7 @@ ENODE *AutoDeclaration::Parse(SYM *parent, TABLE *ssyms)
 		case kw_pascal:
 		case kw_typedef:
       error(ERR_ILLCLASS);
-	    lc_auto += declare(parent,ssyms,sc_auto,lc_auto,bt_struct,nullptr);
+	    lc_auto += declare(parent,ssyms,sc_auto,lc_auto,bt_struct);
 			break;
 		case ellipsis:
 		case id: //return;
@@ -2342,7 +2148,7 @@ ENODE *AutoDeclaration::Parse(SYM *parent, TABLE *ssyms)
 				  dfs.printf("sp okay sc=%d\n", sp->storage_class);
 					if (sp->storage_class==sc_typedef || sp->storage_class==sc_type) {
 					  dfs.printf("Declaring var of type\n");
-			            lc_auto += declare(parent,ssyms,sc_auto,lc_auto,bt_struct,nullptr);
+			            lc_auto += declare(parent,ssyms,sc_auto,lc_auto,bt_struct);
 						break;
 					}
 				}
@@ -2358,22 +2164,22 @@ ENODE *AutoDeclaration::Parse(SYM *parent, TABLE *ssyms)
         case kw_enum: case kw_void:
 				case kw_float: case kw_double: case kw_float128: case kw_posit:
 		case kw_vector: case kw_vector_mask:
-            lc_auto += declare(parent,ssyms,sc_auto,lc_auto,bt_struct,nullptr);
+            lc_auto += declare(parent,ssyms,sc_auto,lc_auto,bt_struct);
             break;
         case kw_thread:
                 NextToken();
-				lc_thread += declare(parent,ssyms,sc_thread,lc_thread,bt_struct,nullptr);
+				lc_thread += declare(parent,ssyms,sc_thread,lc_thread,bt_struct);
 				break;
         case kw_static:
                 NextToken();
-				lc_static += declare(parent,ssyms,sc_static,lc_static,bt_struct,nullptr);
+				lc_static += declare(parent,ssyms,sc_static,lc_static,bt_struct);
 				break;
         case kw_extern:
                 NextToken();
 				if (lastst==kw_oscall || lastst==kw_interrupt || lastst == kw_nocall || lastst==kw_naked || lastst==kw_kernel)
 					NextToken();
                 ++global_flag;
-                declare(NULL,&gsyms[0],sc_external,0,bt_struct,nullptr);
+                declare(NULL,&gsyms[0],sc_external,0,bt_struct);
                 --global_flag;
                 break;
         default:
@@ -2393,7 +2199,7 @@ xit:
 //	printf("Leave ParseAutoDecls\r\n");
 }
 
-int ParameterDeclaration::Parse(int fd, bool throw_away)
+int ParameterDeclaration::Parse(int fd)
 {
 	int ofd;
   int opascal;
@@ -2434,7 +2240,7 @@ j1:
 		case kw_typedef:
 dfs.printf("B");
       error(ERR_ILLCLASS);
-      declare(NULL,throw_away ? &scrap_table : &currentFn->params,sc_auto,0,bt_struct,nullptr);
+      declare(NULL,&currentFn->params,sc_auto,0,bt_struct);
 			isAuto = false;
 			break;
 		case kw_const:
@@ -2449,23 +2255,23 @@ dfs.printf("B");
 		case kw_float: case kw_double: case kw_float128: case kw_posit:
 		case kw_vector: case kw_vector_mask:
 dfs.printf("C");
-			declare(NULL, throw_away ? &scrap_table : &currentFn->params,sc_auto,0,bt_struct,nullptr);
+			declare(NULL,&currentFn->params,sc_auto,0,bt_struct);
 			isAuto = false;
 	    break;
 		case id:
-			declare(NULL, throw_away ? &scrap_table : &currentFn->params, sc_auto, 0, bt_struct,nullptr);
+			declare(NULL, &currentFn->params, sc_auto, 0, bt_struct);
 			isAuto = false;
 			break;
 		case kw_thread:
       NextToken();
       error(ERR_ILLCLASS);
-			lc_thread += declare(NULL,throw_away ? &scrap_table : &gsyms[0],sc_thread,lc_thread,bt_struct,nullptr);
+			lc_thread += declare(NULL,&gsyms[0],sc_thread,lc_thread,bt_struct);
 			isAuto = false;
 			break;
     case kw_static:
       NextToken();
       error(ERR_ILLCLASS);
-			lc_static += declare(NULL, throw_away ? &scrap_table : &gsyms[0],sc_static,lc_static,bt_struct,nullptr);
+			lc_static += declare(NULL,&gsyms[0],sc_static,lc_static,bt_struct);
 			isAuto = false;
 			break;
 		// A list of externals could be following a function prototype. This
@@ -2479,7 +2285,7 @@ dfs.printf("D");
 				if (lastst==kw_oscall || lastst==kw_interrupt || lastst == kw_nocall || lastst==kw_naked || lastst==kw_kernel)
 					NextToken();
                 ++global_flag;
-                declare(NULL, throw_away ? &scrap_table : &gsyms[0],sc_external,0,bt_struct,nullptr);
+                declare(NULL,&gsyms[0],sc_external,0,bt_struct);
 				isAuto = false;
                 --global_flag;
                 break;

@@ -28,6 +28,7 @@ extern char irfile[256];
 extern int defaultcc;
 extern bool isLeaf;
 extern CSet* ru, * rru;
+extern std::string* UnknownFuncName();
 
 Function::Function()
 {
@@ -59,7 +60,9 @@ Statement *Function::ParseBody()
 		//strcat(lbl,"_");
 		//		strcpy(lbl,sp->name);
 		lbl += *sym->mangledName;
-		//gen_strlab(lbl);
+		if (sym->tp->type == bt_pointer)
+			lbl += "_func";
+			//gen_strlab(lbl);
 	}
 	//	put_label((unsigned int) sp->value.i);
 	else {
@@ -67,6 +70,8 @@ Statement *Function::ParseBody()
 			lbl = "public code ";
 		//		strcat(lbl,sp->name);
 		lbl += *sym->mangledName;
+		if (sym->tp->type == bt_pointer)
+			lbl += "_func";
 		//gen_strlab(lbl);
 	}
 	dfs.printf("B");
@@ -193,8 +198,9 @@ int Function::Parse()
 	// declarations. the original 'C' style is parsed here. Originally the
 	// parameter types appeared as list after the parenthesis and before the
 	// function body.
-	//if (NumParms==-1)
-	sp->BuildParameterList(&nump, &numar);
+	//if (NumParms == -1)
+		nump = sp->NumParms;
+		sp->BuildParameterList(&nump, &numar);
 	dfs.printf("B");
 	sym->mangledName = BuildSignature(1);  // build against parameters
 
@@ -265,6 +271,14 @@ int Function::Parse()
 				sp->sym->initexp = node;
 			doinit(sp->sym);
 		}
+		else if (lastst == begin) {
+			ENODE* node;
+
+			node = makesnode(en_cnacon, new std::string(*UnknownFuncName()), nullptr, stringlit((char *)UnknownFuncName()->c_str()));
+			sp->sym->initexp = node;
+			doinit(sp->sym);
+			goto j2;
+		}
 		sp->Init();
 		return (1);
 	}
@@ -287,6 +301,7 @@ j2:
 		dfs.printf("F");
 		//			NextToken();
 		//			ParameterDeclaration::Parse(2);
+		nump = sp->NumParms;
 		sp->BuildParameterList(&nump, &numar);
 		// for old-style parameter list
 		//needpunc(closepa);
@@ -1320,7 +1335,13 @@ void Function::BuildParameterList(int *num, int *numa)
 	int old_nparms;
 	ParameterDeclaration pd;
 
-	dfs.printf("<BuildParameterList\n>");
+	dfs.printf("<BuildParameterList>");
+	if (this->hasParameters) {
+		dfs.printf("Function parameter list already processed.");
+		pd.Parse(1, true);
+		return;
+	}
+	this->hasParameters = true;
 	if (opt_vreg)
 		cpu.SetVirtualRegisters();
 	poffset = 0;//GetReturnBlockSize();
@@ -1337,12 +1358,12 @@ void Function::BuildParameterList(int *num, int *numa)
 	// declarations are processed.
 	//if (strcmp(sym->name->c_str(), "__Skip") == 0)
 	//	printf("hello");
-	np = pd.ParameterDeclaration::Parse(1);
+	np = pd.ParameterDeclaration::Parse(1, false);
 	*num += np;
 	*numa = 0;
 	dfs.printf("B");
 	nparms = onp;
-	this->NumParms = np;
+	this->NumParms = *num;
 	for (i = 0; i < np && i < MAX_PARMS; ++i) {
 		if ((sp1 = currentFn->params.Find(names[i].str, false)) == NULL) {
 			dfs.printf("C");

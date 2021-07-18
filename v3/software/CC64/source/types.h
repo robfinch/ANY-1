@@ -223,6 +223,7 @@ public:
 		dst->head = head;
 		dst->tail = tail;
 	};
+	void AddTo(TABLE* dst);
 	void MoveTo(TABLE *dst) {
 		CopyTo(dst);
 		Clear();
@@ -299,6 +300,7 @@ public:
 	unsigned int UsesPredicate : 1;
 	unsigned int IsVirtual : 1;
 	unsigned int IsInline : 1;
+	unsigned int IsUnknown : 1;
 	unsigned int UsesTemps : 1;		// uses temporary registers
 	unsigned int UsesStackParms : 1;
 	unsigned int hasSPReferences : 1;
@@ -311,9 +313,10 @@ public:
 	unsigned int alloced : 1;
 	unsigned int hasAutonew : 1;
 	unsigned int alstk : 1;		// stack space was allocated with link
+	unsigned int hasParameters : 1;
 	uint8_t NumRegisterVars;
-	unsigned __int8 NumParms;
-	unsigned __int8 numa;			// number of stack parameters (autos)
+	__int8 NumParms;
+	__int8 numa;			// number of stack parameters (autos)
 	int stkspace;					// stack space used by function
 	int64_t sp_init;					// initial SP for interrupt functions
 	int64_t argbot;
@@ -814,7 +817,7 @@ private:
 	ENODE* ParseStar(SYM* symi);
 	ENODE* ParseSizeof(SYM* symi);
 
-	ENODE* ParseDotOperator(TYP* tp1, ENODE* ep1, SYM* symi);
+	ENODE* ParseDotOperator(TYP* tp1, ENODE* ep1, SYM* symi, ENODE* parent);
 	ENODE* ParsePointsTo(TYP* tp1, ENODE* ep1);
 	ENODE* ParseOpenpa(TYP* tp1, ENODE* ep1, SYM* symi);
 	ENODE* ParseOpenbr(TYP*tp1, ENODE* ep1);
@@ -1726,19 +1729,25 @@ public:
 
 class Declaration
 {
+private:
 	void SetType(SYM* sp);
+	int decl_level; 
 public:
 	TYP* head;
 	TYP* tail;
-	int bit_offset;
-	int bit_width;
-	int bit_next;
-	int bit_max;
+	int16_t bit_offset;
+	int16_t bit_width;
+	int16_t bit_next;
+	int16_t bit_max;
+	int8_t funcdecl;
+	e_sc istorage_class;
+	TABLE* itable;
 public:
 	Declaration();
 	Declaration *next;
 	void AssignParameterName();
-	int declare(SYM *parent,TABLE *table,e_sc al,int ilc,int ztype);
+	int declare(SYM *parent,TABLE *table,e_sc al,int ilc,int ztype, SYM** symo);
+	int declare(SYM* parent, int ilc, int ztype, SYM** symo);
 	void ParseEnumerationList(TABLE *table, int amt, SYM *parent);
 	void ParseEnum(TABLE *table);
 	void ParseVoid();
@@ -1768,15 +1777,15 @@ public:
 	void ParseDoubleColon(SYM *sp);
 	void ParseBitfieldSpec(bool isUnion);
 	int ParseSpecifier(TABLE* table, SYM** sym, e_sc sc);
-	SYM *ParsePrefixId();
-	SYM *ParsePrefixOpenpa(bool isUnion);
-	SYM *ParsePrefix(bool isUnion);
+	SYM *ParsePrefixId(SYM*);
+	SYM *ParsePrefixOpenpa(bool isUnion, SYM*);
+	SYM *ParsePrefix(bool isUnion,SYM*);
 	void ParseSuffixOpenbr();
-	void ParseSuffixOpenpa(Function *);
+	Function* ParseSuffixOpenpa(Function *);
 	SYM *ParseSuffix(SYM *sp);
 	static void ParseFunctionAttribute(Function *sym);
 	int ParseFunction(TABLE* table, SYM* sp, e_sc al);
-	void ParseFunctionJ2(Function* fn);
+	Function* ParseFunctionJ2(Function* fn);
 	void ParseAssign(SYM *sp);
 	void DoDeclarationEnd(SYM *sp, SYM *sp1);
 	void DoInsert(SYM *sp, TABLE *table);
@@ -1790,11 +1799,15 @@ public:
 
 class StructDeclaration : public Declaration
 {
+private:
+	int ParseTag(TABLE* table, e_bt ztype);
+	SYM* CreateSymbol(char* nmbuf, TABLE* table, e_bt ztype, int* fwd);
 public:
 	void GetType(TYP** hd, TYP** tl) {
 		*hd = head; *tl = tail;
 	};
 	void ParseAttribute(SYM* sym);
+	void ParseAttributes(SYM* sym);
 	void ParseMembers(SYM* sym, int ztype);
 	int Parse(TABLE* table, int ztype, SYM** sym);
 };
@@ -1818,7 +1831,7 @@ public:
 class ParameterDeclaration : public Declaration
 {
 public:
-	int Parse(int);
+	int Parse(int, bool throw_away);
 };
 
 class GlobalDeclaration : public Declaration
