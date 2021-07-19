@@ -13,7 +13,7 @@
 #include "fpp.h"
 
 /* ---------------------------------------------------------------------------
-   (C) 1992,2014 Robert T Finch
+   (C) 1992,2014-2021 Robert T Finch
 
    fpp - PreProcessor for Assembler / Compiler
    This file contains processing for main and most of the directives.
@@ -654,7 +654,7 @@ main(int argc, char *argv[]) {
    HashInfo.width = sizeof(SDef);
    if (argc < 2)
    {
-		fprintf(stderr, "FPP version 1.27  (C) 1998-2021 Robert T Finch  \n");
+		fprintf(stderr, "FPP version 2.00  (C) 1998-2021 Robert T Finch  \n");
 		fprintf(stderr, "\nfpp [options] <filename> [<output filename>]\n\n");
 		fprintf(stderr, "Options:\n");
 		fprintf(stderr, "/D<macro name>[=<definition>] - define a macro\n");
@@ -680,7 +680,7 @@ main(int argc, char *argv[]) {
       parsesw(argv[xx]);
 
 	if (banner)
-		fprintf(stderr, "FPP version 1.27  (C) 1998-2021 Robert T Finch  \n");
+		fprintf(stderr, "FPP version 2.00  (C) 1998-2021 Robert T Finch  \n");
 
    /* ---------------------------
          Get source file name.
