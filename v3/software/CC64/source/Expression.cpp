@@ -1540,23 +1540,28 @@ ENODE* Expression::MakeMemberNameNode(SYM* sp)
 	// If it's a member we need to pass r25 the class pointer on
 	// the stack.
 	isMember = true;
+	node = nullptr;
 	if ((sp->tp->type == bt_func || sp->tp->type == bt_ifunc)
 		|| (sp->tp->type == bt_pointer && (sp->tp->GetBtp()->type == bt_func || sp->tp->GetBtp()->type == bt_ifunc)))
 	{
-		node = makesnode(en_cnacon, sp->name, sp->fi->BuildSignature(), 25);
-		node->isPascal = sp->fi->IsPascal;
+		if (sp->fi) {
+			node = makesnode(en_cnacon, sp->name, sp->fi->BuildSignature(), 25);
+			node->isPascal = sp->fi->IsPascal;
+		}
 	}
 	else {
 		node = makeinode(en_classcon, sp->value.i);
 	}
-	if (sp->tp->isUnsigned || sp->tp->type == bt_pointer)
-		node->isUnsigned = TRUE;
-	node->esize = sp->tp->size;
-	switch (node->nodetype) {
-	case en_regvar:		node->etype = bt_long;	break;//sp->tp->type;
-	case en_fpregvar:	node->etype = sp->tp->type;	break;//sp->tp->type;
-	case en_pregvar:	node->etype = sp->tp->type;	break;//sp->tp->type;
-	default:			node->etype = bt_pointer;break;//sp->tp->type;
+	if (node) {
+		if (sp->tp->isUnsigned || sp->tp->type == bt_pointer)
+			node->isUnsigned = TRUE;
+		node->esize = sp->tp->size;
+		switch (node->nodetype) {
+		case en_regvar:		node->etype = bt_long;	break;//sp->tp->type;
+		case en_fpregvar:	node->etype = sp->tp->type;	break;//sp->tp->type;
+		case en_pregvar:	node->etype = sp->tp->type;	break;//sp->tp->type;
+		default:			node->etype = bt_pointer; break;//sp->tp->type;
+		}
 	}
 	return (node);
 }

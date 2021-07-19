@@ -48,11 +48,11 @@ TABLE::TABLE()
 
 void TABLE::CopySymbolTable(TABLE *dst, TABLE *src)
 {
-	SYM *sp, *newsym;
+	SYM *sp, *newsym, *first, *next;
 	dfs.puts("<CopySymbolTable>\n");
 	if (src) {
 	  dfs.printf("A");
-		sp = sp->GetPtr(src->GetHead());
+		first = sp = sp->GetPtr(src->GetHead());
 		while (sp) {
   	  dfs.printf("B");
 			newsym = SYM::Copy(sp);
@@ -61,7 +61,10 @@ void TABLE::CopySymbolTable(TABLE *dst, TABLE *src)
 			if (newsym->tp->IsStructType())
 				CopySymbolTable(&newsym->tp->lst, &sp->tp->lst);
   	  dfs.printf("D");
-			sp = sp->GetNextPtr();
+			next = sp->GetNextPtr();
+			if (next == first)
+				break;
+			sp = next;
 		}
 	}
 	dfs.puts("</CopySymbolTable>\n");
@@ -223,7 +226,24 @@ int TABLE::Find(std::string na,__int16 rettype, TypeArray *typearray, bool exact
     }
   }
   dfs.puts("</Find>\n");
-  return exact ? 0 : matchno;
+
+	// Try for a union match
+	if (matchno == 0) {
+		thead = first;
+		while (thead != NULL) {
+			if (thead->tp->IsAggregateType()) {
+				thead->tp->lst.Find(na, rettype, typearray, exact);
+				if (matchno > 0)
+					return (exact ? 0 : matchno);
+			}
+			thead = thead->GetNextPtr();
+			if (thead == first) {
+				dfs.printf("Circular list.\n");
+				throw new C64PException(ERR_CIRCULAR_LIST, 1);
+			}
+		}
+	}
+  return (exact ? 0 : matchno);
 }
 
 int TABLE::Find(std::string na)

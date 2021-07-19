@@ -51,6 +51,7 @@ int StructDeclaration::ParseTag(TABLE* table, e_bt ztype)
     sp->storage_class = sc_type;
     sp->tp->sname = new std::string(*sp->name);
     sp->tp->alignment = 0;
+    tagtable.insert(sp);
     NextToken();
 
     ParseAttributes(sp);
@@ -195,6 +196,7 @@ int StructDeclaration::Parse(TABLE* table, int ztype, SYM** sym)
 	bit_offset = 0;
 	bit_next = 0;
 	bit_width = -1;
+  head = tail = 0;
   if (lastst == kw_attribute)
     ParseAttribute(nullptr);
   if (lastst == id) {
@@ -206,6 +208,7 @@ int StructDeclaration::Parse(TABLE* table, int ztype, SYM** sym)
     sprintf(nmbuf, "__noname_tag%d", cnt);
     cnt++;
     sp = CreateSymbol(nmbuf, table, (e_bt)ztype, &ret);
+    isym = sp;
     // Else it is a known structure
     if (false) {
       NextToken();
@@ -216,6 +219,7 @@ int StructDeclaration::Parse(TABLE* table, int ztype, SYM** sym)
       }
     }
     head = sp->tp;
+    sp = isym;
     goto xit;
     //***** DEAD code follows *****
     sp->SetName(*(new std::string(nmbuf)));
@@ -266,6 +270,9 @@ void StructDeclaration::ParseMembers(SYM *sym, int ztype)
 {
 	int slc;
 	bool priv;
+  SYM* sp;
+  char nmbuf[300];
+  static int nmx = 0;
 
 	slc = 0;
 	sym->tp->val_flag = 1;
@@ -274,9 +281,9 @@ void StructDeclaration::ParseMembers(SYM *sym, int ztype)
 		priv = isPrivate;
 		isPrivate = false;    
 		if(ztype == bt_struct || ztype==bt_class)
-			slc += declare(sym,&(sym->tp->lst),sc_member,slc,ztype,nullptr);
+			slc += declare(sym,&(sym->tp->lst),sc_member,slc,ztype,&sp);
 		else // union
-			slc = imax(slc,declare(sym,&(sym->tp->lst),sc_member,0,ztype,nullptr));
+			slc = imax(slc,declare(sym,&(sym->tp->lst),sc_member,0,ztype,&sp));
 		isPrivate = priv;
 	}
 	bit_offset = 0;
@@ -285,5 +292,14 @@ void StructDeclaration::ParseMembers(SYM *sym, int ztype)
 	sym->tp->size = sym->tp->alignment ? sym->tp->alignment : slc;
 	//ListTable(&tp->lst,0);
 	NextToken();
+  /*
+  if (lastst != id) {
+    sprintf_s(nmbuf, sizeof(nmbuf), "__noname_struct%d", nmx);
+    nmx++;
+    isym = allocSYM();
+    isym->SetName(*(new std::string(nmbuf)));
+    isym->tp = sym->tp;
+  }
+  */
 }
 

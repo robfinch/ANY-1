@@ -161,6 +161,8 @@ void Declaration::ParseVoid()
 	tail = head;
 	head->isVolatile = isVolatile;
 	head->isIO = isIO;
+	head->precision = 0;
+	head->numele = 0;
 	NextToken();
 	if (lastst==kw_interrupt) {
 		ParseInterrupt();
@@ -725,8 +727,8 @@ int Declaration::ParseSpecifier(TABLE* table, SYM** sym, e_sc sc)
 	SYM *sp;
 	ClassDeclaration cd;
 	StructDeclaration sd;
-	bool rv;
-	int rv2;
+	bool rv = false;
+	int rv2 = 0;
 
 	dfs.printf("<ParseSpecifier>\n");
 	isUnsigned = FALSE;
@@ -891,7 +893,7 @@ int Declaration::ParseSpecifier(TABLE* table, SYM** sym, e_sc sc)
 	}
 lxit:;
 	dfs.printf("</ParseSpecifier>\n");
-	return 0;
+	return (0);
 }
 
 void Declaration::ParseDoubleColon(SYM *sp)
@@ -955,15 +957,15 @@ SYM *Declaration::ParsePrefixId(SYM* symi)
 	else {
 		sp = allocSYM();
 		dfs.printf("C");
-		if (funcdecl == 1) {
-			sp->fi = MakeFunction(sp->id, sp, defaultcc == 1, false);
-			if (nparms > 19)
-				error(ERR_TOOMANY_PARAMS);
-			else {
-				names[nparms].str = *declid;
-				nparms++;
-			}
-		}
+		//if (funcdecl == 1) {
+		//	sp->fi = MakeFunction(sp->id, sp, defaultcc == 1, false);
+		//	if (nparms > 19)
+		//		error(ERR_TOOMANY_PARAMS);
+		//	else {
+		//		names[nparms].str = *declid;
+		//		nparms++;
+		//	}
+		//}
 	}
 	dfs.printf("D"); 
 	NextToken();
@@ -1003,14 +1005,12 @@ SYM *Declaration::ParsePrefixOpenpa(bool isUnion, SYM* symi)
 	// Do we have (getchar)()
 	// This processing is difficult to do with a loop, so a recursive
 	// call is made.
-	declare(symi, 0, bt_struct, &sp);
-//	sp = ParsePrefix(isUnion, symi); 
-//	needpunc(closepa,20);
+	sp = ParsePrefix(isUnion, symi); 
+	needpunc(closepa,20);
 	// Head could be NULL still if a type hasn't been found
 	// eg. int (getchar)();
 	if (head)
 		isFuncPtr = head->type == bt_pointer;
-	goto xit;
 	temp3 = head;
 	temp4 = tail;
 	//if (isFuncPtr) {
@@ -1029,23 +1029,7 @@ SYM *Declaration::ParsePrefixOpenpa(bool isUnion, SYM* symi)
 			temp4->size *= head->size;
 		head = temp3;
 	}
-xit:
 	dfs.puts("</ParsePrefixOpenpa>\n");
-	return (sp);
-}
-
-SYM* Declaration::CreateNonameVar()
-{
-	static int varno = 0;
-	char nmbuf[300];
-	SYM* sp;
-
-	sprintf_s(nmbuf, sizeof(nmbuf), "__noname_var%d", varno);
-	sp = allocSYM();
-	sp->SetName(nmbuf);
-	sp->tp = head;
-	sp->storage_class = sc_member;
-	varno++;
 	return (sp);
 }
 
@@ -1058,26 +1042,30 @@ SYM *Declaration::ParsePrefix(bool isUnion, SYM* symi)
 	SYM *sp, *symo, *sp1;
 	ParameterDeclaration pd;
 	static int level = 0;
+	char nmbuf[300];
+	static int varno = 0;
 
-	dfs.printf("<Declaration_ParsePrefix>(%d)\n",lastst);
+	dfs.printf("<ParseDeclPrefix>(%d)\n",lastst);
 	sp = nullptr;
 j1:
 	switch (lastst) {
 
 	case kw_const:
-		dfs.printf("C");
 		isConst = TRUE;
 		NextToken();
 		goto j1; 
 
 	case semicolon:
-		dfs.printf(";");
-		sp = CreateNonameVar();
+		sprintf_s(nmbuf, sizeof(nmbuf), "__noname_var%d", varno);
+		sp = allocSYM();
+		sp->SetName(nmbuf);
+		sp->tp = head;
+		sp->storage_class = sc_member;
+		varno++;
 		break;
 
-		//		case ellipsis:
+//		case ellipsis:
 	case id:
-		dfs.printf("I");
 		sp1 = sp = ParsePrefixId(symi);
 		if (lastst == closepa || lastst == semicolon) {
 			goto lxit;
@@ -1089,12 +1077,20 @@ j1:
 		goto lxit;
 
 	case star:
-		dfs.printf("*");
 		bit_max = sizeOfPtr * 8;
 		dfs.putch('*');
 		NextToken();
-		if (lastst==closepa || lastst==semicolon)
+		if (lastst == closepa) {
+			//head->btp = head->GetIndex();
+			//head = TYP::Make(bt_func, sizeOfWord);
+			//temp1 = TYP::Make(bt_pointer, sizeOfPtr);
+			//temp1->btp = head->GetIndex();
+			//head = temp1;
+			//if (tail == NULL)
+			//	tail = head;
+			lastst;
 			goto lxit;
+		}
 		//temp2 = head;
 		//temp3 = tail;
 		sp = ParsePrefix(isUnion, symi);
@@ -1115,21 +1111,24 @@ j1:
 			sp = allocSYM();
 			sp->SetName(*UnknownFuncName());
 		}
-		if (sp->fi == nullptr) {
-			sp->fi = MakeFunction(sp->number, sp, isPascal, isInline);
-			sp->tp = head;
-			gsyms->insert(sp);
+		if (temp1->btp == bt_func || temp1->btp == bt_ifunc) {
+			if (sp->fi == nullptr) {
+				sp->fi = MakeFunction(sp->number, sp, isPascal, isInline);
+				sp->tp = head;
+				gsyms->insert(sp);
+			}
 		}
 		sp = ParseSuffix(sp);
-		temp1 = TYP::Make(bt_pointer, sizeOfPtr);
-		temp1->btp = head->GetIndex();
-		head = temp1;
-		if (tail == NULL)
-			tail = head;
+		//temp1 = TYP::Make(bt_pointer, sizeOfPtr);
+		//temp1->btp = head->type; // head->GetIndex();
+		//head = temp1;
+		//if (tail == NULL)
+		//	tail = head;
 		lastst;
 		if (lastst == begin)
 			needParseFunction = 2;
 		goto lxit;
+
 		//head = temp2;
 		//tail = temp3;
 		//if (lastst == closepa)
@@ -1158,7 +1157,6 @@ j1:
 		goto lxit;
 
 	case openpa:
-		dfs.printf("(");
 		NextToken();
 		funcdecl = 1;
 		level++;
@@ -1169,7 +1167,9 @@ j1:
 		//sp = ParsePrefixOpenpa(isUnion, symi);
 		if (lastst == closepa || lastst == semicolon)
 			NextToken();
+		//needpunc(closepa, 60);
 		if (currentStmt) {
+			sp = symo;
 			if (currentStmt->stype == st_compound) {
 				if (level == 0) {
 					if (lastst == openpa) {
@@ -1185,12 +1185,12 @@ j1:
 			sp = 
 				ParseSuffix(sp);
 			sp = symo;
-			temp1 = TYP::Make(bt_pointer, sizeOfPtr);
-			temp1->btp = head->GetIndex();
-			head = temp1;
-			if (tail == NULL)
-				tail = head;
-			lastst;
+			//temp1 = TYP::Make(bt_pointer, sizeOfPtr);
+			//temp1->btp = head->GetIndex();
+			//head = temp1;
+			//if (tail == NULL)
+			//	tail = head;
+			//lastst;
 			if (lastst == begin)
 				needParseFunction = 2;
 		}
@@ -1206,13 +1206,8 @@ j1:
 		goto lxit;
 
 	default:
-		dfs.printf("D");
-		if (lastst == semicolon) {
-			NextToken();
-			goto lxit;
-		}
 		sp = ParseSuffix(sp);
-		dfs.printf("d");
+		dfs.printf("Z");
 		goto lxit;
 	}
 lxit:
@@ -1566,12 +1561,10 @@ SYM *Declaration::ParseSuffix(SYM *sp)
 		switch (lastst) {
 
 		case openbr:
-			dfs.printf("[");
 			ParseSuffixOpenbr();
 			break;                // We want to loop back for more brackets
 
 		case openpa:
-			dfs.printf("(");
 			// The declaration doesn't have to have an identifier name; it could
 			// just be a type chain. so sp incoming might be null. We need a place
 			// to stuff the parameter / protoype list so we may as well create
@@ -1600,7 +1593,6 @@ SYM *Declaration::ParseSuffix(SYM *sp)
 			goto lxit;
 
 		case assign:
-			dfs.printf("=");
 			if (parsingParameterList) {
 				NextToken();
 				currentSym = sp;
@@ -1731,6 +1723,9 @@ void Declaration::DoDeclarationEnd(SYM *sp, SYM *sp1)
 				sp->initexp = ep1;
 			}
 		*/
+	}
+	if (sp->name->length() == 0) {
+		printf("hi");
 	}
 }
 
@@ -2170,9 +2165,10 @@ xit1:
 	if (decl_level == 1) {
 		if (sp && sp->tp->IsStructType()) {
 			TYP* tp;
-			tp = sp->tp->Copy(sp->tp);
-			sp->tp = tp;
-			FigureStructOffsets(0, sp);
+			//tp = sp->tp->Copy(sp->tp);
+			tp = sp->tp;
+			//sp->tp = tp;
+			//FigureStructOffsets(0, sp);
 		}
 	}
 	dfs.printf("</declare>\n");

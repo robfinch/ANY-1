@@ -332,15 +332,31 @@ SYM *SYM::Copy(SYM *src)
 	return (dst);
 }
 
+SYM* SYM::FindInUnion(std::string nme)
+{
+	return (tp->lst.Find(nme,false));
+}
+
 SYM *SYM::Find(std::string nme)
 {
 	SYM *sp;
+	SYM* head, * n;
 
 //	printf("Enter Find(char *)\r\n");
 	sp = tp->lst.Find(nme,false);
 	if (sp==nullptr) {
 		if (parent) {
 			sp = GetPtr(parent)->Find(nme);
+		}
+	}
+	if (sp == nullptr) {
+		for (n = SYM::GetPtr(tp->lst.head); n; n = n->GetNextPtr()) {
+			if (n->tp->IsUnion()) {
+				if (sp = n->FindInUnion(nme))
+					return (sp);
+			}
+			if (n == SYM::GetPtr(tp->lst.tail))
+				break;
 		}
 	}
 //	printf("Leave Find(char *):%p\r\n",sp);

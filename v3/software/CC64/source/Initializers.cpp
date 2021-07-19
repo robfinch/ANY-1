@@ -59,6 +59,7 @@ static bool IsFuncptrAssign(SYM* sp)
 			}
 		}
 	}
+	return (false);
 }
 
 void doinit(SYM *sp)
@@ -185,16 +186,47 @@ void doinit(SYM *sp)
 			}
 		}
 		else {
-			ENODE* n;
+			ENODE* n, *n2;
 			char buf[400];
 			char buf2[40];
+			int64_t val = 0;
 			if (sp->storage_class == sc_global)
 				strcpy(buf2, "endpublic\n");
 			else
 				strcpy(buf2, "");
-			sprintf(buf, "%s:\ndco %s_func\n", lbl, sp->name->c_str());
-			ofs.seekp(lblpoint);
-			ofs.write(buf);
+			if (sp->initexp) {
+				n2 = sp->initexp;
+				opt_const_unchecked(&n2);	// This should reduce to a single integer expression
+				n2 = n2->p[1];
+				if (n2->nodetype == en_add) {
+					if (n2->p[0]->nodetype == en_labcon && n2->p[1]->nodetype == en_icon) {
+						val = n2->i;
+					}
+					if (n2->p[0]->nodetype == en_icon && n2->p[1]->nodetype == en_labcon) {
+						val = n2->i;
+					}
+				}
+				if (n2->nodetype != en_icon && n2->nodetype != en_cnacon && n2->nodetype != en_labcon) {
+					// A type case is represented by a tempref node associated with a value.
+					// There may be an integer typecast to another value that can be used.
+					if (n2->nodetype == en_void || n2->nodetype == en_cast) {
+						if (n2->p[0]->nodetype == en_tempref) {
+							if (n2->p[1]->nodetype == en_icon) {
+								val = n2->i;
+							}
+						}
+					}
+				}
+				sprintf(buf, "%s:\ndco ", lbl);
+				ofs.seekp(lblpoint);
+				ofs.write(buf);
+				n2->PutConstant(ofs, 0, 0, false, 0);
+			}
+			else {
+				sprintf(buf, "%s:\ndco %s_func\n", lbl, sp->name->c_str());
+				ofs.seekp(lblpoint);
+				ofs.write(buf);
+			}
 			//			while (lastst != begin && lastst != semicolon && lastst != my_eof)
 			//				NextToken();
 

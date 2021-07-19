@@ -1479,7 +1479,7 @@ TYP *Expression::ParsePostfixExpression(ENODE **node, int got_pa, SYM* symi)
 			ep2 = ep1;
 			ep1 = ParsePointsTo(tp1, ep1);
 			tp1 = ep1->tp;
-			ep1 = ParseDotOperator(tp1, ep1, symi, ep2);
+			ep1 = ParseDotOperator(tp1->GetBtp(), ep1, symi, ep2);
 			//ep1->sym->parent = ep2->sym->GetIndex();
 			tp1 = ep1->tp;
 			ep1->constflag = true;

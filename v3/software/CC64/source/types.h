@@ -365,6 +365,7 @@ public:
 	void AddProto(SYM *list);
 	void AddProto(TypeArray *);
 	void AddDerived();
+	void DoFuncptrAssign(Function *);
 
 	void CheckForUndefinedLabels();
 	void Summary(Statement *);
@@ -476,6 +477,7 @@ public:
 	SYM *Find(std::string name);
 	int FindNextExactMatch(int startpos, TypeArray *);
 	SYM *FindRisingMatch(bool ignore = false);
+	SYM* FindInUnion(std::string nme);
 	std::string *GetNameHash();
 	std::string *BuildSignature(int opt);
 	static SYM *GetPtr(int n);
@@ -549,11 +551,11 @@ public:
 		if (this == nullptr)
 			return (false);
 		return (type == bt_posit); };
-	bool IsVectorType() const { return (type==bt_vector); };
-	bool IsUnion() const { return (type==bt_union); };
-	bool IsStructType() const { return (type==bt_struct || type==bt_class || type==bt_union); };
+	bool IsVectorType() const { if (this == nullptr) return (false);  return (type == bt_vector); };
+	bool IsUnion() const { if (this == nullptr) return (false); return (type == bt_union); };
+	bool IsStructType() const { if (this == nullptr) return false; return (type == bt_struct || type == bt_class || type == bt_union); };
 	bool IsArrayType() const { return (type == bt_array); };
-	bool IsAggregateType() const { return (IsStructType() | isArray | IsArrayType()); };
+	bool IsAggregateType() const { if (this == nullptr) return (false);  return (IsStructType() | isArray | IsArrayType()); };
 	static bool IsSameType(TYP *a, TYP *b, bool exact);
 	static bool IsSameStructType(TYP* a, TYP* b);
 	static bool IsSameUnionType(TYP* a, TYP* b);
@@ -1732,6 +1734,7 @@ class Declaration
 private:
 	void SetType(SYM* sp);
 	int decl_level; 
+	SYM* CreateNonameVar();
 public:
 	TYP* head;
 	TYP* tail;
@@ -1800,9 +1803,12 @@ public:
 class StructDeclaration : public Declaration
 {
 private:
+	SYM* isym;
+private:
 	int ParseTag(TABLE* table, e_bt ztype);
 	SYM* CreateSymbol(char* nmbuf, TABLE* table, e_bt ztype, int* fwd);
 public:
+	StructDeclaration() { Declaration(); };
 	void GetType(TYP** hd, TYP** tl) {
 		*hd = head; *tl = tail;
 	};

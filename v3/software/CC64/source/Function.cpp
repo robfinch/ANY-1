@@ -48,6 +48,7 @@ Statement *Function::ParseBody()
 	dfs.printf("<Parse function body>:%s|\n", (char *)sym->name->c_str());
 
 	lbl = std::string("");
+	lastst;
 	needpunc(begin, 47);
 
 	tmpReset();
@@ -155,6 +156,42 @@ void Function::Init()
 	isNocall = FALSE;
 }
 
+void Function::DoFuncptrAssign(Function *sp)
+{
+	ENODE* node, * ep1, * ep2;
+	TYP* tp1, * tp2;
+	Expression exp;
+	e_node op;
+	SYM* asym;
+
+	NextToken();
+	ep1 = nullptr;
+	tp1 = TYP::Make(bt_pointer, sizeOfPtr);
+	tp1->btp = TYP::Make(bt_func, sizeOfWord)->GetIndex();
+	asym = nullptr;
+	exp.nameref2(sp->sym->name->c_str(), &ep1, en_ref, FALSE, nullptr, nullptr, sp->sym);
+	exp.CondDeref(&ep1, sp->sym->tp);
+
+	op = en_assign;
+	ep2 = nullptr;
+	tp2 = exp.ParseAssignOps(&ep2, asym);
+	if (tp2 == nullptr || !IsLValue(ep1))
+		error(ERR_LVALUE);
+	else {
+		tp1 = forcefit(&ep2, tp2, &ep1, tp1, false, true);
+		ep1 = makenode(op, ep1, ep2);
+		ep1->tp = tp1;
+	}
+	// Move vars with initialization data over to the data segment.
+	if (ep1->segment == bssseg)
+		ep1->segment = dataseg;
+	if (sp->sym->initexp)
+		sp->sym->initexp->p[0] = ep1;
+	else
+		sp->sym->initexp = ep1;
+	doinit(sp->sym);
+}
+
 /*
 *      funcbody starts with the current symbol being either
 *      the first parameter id or the begin for the local
@@ -260,21 +297,14 @@ int Function::Parse()
 	dfs.printf("D");
 	if (sp && sp->sym->tp->type == bt_pointer) {
 		if (lastst == assign) {
-			ENODE* node;
-			Expression exp;
-
-			exp.nameref2(sp->sym->name->c_str(), &node, en_ref, FALSE, nullptr, nullptr, sp->sym);
-			exp.CondDeref(&node, sp->sym->tp);
-			if (sp->sym->initexp)
-				sp->sym->initexp->p[0] = node;
-			else
-				sp->sym->initexp = node;
-			doinit(sp->sym);
+			DoFuncptrAssign(sp);
 		}
 		else if (lastst == begin) {
-			ENODE* node;
+			ENODE* node, *node2;
 
-			node = makesnode(en_cnacon, new std::string(*UnknownFuncName()), nullptr, stringlit((char *)UnknownFuncName()->c_str()));
+			node = makesnode(en_cnacon, new std::string(*UnknownFuncName()), new std::string(*UnknownFuncName()), stringlit((char *)UnknownFuncName()->c_str()));
+			node2 = makesnode(en_cnacon, new std::string(*UnknownFuncName()), new std::string(*UnknownFuncName()), stringlit((char*)UnknownFuncName()->c_str()));
+			node = makenode(en_assign, node, node2);
 			sp->sym->initexp = node;
 			doinit(sp->sym);
 			goto j2;
@@ -313,6 +343,8 @@ j2:
 		else if (funcdecl == 2 && lastst == closepa) {
 			;
 		}
+		else if (lastst == assign)
+			DoFuncptrAssign(sp);
 		else {
 			sp->numa = numa;
 			sp->NumParms = nump;
@@ -1188,7 +1220,10 @@ std::string *Function::BuildSignature(int opt)
 	}
 	else {
 		str = new std::string("");
-		str->append(*sym->name);
+		if (this != nullptr)
+			if (sym != nullptr)
+				if (sym->name != nullptr)
+					str->append(*sym->name);
 	}
 	dfs.printf(":%s</BuildSignature>", (char *)str->c_str());
 	return str;
