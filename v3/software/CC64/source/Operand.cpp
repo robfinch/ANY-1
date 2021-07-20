@@ -75,13 +75,13 @@ bool Operand::IsSameType(Operand *ap1, Operand *ap2)
 
 char Operand::fpsize()
 {
-	if (type == stddouble.GetIndex())
+	if (typep == &stddouble)
 		return ' ';
-	if (type == stdquad.GetIndex())
+	if (typep == &stdquad)
 		return 'q';
-	if (type == stdflt.GetIndex())
+	if (typep == &stdflt)
 		return 's';
-	if (type == stdtriple.GetIndex())
+	if (typep == &stdtriple)
 		return 't';
 
 	if (FloatSize)
@@ -137,7 +137,7 @@ Operand *Operand::GenerateSignExtend(int isize, int osize, int flags)
 		return (ap1);
 		//MakeLegalOperand(ap,flags & (am_reg|am_fpreg),isize);
 	}
-	if (ap->type == stddouble.GetIndex()) {
+	if (ap->typep == &stddouble) {
 		switch (isize) {
 		case 4:	GenerateDiadic(op_fs2d, 0, ap, ap); break;
 		}
@@ -263,14 +263,14 @@ void Operand::MakeLegal(int flags, int size)
 		if (this)
 			ap2 = GetTempRegister();// GetTempReg(ap->type);
 		else
-			ap2 = GetTempReg(stdint.GetIndex());
+			ap2 = GetTempRegister();// (stdint.GetIndex());
 		switch (mode) {
 		case am_ind:
 		case am_indx:
 			ap2->isUnsigned = this->isUnsigned;
 			if (this->tp) {
-				if (this->tp->GetBtp())
-					ap2->isUnsigned = this->tp->GetBtp()->isUnsigned;
+				if (this->tp->btpp)
+					ap2->isUnsigned = this->tp->btpp->isUnsigned;
 			}
 			cg.GenerateLoad(ap2, this, size, size);
 			break;
@@ -296,11 +296,11 @@ void Operand::MakeLegal(int flags, int size)
 		}
 		mode = am_reg;
 		switch (size) {
-		case 1: type = stdbyte.GetIndex(); break;
-		case 2: type = stdchar.GetIndex(); break;
-		case 4:	type = stdshort.GetIndex(); break;
+		case 1: typep = &stdbyte; break;
+		case 2: typep = &stdchar; break;
+		case 4:	typep = &stdshort; break;
 		default:
-			type = stdint.GetIndex();
+			typep = &stdint;
 		}
 		preg = ap2->preg;
 		deep = ap2->deep;
@@ -337,11 +337,11 @@ void Operand::MakeLegal(int flags, int size)
 		}
 		mode = am_reg;
 		switch (ap2->fpsize()) {
-		case 'd':	type = stddouble.GetIndex(); break;
-		case 's': type = stddouble.GetIndex(); break;
-		case 't': type = stdtriple.GetIndex(); break;
-		case 'q':	type = stdquad.GetIndex(); break;
-		default:	type = stddouble.GetIndex(); break;
+		case 'd':	typep = &stddouble; break;
+		case 's': typep = &stddouble; break;
+		case 't': typep = &stdtriple; break;
+		case 'q':	typep = &stdquad; break;
+		default:	typep = &stddouble; break;
 		}
 		preg = ap2->preg;
 		deep = ap2->deep;
@@ -355,7 +355,7 @@ void Operand::MakeLegal(int flags, int size)
 			return;
 		ReleaseTempReg(this);      /* maybe we can use it... */
 		ap2 = GetTempPositRegister();
-		ap2->type = stdposit.GetIndex();
+		ap2->typep = &stdposit;
 		ap2->tp = &stdposit;	// load needs this
 		switch (mode) {
 		case am_ind:
@@ -380,10 +380,10 @@ void Operand::MakeLegal(int flags, int size)
 		}
 		mode = am_preg;
 		switch (ap2->fpsize()) {
-		case 'd':	type = stdposit.GetIndex(); break;
-		case 's': type = stdposit32.GetIndex(); break;
-		case 'h': type = stdposit16.GetIndex(); break;
-		default:	type = stdposit.GetIndex(); break;
+		case 'd':	typep = &stdposit; break;
+		case 's': typep = &stdposit32; break;
+		case 'h': typep = &stdposit16; break;
+		default:	typep = &stdposit; break;
 		}
 		preg = ap2->preg;
 		deep = ap2->deep;
@@ -598,11 +598,11 @@ void Operand::store(txtoStream& ofs)
 		ofs.printf("+%d", (int)preg);
 		break;
 	case am_reg:
-		if (type == stdvector.GetIndex())
+		if (typep == &stdvector)
 			ofs.printf("v%d", (int)preg);
-		else if (type == stdvectormask->GetIndex())
+		else if (typep == stdvectormask)
 			ofs.printf("vm%d", (int)preg);
-		else if (type == stddouble.GetIndex())
+		else if (typep == &stddouble)
 			ofs.printf("$fp%d", (int)preg);
 		else {
 			ofs.write(RegMoniker(preg));

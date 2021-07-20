@@ -641,13 +641,13 @@ Statement *Statement::ParseCompound()
 	return (snp);
 }
 
-Statement *Statement::ParseLabel()
+Statement *Statement::ParseLabel(bool pt)
 {
 	Statement *snp;
 	SYM *sp;
 
 	snp = MakeStatement(st_label, FALSE);
-	if ((sp = currentFn->sym->lsyms.Find(lastid, false)) == NULL) {
+	if ((sp = currentFn->sym->lsyms.Find(lastid, false, bt_label)) == NULL) {
 		sp = allocSYM();
 		sp->SetName(*(new std::string(lastid)));
 		sp->storage_class = sc_label;
@@ -662,7 +662,9 @@ Statement *Statement::ParseLabel()
 			sp->storage_class = sc_label;
 	}
 	NextToken();       /* get past id */
-	needpunc(colon, 45);
+	if (pt) {
+		needpunc(colon, 45);
+	}
 	if (sp->storage_class == sc_label) {
 		snp->label = (int64_t *)sp->value.i;
 		snp->next = (Statement *)NULL;
@@ -683,12 +685,12 @@ Statement *Statement::ParseGoto()
 		return ((Statement *)NULL);
 	}
 	snp = MakeStatement(st_goto, FALSE);
-	if ((sp = currentFn->sym->lsyms.Find(lastid, false)) == NULL) {
+	if ((sp = currentFn->sym->lsyms.Find(lastid, false, bt_label)) == NULL) {
 		sp = allocSYM();
 		sp->SetName(*(new std::string(lastid)));
 		sp->value.i = nextlabel++;
 		sp->storage_class = sc_ulabel;
-		sp->tp = 0;
+		sp->tp = TYP::Make(bt_label, sizeOfWord);
 		currentFn->sym->lsyms.insert(sp);
 	}
 	NextToken();       /* get past label name */
@@ -755,10 +757,13 @@ j1:
 	case kw_throw: snp = ParseThrow(); break;
 	case kw_stop: snp = ParseStop(); break;
 	case kw_asm: snp = ParseAsm(); break;
+	case colon:	snp = ParseLabel(false); goto j1;
 	case id:
 		SkipSpaces();
-		if (lastch == ':')
-			return ParseLabel();
+		if (lastch == ':') {
+			snp = ParseLabel(true);
+			goto j1;
+		}
 		// else fall through to parse expression
 	default:
 		snp = ParseExpression();

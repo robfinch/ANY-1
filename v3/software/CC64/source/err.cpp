@@ -99,7 +99,8 @@ static char *errtextstr[] = {
 	"E Compiler: i-graph nodes in wrong order.",
 	"E Cast aggregate should be a constant",
 	"E Unsupported precision.",
-	"E Too many designators."
+	"E Too many designators.",
+	"E The dot operator must reference a struct / union or class."
 };
 
 static char *errtext1000[] =

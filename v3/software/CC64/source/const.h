@@ -116,7 +116,7 @@ enum e_sym {
 	kw_unique, kw_virtual, kw_this,
 	kw_new, kw_delete, kw_using, kw_namespace, kw_not, kw_attribute,
 	kw_no_temps, kw_no_parms, kw_floatmax, kw_mulf, kw_bytendx, kw_is_nullptr,
-	kw_compound, kw_expr, kw_label,
+	kw_compound, kw_expr, kw_label, kw_restrict,
 	kw_nullptr,
 	my_eof
 };
@@ -407,6 +407,7 @@ enum e_hint {
 #define ERR_CASTAGGR		66
 #define ERR_PRECISION		67
 #define ERR_TOOMANY_DESIGNATORS	68
+#define ERR_NOT_STRUCT	69
 #define ERR_NULLPOINTER		1000
 #define ERR_CIRCULAR_LIST 1001
 #define ERR_MISSING_HIDDEN_STRUCTPTR	1002

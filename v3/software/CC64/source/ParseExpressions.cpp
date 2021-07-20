@@ -36,7 +36,7 @@ extern SYM *gsearch2(std::string , __int16, TypeArray *,bool);
 extern SYM *search2(std::string na,TABLE *tbl,TypeArray *typearray);
 extern int round10(int n);
 ENODE* Autoincdec(TYP* tp, ENODE** node, int flag, bool isPostfix);
-
+extern SYM* FindEnum(char *);
 bool ExpressionHasReference = false;
 
 ENODE *pep1;
@@ -289,7 +289,7 @@ bool IsClassExpr()
 				return true;
 			}
 			else if (pep1->tp->type==bt_pointer) {
-			  tp = pep1->tp->GetBtp();
+			  tp = pep1->tp->btpp;
 			  if (tp==nullptr)
 			     throw new C64PException(ERR_NULLPOINTER,4);
 				if (tp->type==bt_class) {
@@ -667,7 +667,7 @@ TYP *Expression::CondDeref(ENODE **node, TYP *tp)
 		sz = tp->size;
 		dimen = tp->dimen;
 		numele = tp->numele;
-		tp1 = tp->GetBtp();
+		tp1 = tp->btpp;// ->btpp;
 		if (tp1==NULL)
 			printf("DIAG: CondDeref: tp1 is NULL\r\n");
 		tp =(TYP *) TYP::Make(bt_pointer, sizeOfPtr);
@@ -675,6 +675,7 @@ TYP *Expression::CondDeref(ENODE **node, TYP *tp)
 		tp->dimen = dimen;
 		tp->numele = numele;
 		tp->btp = tp1->GetIndex();
+		tp->btpp = tp1;
 		tp->isUnsigned = TRUE;
 	}
 	else if (tp->type==bt_pointer)
@@ -704,10 +705,11 @@ TYP *CondDeref(ENODE **node, TYP *tp)
  */
 TYP *Expression::nameref2(std::string name, ENODE **node,int nt,bool alloc,TypeArray *typearray, TABLE *tbl, SYM* symi)
 {
-	SYM *sp = nullptr;
+	SYM *sp = nullptr, *spf = nullptr;
 	Function *fn;
 	TYP *tp;
 	std::string stnm;
+	int nn, jj;
 
 	*node = nullptr;
 	dfs.puts("<nameref2>\n");
@@ -738,6 +740,15 @@ TYP *Expression::nameref2(std::string name, ENODE **node,int nt,bool alloc,TypeA
 		else if (TABLE::matchno > 1) {
 			bool isSame = true;
 			ta = tb = nullptr;
+			for (jj = nn = 0; nn < TABLE::matchno; nn++) {
+				sp = TABLE::match[nn];
+				if (sp->storage_class == sc_label || sp->storage_class == sc_ulabel)
+					continue;
+				else if (sp->storage_class == sc_type || sp->storage_class == sc_typedef)
+					continue;
+				TABLE::match[jj++] = TABLE::match[nn];
+			}
+			TABLE::matchno = jj;
 			for (n = 0; n < TABLE::matchno; n++) {
 				sp = TABLE::match[n];
 				ta = sp->fi->GetProtoTypes();
@@ -830,19 +841,37 @@ TYP *Expression::nameref(ENODE **node,int nt, SYM* symi)
 {
 	TYP *tp;
 	std::string str;
+	SYM* sp;
+	int nn;
 
 	dfs.puts("<Nameref>");
 	dfs.printf("GSearchfor:%s|",lastid);
+	if (strcmp(lastid, "_p") == 0)
+		printf("hi");
 	// Search locally first
-	gsearch2(lastid, (__int16)bt_long, nullptr, false);
+	sp = gsearch2(lastid, (__int16)bt_long, nullptr, false);
 	if (TABLE::matchno == 0) {
 		str = GetNamespace();
 		str += lastid;
-		gsearch2(str.c_str(), (__int16)bt_long, nullptr, false);
+		sp = gsearch2(str.c_str(), (__int16)bt_long, nullptr, false);
 		tp = nameref2(str.c_str(), node, nt, true, nullptr, nullptr, symi);
 	}
-	else
+	else {
+		if (TABLE::matchno > 1) {
+			for (nn = 0; nn < TABLE::matchno; nn++) {
+				sp = TABLE::match[nn];
+				if (sp->tp) {
+					if (sp->tp->type == bt_label)	// Ignore labels in expressions
+						continue;
+					else if (sp->storage_class == sc_type || sp->storage_class == sc_typedef)
+						continue;
+					else
+						break;
+				}
+			}
+		}
 		tp = nameref2(lastid, node, nt, true, nullptr, nullptr, symi);
+	}
 
 	dfs.puts("</Nameref>\n");
 	return (tp);
@@ -965,6 +994,7 @@ SYM *makeStructPtr(std::string name)
 	tp = TYP::Make(bt_pointer,sizeOfPtr);
 	tp2 = TYP::Make(bt_struct,sizeOfPtr);
 	tp->btp = tp2->GetIndex();
+	tp->btpp = tp2;
 	tp->sname = new std::string("");
 	tp->isUnsigned = TRUE;
 	sp->SetName(name);
@@ -993,10 +1023,11 @@ SYM *CreateDummyParameters(ENODE *ep, SYM *parent, TYP *tp)
 
 	// Process hidden parameter
 	if (tp) {
-		if (tp->GetBtp()) {
-			if (tp->GetBtp()->type==bt_struct || tp->GetBtp()->type==bt_union || tp->GetBtp()->type==bt_class ) {
+		if (tp->btpp) {
+			if (tp->btpp->type==bt_struct || tp->btpp->type==bt_union || tp->btpp->type==bt_class ) {
 				sp1 = makeint2(std::string(my_strdup("_pHiddenStructPtr")));
 				sp1->parent = parent->GetIndex();
+				sp1->parentp = parent;
 				sp1->value.i = poffset;
 				poffset += sizeOfWord;
 				sp1->storage_class = sc_auto;
@@ -1014,6 +1045,7 @@ SYM *CreateDummyParameters(ENODE *ep, SYM *parent, TYP *tp)
 		else
 			sp1->SetType(p->p[0]->tp);
 		sp1->parent = parent->GetIndex();
+		sp1->parentp = parent;
 		sp1->value.i = poffset;
 		// Check for aggregate types passed as parameters. Structs
 		// and unions use the type size. There could also be arrays
@@ -1030,6 +1062,7 @@ SYM *CreateDummyParameters(ENODE *ep, SYM *parent, TYP *tp)
 		}
 		else {
 			sp1->SetNext(list->GetIndex());
+			sp1->nextp = list;
 			list = sp1;
 		}
 		nn++;
@@ -1081,6 +1114,7 @@ TYP *Expression::ParsePrimaryExpression(ENODE **node, int got_pa, SYM* symi)
     Leave("ParsePrimary", 0);
     return (tptr);
   }
+j1:
   switch( lastst ) {
 
 	case ellipsis:
@@ -1174,6 +1208,13 @@ TYP *Expression::ParsePrimaryExpression(ENODE **node, int got_pa, SYM* symi)
 	case begin:
 		pnode = ParseAggregate(node, symi);
 		break;
+
+	case kw_restrict:
+	case kw_static:
+	case kw_volatile:
+	case kw_const:
+		NextToken();
+		goto j1;
 
   default:
     Leave("ParsePrimary", 0);
@@ -1307,7 +1348,7 @@ ENODE *Autoincdec(TYP *tp, ENODE **node, int flag, bool isPostfix)
 		ep1 = *node;
 	if( IsLValue(ep1) ) {
 		if (tp->type == bt_pointer) {
-			typ = tp->GetBtp();
+			typ = tp->btpp;// tp->btpp;
 			ep2 = makeinode(en_icon,typ->size);
 			ep2->esize = typ->size;
 		}
@@ -1393,7 +1434,7 @@ ENODE* Expression::AdjustForBitArray(int pop, TYP*tp1, ENODE* ep1)
 	mep = nullptr;
 	if (pop == openbr) {
 		if (tp1->type == bt_pointer) {
-			if (tp1->GetBtp()->type == bt_bit) {
+			if (tp1->btpp->type == bt_bit) {
 				FindLastMulu(ep1, nullptr);
 				mep = last_mulu;
 				if (mep) {
@@ -1454,6 +1495,7 @@ TYP *Expression::ParsePostfixExpression(ENODE **node, int got_pa, SYM* symi)
 	// Note that tp1, ep1 is passed to items in this list as they build on
 	// previous values.
 	while (1) {
+
 		pop = lastst;
 		switch(lastst) {
 
@@ -1476,12 +1518,12 @@ TYP *Expression::ParsePostfixExpression(ENODE **node, int got_pa, SYM* symi)
 			cnt = 0;
 			wasBr = false;
 			ep1 = AdjustForBitArray(pop, tp1, ep1);
-			ep2 = ep1;
 			ep1 = ParsePointsTo(tp1, ep1);
+			ep2 = ep1;
 			tp1 = ep1->tp;
-			ep1 = ParseDotOperator(tp1->GetBtp(), ep1, symi, ep2);
+			ep1 = ParseDotOperator(tp1, ep1, symi, ep2);
+			tp1 = ep1->tp;
 			//ep1->sym->parent = ep2->sym->GetIndex();
-			tp1 = ep1->tp;
 			ep1->constflag = true;
 			break;
 
@@ -1727,6 +1769,8 @@ TYP *Expression::ParseCastExpression(ENODE **node, SYM* symi)
 	case openpa:
 		NextToken();
 		if (IsBeginningOfTypecast(lastst)) {
+			decl.itable = nullptr;
+			decl.istorage_class = sc_member;
 			decl.ParseSpecifier(0, &sp, sc_none); // do cast declaration
 			decl.ParsePrefix(FALSE, nullptr);
 			tp = decl.head;
@@ -1976,12 +2020,12 @@ TYP *Expression::ParseAddOps(ENODE **node, SYM* symi)
   if( tp1 == (TYP *)NULL )
       goto xit;
 	if (tp1->type == bt_pointer) {
-    if (tp1->GetBtp()==NULL) {
+    if (tp1->btpp==NULL) {
       printf("DIAG: pointer to NULL type.\r\n");
       goto xit;    
     }
     else
-			sz1 = tp1->GetBtp()->size;
+			sz1 = tp1->btpp->size;
   }
   while( lastst == plus || lastst == minus ) {
     oper = (lastst == plus);
@@ -1996,7 +2040,7 @@ TYP *Expression::ParseAddOps(ENODE **node, SYM* symi)
       goto xit;
     }
 		if (tp2->type == bt_pointer)
-			sz2 = tp2->GetBtp()->size;
+			sz2 = tp2->btpp->size;
 		// Difference of two pointers to the same type of object...
 		// Divide the result by the size of the pointed to object.
 		if (!oper && (tp1->type == bt_pointer) && (tp2->type == bt_pointer) && (sz1==sz2))
@@ -2019,7 +2063,7 @@ TYP *Expression::ParseAddOps(ENODE **node, SYM* symi)
 			if( tp1->type == bt_pointer ) {
 				onePtr = true;
 				tp2 = forcefit(&ep2,tp2,0,&stdint,true,false);
-				ep3 = makeinode(en_icon, tp1->GetBtp()->size);
+				ep3 = makeinode(en_icon, tp1->btpp->size);
 				ep3->constflag = TRUE;
 				ep3->esize = sizeOfWord;
     		//ep3->esize = tp2->size;
@@ -2037,7 +2081,7 @@ TYP *Expression::ParseAddOps(ENODE **node, SYM* symi)
       else if( tp2->type == bt_pointer ) {
 				onePtr = true;
         tp1 = forcefit(&ep1,tp1,0,&stdint,true,false);
-				ep3 = makeinode(en_icon, sizeOfWord);// tp2->GetBtp()->size);
+				ep3 = makeinode(en_icon, sizeOfWord);// tp2->btpp->size);
         ep3->constflag = TRUE;
 		    ep3->esize = tp2->size;
         ep1 = makenode(en_mulu,ep3,ep1);
@@ -2301,6 +2345,7 @@ TYP *Expression::ParseEqualOps(ENODE **node, SYM* symi)
 				if (isVector)
 					tp1 = TYP::Make(bt_vector_mask, sizeOfWord);
 				ep1->etype = stdint.GetIndex(); //tp1->type;
+				ep1->etypep = &stdint;
 				PromoteConstFlag(ep1);
 			}
 		}
@@ -2720,7 +2765,7 @@ ascomm3:
 				NextToken();
 				tp2 = ParseAssignOps(&ep2, symi);
 				if(tp1->type == bt_pointer) {
-					ep3 = makeinode(en_icon, tp1->GetBtp()->size);
+					ep3 = makeinode(en_icon, tp1->btpp->size);
 					ep3->esize = sizeOfPtr;
 					ep2 = makenode(en_mul, ep2, ep3);
 					ep2->esize = sizeOfPtr;

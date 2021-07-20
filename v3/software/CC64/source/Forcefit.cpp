@@ -225,7 +225,7 @@ TYP *forcefit(ENODE **srcnode, TYP *srctp, ENODE **dstnode, TYP *dsttp, bool pro
 			case bt_long:		return (dsttp);
 			case bt_ulong:	return (dsttp);
 			case bt_pointer:
-				typ = dsttp->GetBtp()->type;
+				typ = dsttp->btpp->type;
 				/**dstnode = *srcnode;*/
 				return (dsttp);
 			case bt_ubitfield:
@@ -519,7 +519,7 @@ j1:
 		case bt_ulong:
 			return (srctp);
 		case bt_pointer:
-			typ = dsttp->GetBtp()->type;
+			typ = dsttp->btpp->type;
 			return (srctp);
 			// pointer to function was really desired.
 		case bt_func:
@@ -681,7 +681,7 @@ j1:
 		//		dstthead = SYM::GetPtr(dstthead->next);
 		//	}
 		//	for (tp = srctp->lst.)
-		//	if (srctp->GetBtp()->IsScalar()) {
+		//	if (srctp->btpp->IsScalar()) {
 
 		//	}
 		//}

@@ -203,12 +203,16 @@ public:
 	int head, tail;
 	int base;
 	int owner;
+	SYM* headp, * tailp;
+	SYM* basep;
+	SYM* ownerp;
 	static SYM *match[100];
 	static int matchno;
 	TABLE();
 	static void CopySymbolTable(TABLE *dst, TABLE *src);
 	void insert(SYM* sp);
 	SYM *Find(std::string na,bool opt);
+	SYM* Find(std::string na, bool opt, e_bt bt);
 	int Find(std::string na);
 	int Find(std::string na,__int16,TypeArray *typearray, bool exact);
 	int FindRising(std::string na);
@@ -218,10 +222,12 @@ public:
 	int GetHead() { return head; };
 	void SetHead(int p) { head = p; };
 	void SetTail(int p) { tail = p; };
-	void Clear() { head = tail = base = 0; };
+	void Clear() { head = tail = base = 0; headp = nullptr; tailp = nullptr; };
 	void CopyTo(TABLE *dst) {
 		dst->head = head;
 		dst->tail = tail;
+		dst->headp = headp;
+		dst->tailp = tailp;
 	};
 	void AddTo(TABLE* dst);
 	void MoveTo(TABLE *dst) {
@@ -426,7 +432,9 @@ public:
 	int number;
 	int id;
 	int parent;
+	SYM* parentp;
 	int next;
+	SYM* nextp;
 	std::string *name;
 	std::string *name2;
 	std::string *name3;
@@ -530,6 +538,7 @@ public:
 	int numele;					// number of elements in array / vector length
 	TABLE lst;
 	int btp;
+	TYP* btpp;
 
 	TYP *GetBtp();
 	static TYP *GetPtr(int n);
@@ -616,6 +625,7 @@ public:
 	enum e_node nodetype;
 	enum e_node new_nodetype;			// nodetype replaced by optimization
 	int etype;
+	TYP* etypep;
 	int64_t esize;
 	TYP* tp;
 	SYM* sym;
@@ -899,6 +909,7 @@ public:
 	unsigned int argref : 1;	// refers to a function argument
 	unsigned int preserveNextReg : 1;
 	unsigned int type : 16;
+	TYP* typep;
 	TYP* tp;
 	char FloatSize;
 	unsigned int isUnsigned : 1;
@@ -1104,7 +1115,7 @@ public:
 	void GenerateStructAssign(TYP *tp, int64_t offset, ENODE *ep, Operand *base);
 	void GenerateArrayAssign(TYP *tp, ENODE *node1, ENODE *node2, Operand *base);
 	Operand *GenerateAggregateAssign(ENODE *node1, ENODE *node2);
-	Operand *GenAutocon(ENODE *node, int flags, int64_t size, int type);
+	Operand *GenAutocon(ENODE *node, int flags, int64_t size, TYP* type);
 	Operand* GenFloatcon(ENODE* node, int flags, int64_t size);
 	Operand* GenPositcon(ENODE* node, int flags, int64_t size);
 	Operand* GenLabelcon(ENODE* node, int flags, int64_t size);
@@ -1629,7 +1640,7 @@ public:
 	Statement *ParseAsm();
 	Statement *ParseTry();
 	Statement *ParseExpression();
-	Statement *ParseLabel();
+	Statement *ParseLabel(bool pt=true);
 	Statement *ParseWhile();
 	Statement *ParseUntil();
 	Statement *ParseGoto();
@@ -1735,7 +1746,9 @@ private:
 	void SetType(SYM* sp);
 	int decl_level; 
 	SYM* CreateNonameVar();
+	bool isTypedefs[100];
 public:
+	bool isTypedef;
 	TYP* head;
 	TYP* tail;
 	int16_t bit_offset;
@@ -1805,7 +1818,7 @@ class StructDeclaration : public Declaration
 private:
 	SYM* isym;
 private:
-	int ParseTag(TABLE* table, e_bt ztype);
+	int ParseTag(TABLE* table, e_bt ztype, SYM** sym);
 	SYM* CreateSymbol(char* nmbuf, TABLE* table, e_bt ztype, int* fwd);
 public:
 	StructDeclaration() { Declaration(); };

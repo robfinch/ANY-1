@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2012-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2012-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -186,11 +186,13 @@ int IdentifyKeyword()
 		if (p[1]=='o' && p[2]=='l' && p[3]=='a' && p[4]=='t' && p[5]=='i' && p[6]=='l' && p[7]=='e' && p[8]=='\0')
 			return lastst = kw_volatile;
 	}
-	if (p[0]=='r' && p[1]=='e') {	// return,register
+	if (p[0]=='r' && p[1]=='e') {	// return,register,restrict
 		if (p[2]=='t' && p[3]=='u' && p[4]=='r' && p[5]=='n' && p[6]=='\0')
 			return lastst = kw_return;
 		if (p[2]=='g' && p[3]=='i' && p[4]=='s' && p[5]=='t' && p[6]=='e' && p[7]=='r' && p[8]=='\0')
 			return lastst = kw_register;
+		if (p[2] == 's' && p[3] == 't' && p[4] == 'r' && p[5] == 'i' && p[6] == 'c' && p[7] == 't' && p[8] == '\0')
+			return lastst = kw_restrict;
 	}
 	if (p[0]=='l' && p[1]=='o' && p[2]=='o' && p[3]=='p' && p[4]=='\0')
 		return lastst = kw_loop;

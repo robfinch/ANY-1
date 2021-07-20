@@ -51,6 +51,38 @@ static char numstr[100];
 static char *numstrptr;
 static char backup_token = 0;
 
+int window_pos = -1;
+char ch_window[20];
+int token_window[20];
+Float128 rval128_window[20];
+double rval_window[20];
+int64_t ival_window[20];
+std::string id_window[20];
+
+void reset_window()
+{
+}
+
+void slide_window()
+{
+  int nn;
+
+  for (nn = 1; nn < 20; nn++) {
+    ch_window[nn] = ch_window[nn - 1];
+    token_window[nn] = token_window[nn - 1];
+    rval128_window[nn] = rval128_window[nn - 1];
+    rval_window[nn] = rval_window[nn - 1];
+    ival_window[nn] = ival_window[nn - 1];
+    id_window[nn] = id_window[nn - 1];
+    ch_window[0] = lastch;
+    token_window[0] = lastst;
+    rval128_window[0] = rval128;
+    rval_window[0] = rval;
+    ival_window[0] = ival;
+    id_window[0] = std::string(lastid);
+  }
+}
+
 void push_ellipsis()
 {
   if (token_sp < 5) {
@@ -578,7 +610,19 @@ void NextToken()
   SYM *sp;
   int tch;
 restart:        /* we come back here after comments */
-	if (token_sp > 0) {
+  if (window_pos >= 0) {
+    lastch = ch_window[window_pos];
+    strncpy(lastid, id_window[window_pos].c_str(), sizeof(lastid));
+    rval128 = rval128_window[window_pos];
+    rval = rval_window[window_pos];
+    ival = ival_window[window_pos];
+    lastst = token_window[window_pos];
+    window_pos--;
+    return;
+  }
+  else
+    slide_window();
+  if (token_sp > 0) {
 		pop_token();
 		return;
 	}

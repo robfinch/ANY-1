@@ -39,7 +39,6 @@ int funcdecl = 0;		//0,1, or 2
 int nfc = 0;
 int isFirstCall = 0;
 int catchdecl = FALSE;
-int isTypedef = FALSE;
 bool isUnion = false;
 int isUnsigned = FALSE;
 int isSigned = FALSE;
@@ -131,6 +130,7 @@ void Declaration::SetType(SYM *sp)
 	else {
 		sp->tp = TYP::Make(bt_long,sizeOfWord);
 		sp->tp->lst.head = sp->GetIndex();
+		sp->tp->lst.headp = sp;
 	}
 }
 
@@ -143,7 +143,8 @@ void Declaration::ParseConst()
 
 void Declaration::ParseTypedef()
 {
-	isTypedef = TRUE;
+	if (decl_level==1)
+		isTypedef = true;
 	NextToken();
 }
 
@@ -340,10 +341,10 @@ void Declaration::ParseInt()
 	head->size = head->precision >> 3;
 	bit_max = head->precision;
 	if (lastst==kw_vector) {
-		int btp = head->GetIndex();
+		TYP* btp = head;// ->GetIndex();
 		head = TYP::Make(bt_vector,512);
 		head->numele = maxVL;
-		head->btp = btp;
+		head->btpp = btp;
 		tail = head;
 		NextToken();
 	}
@@ -402,10 +403,11 @@ void Declaration::ParseFloat()
 			error(ERR_INT_CONST);
 	}
 	if (lastst==kw_vector) {
-		int btp = head->GetIndex();
+		//int btp = head->GetIndex();
+		TYP* btp = head;
 		head = TYP::Make(bt_vector,512);
 		head->numele = maxVL;
-		head->btp = btp;
+		head->btpp = btp;
 		tail = head;
 		NextToken();
 	}
@@ -420,10 +422,11 @@ void Declaration::ParseDouble()
 	head->isIO = isIO;
 	NextToken();
 	if (lastst==kw_vector) {
-		int btp = head->GetIndex();
+		//int btp = head->GetIndex();
+		TYP* btp = head;
 		head = TYP::Make(bt_vector,512);
 		head->numele = maxVL;
-		head->btp = btp;
+		head->btpp = btp;
 		tail = head;
 		NextToken();
 	}
@@ -454,10 +457,11 @@ void Declaration::ParsePosit()
 			error(ERR_INT_CONST);
 	}
 	if (lastst == kw_vector) {
-		int btp = head->GetIndex();
+		//int btp = head->GetIndex();
+		TYP* btp = head;
 		head = TYP::Make(bt_vector, 512);
 		head->numele = maxVL;
-		head->btp = btp;
+		head->btpp = btp;
 		tail = head;
 		NextToken();
 	}
@@ -473,10 +477,10 @@ void Declaration::ParseTriple()
 	head->isIO = isIO;
 	NextToken();
 	if (lastst == kw_vector) {
-		int btp = head->GetIndex();
+		TYP* btp = head;// ->GetIndex();
 		head = TYP::Make(bt_vector, 512);
 		head->numele = maxVL;
-		head->btp = btp;
+		head->btpp = btp;
 		tail = head;
 		NextToken();
 	}
@@ -492,10 +496,11 @@ void Declaration::ParseFloat128()
 	head->isIO = isIO;
 	NextToken();
 	if (lastst == kw_vector) {
-		int btp = head->GetIndex();
+		//int btp = head->GetIndex();
+		TYP* btp = head;
 		head = TYP::Make(bt_vector, 512);
 		head->numele = maxVL;
-		head->btp = btp;
+		head->btpp = btp;
 		tail = head;
 		NextToken();
 	}
@@ -504,17 +509,17 @@ void Declaration::ParseFloat128()
 
 void Declaration::ParseVector()
 {
-	int btp;
+	TYP* btp;
 
 	head = (TYP *)TYP::Make(bt_double,sizeOfFPD);
 	tail = head;
 	head->isVolatile = isVolatile;
 	head->isIO = isIO;
 	NextToken();
-	btp = head->GetIndex();
+	btp = head;
 	head = TYP::Make(bt_vector,512);
 	head->numele = maxVL;
-	head->btp = btp;
+	head->btpp = btp;
 	tail = head;
 	NextToken();
 	bit_max = head->precision;
@@ -662,7 +667,7 @@ SYM *Declaration::ParseId()
 		sp = gsyms[0].Find(lastid, false);
 	}
 	if (sp) {
-		dfs.printf("Actually found type.\r\n");
+		dfs.printf("Actually found type.\n");
 		if (sp->storage_class==sc_typedef || sp->storage_class==sc_type) {
 			NextToken();
 			head = tail = sp->tp;
@@ -707,6 +712,7 @@ int Declaration::ParseStruct(TABLE* table, e_bt typ, SYM **sp)
 	sd.bit_next = bit_next;
 	sd.bit_offset = bit_offset;
 	sd.bit_width = bit_width;
+	sd.isTypedef = isTypedef;
 	rv = sd.Parse(table, typ, sp);
 	sd.GetType(&head, &tail);
 	bit_max = sd.bit_max;
@@ -902,10 +908,13 @@ void Declaration::ParseDoubleColon(SYM *sp)
 	while (lastst==double_colon) {
 		gotDouble = true;
 		sym = tagtable.Find(lastid,false);
-		if (sym)
+		if (sym) {
 			sp->parent = sym->GetIndex();//gsearch(lastid);
+			sp->parentp = sym;
+		}
 		else {
 			sp->parent = 0;
+			sp->parentp = nullptr;
 			break;
 		}
 		NextToken();
@@ -916,8 +925,9 @@ void Declaration::ParseDoubleColon(SYM *sp)
 	}
 	if (gotDouble)
 	    NextToken();
-	currentClass = sp->GetParentPtr();
-	if (sp->parent)
+	//currentClass = sp->GetParentPtr();
+	currentClass = sp->parentp;
+	if (sp->parentp)
 		dfs.printf("Setting parent:%s|\r\n",
 	(char *)sp->GetParentPtr()->name->c_str());
 }
@@ -1025,6 +1035,7 @@ SYM *Declaration::ParsePrefixOpenpa(bool isUnion, SYM* symi)
 	// (getchar)() returns temp4 = NULL
 	if (temp4!=NULL) {
 		temp4->btp = head->GetIndex();
+		temp4->btpp = head;
 		if(temp4->type == bt_pointer && temp4->val_flag != 0 && head != NULL)
 			temp4->size *= head->size;
 		head = temp3;
@@ -1079,7 +1090,15 @@ j1:
 	case id:
 		dfs.printf("I");
 		sp1 = sp = ParsePrefixId(symi);
-		if (lastst == closepa || lastst == semicolon) {
+		if (lastst == semicolon) {
+			goto lxit;
+		}
+		if (lastst == closepa || lastst == comma) {
+			goto lxit;
+		}
+		if (lastst == dot || lastst == pointsto) {
+			window_pos = 0;
+			NextToken();
 			goto lxit;
 		}
 		sp = ParseSuffix(sp);
@@ -1093,12 +1112,17 @@ j1:
 		bit_max = sizeOfPtr * 8;
 		dfs.putch('*');
 		NextToken();
+		temp2 = head;
+		temp3 = tail;
+		head = TYP::Make(bt_pointer, sizeOfPtr);
+		head->btp = temp2->GetIndex();
+		head->btpp = temp2;
+		if (tail == nullptr)
+			tail = head;
 		if (lastst==closepa || lastst==semicolon)
 			goto lxit;
-		//temp2 = head;
-		//temp3 = tail;
 		sp = ParsePrefix(isUnion, symi);
-		if (lastst == closepa) {
+		if (lastst == closepa || lastst == comma) {
 			//head->btp = head->GetIndex();
 			//head = TYP::Make(bt_func, sizeOfWord);
 			//temp1 = TYP::Make(bt_pointer, sizeOfPtr);
@@ -1123,6 +1147,7 @@ j1:
 		sp = ParseSuffix(sp);
 		temp1 = TYP::Make(bt_pointer, sizeOfPtr);
 		temp1->btp = head->GetIndex();
+		temp1->btpp = head;
 		head = temp1;
 		if (tail == NULL)
 			tail = head;
@@ -1187,6 +1212,7 @@ j1:
 			sp = symo;
 			temp1 = TYP::Make(bt_pointer, sizeOfPtr);
 			temp1->btp = head->GetIndex();
+			temp1->btpp = head;
 			head = temp1;
 			if (tail == NULL)
 				tail = head;
@@ -1233,6 +1259,7 @@ void Declaration::ParseSuffixOpenbr()
 	temp1->val_flag = 1;
 	temp1->isArray = TRUE;
 	temp1->btp = head->GetIndex();
+	temp1->btpp = head;
 	if(lastst == closebr) {
 		temp1->size = 0;
 		temp1->numele = 0;
@@ -1500,24 +1527,27 @@ Function* Declaration::ParseSuffixOpenpa(Function *sp)
 		//temp1->btp = head->btp;
 		//head->btp = temp1->GetIndex();
 		temp1->btp = head->GetIndex();
+		temp1->btpp = head;
 		temp2->btp = temp1->GetIndex();
+		temp2->btpp = temp1;
 		head = temp1;
 	}
 	else {
 		temp1->btp= head->GetIndex();
+		temp1->btpp = head;
 		head = temp1;
 	}
 	dfs.printf("p ");
 	if (tail==NULL) {
-		/*if (temp1->GetBtp())
-			tail = temp1->GetBtp();
+		/*if (temp1->btpp)
+			tail = temp1->btpp;
 		else*/
 			tail = temp1;
 	}
 	dfs.printf("q ");
 	needParseFunction = 1;
 	sp->params.Clear();
-	sp->sym->parent = currentClass->GetIndex();
+	sp->sym->parentp = currentClass;// ->GetIndex();
 	if(lastst == closepa) {
 		NextToken();
 		while (lastst == kw_attribute)
@@ -1753,7 +1783,7 @@ void Declaration::DoInsert(SYM *sp, TABLE *table)
 			if (sp->fi)
 				sp->mangledName = sp->BuildSignature(!sp->fi->IsPrototype);
 		if (sp->parent && ((sp->tp->type == bt_func || sp->tp->type == bt_ifunc)
-			|| (sp->tp->type == bt_pointer && (sp->tp->GetBtp()->type == bt_func || sp->tp->GetBtp()->type == bt_ifunc))))
+			|| (sp->tp->type == bt_pointer && (sp->tp->btpp->type == bt_func || sp->tp->btpp->type == bt_ifunc))))
 		{
 			//insState = 1;
 			sp->fi->InsertMethod();
@@ -1790,8 +1820,11 @@ SYM *Declaration::FindSymbol(SYM *sp, TABLE *table)
 			}
 		}
 	}
-	else
+	else {
 		sp1 = table->Find(*sp->name, false);
+		if (TABLE::matchno > 1) {
+		}
+	}
 	dfs.printf("h");
 	if (sp->tp) {
 		dfs.printf("h1");
@@ -1837,7 +1870,7 @@ int Declaration::ParseFunction(TABLE* table, SYM* sp, e_sc al)
 	}
 	else {
 		// Here the symbol wasn't found in the table.
-		if (sp1 == nullptr)
+		if (sp1 == nullptr || !sp1->tp->IsSameType(sp1->tp,sp->tp,true))
 			DoInsert(sp, table);
 	}
 	dfs.printf("J");
@@ -1934,18 +1967,28 @@ void Declaration::FigureStructOffsets(int64_t bgn, SYM* sp)
 	int64_t nn;
 	int64_t ps;
 	int64_t bt;
+	static int level = 0;
+	int count = 0;
 
 	ps = bgn;
+	level++;
 	for (hd = SYM::GetPtr(sp->tp->lst.head); hd; hd = hd->GetNextPtr()) {
 		hd->value.i = ps;
 		hd->tp->struct_offset = ps;
-		if (hd->tp->IsStructType())
+		if (hd->tp->IsStructType()) {
+			if (level > 15)
+				break;
 			FigureStructOffsets(ps, hd);
+		}
 		if (hd->tp->bit_offset > 0)
 			continue;
 		if (sp->tp->type != bt_union)
 			ps = ps + hd->tp->size;
+		count++;
+		if (count > 1000)
+			break;
 	}
+	level--;
 }
 
 /*
@@ -1980,8 +2023,9 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 	TABLE* table = itable;
 	e_sc al = istorage_class;
 
-	itdef = isTypedef;
 	decl_level++;
+	if (decl_level == 1)
+		isTypedef = false;
 	dfs.printf("<declare>\n");
 	nbytes = 0;
 	insState = 0;
@@ -2004,6 +2048,8 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 		sp = ParsePrefix(ztype == bt_union, nullptr);
 		if (symo)
 			*symo = sp;
+		if (dhead == nullptr)
+			dhead = &stdint;
 		if (dhead->type == bt_bit) {
 			if (head->isArray) {
 				head->size += 7;
@@ -2059,6 +2105,8 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 			sp->IsParameter = parsingParameterList > 0;
 			if (sp->parent <= 0)// was nullptr
 				sp->parent = parent->GetIndex();
+			if (sp->parentp == nullptr)
+				sp->parentp = parent;
 			if (al == sc_member)
 				sp->IsPrivate = isPrivate;
 			else
@@ -2078,7 +2126,7 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 				if (isTypedef) {
 					sp->storage_class = sc_typedef;
 				}
-				isTypedef = FALSE;
+				//isTypedef = FALSE;
 			}
 			if (!sp->IsTypedef())
 				nbytes = GenerateStorage(nbytes, al, ilc);
@@ -2157,10 +2205,16 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 			head = dhead;
 			continue;
 		}
+		// Maybe want to eval an expression
+		// s.x = 3;
+		else if (lastst == id) {
+			goto xit1;
+		}
 		//needpunc(comma,24);
 		if (IsDeclBegin(lastst) == false)
 			goto xit1;//break;
 		head = dhead;
+		continue;
 		goto xit1;
 	}
 	NextToken();
@@ -2176,7 +2230,6 @@ xit1:
 		}
 	}
 	dfs.printf("</declare>\n");
-	isTypedef = itdef;
 	decl_level--;
 	return (nbytes);
 }
@@ -2351,6 +2404,7 @@ ENODE *AutoDeclaration::Parse(SYM *parent, TABLE *ssyms)
 {
 	SYM *sp;
 	ENODE* ep1;
+	int nn;
 
 //	printf("Enter ParseAutoDecls\r\n");
     for(;;) {
@@ -2371,12 +2425,21 @@ ENODE *AutoDeclaration::Parse(SYM *parent, TABLE *ssyms)
 			break;
 		case ellipsis:
 		case id: //return;
-        dfs.printf("Found %s\n", lastid);
+			dfs.printf("Found %s\n", lastid);
 				sp = tagtable.Find(lastid,false);
 				if (sp)
 				   dfs.printf("Found in tagtable");
-				if (sp==nullptr)
-					sp = gsyms[0].Find(lastid,false);
+				if (sp == nullptr) {
+					sp = gsyms[0].Find(lastid, false);
+					if (TABLE::matchno > 1) {
+						for (nn = 0; nn < TABLE::matchno; nn++) {
+							sp = TABLE::match[nn];
+							if (sp->storage_class == sc_typedef || sp->storage_class == sc_type)
+								break;
+						}
+						sp = nullptr;
+					}
+				}
 				if (sp) {
 				  dfs.printf("sp okay sc=%d\n", sp->storage_class);
 					if (sp->storage_class==sc_typedef || sp->storage_class==sc_type) {

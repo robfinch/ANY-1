@@ -230,7 +230,6 @@ extern int lastsph;
 extern char *semaphores[20];
 extern unsigned int ArgRegCount;
 extern bool isFuncBody;
-extern int isTypedef;
 extern bool isUnion;
 extern int isUnsigned;
 extern int isSigned;
@@ -423,6 +422,7 @@ extern char inpline[100000];
 extern bool ExpressionHasReference;
 extern Object *_GarbageList;
 extern TABLE* gCurrentTbl;
+extern int window_pos;
 
 extern txtoStream irfs;
 extern CSet* ru, * rru;

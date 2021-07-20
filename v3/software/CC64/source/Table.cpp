@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2012-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2012-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -48,7 +48,11 @@ TABLE::TABLE()
 
 void TABLE::CopySymbolTable(TABLE *dst, TABLE *src)
 {
+	int count = 0;
+	static int level = 0;
+
 	SYM *sp, *newsym, *first, *next;
+	level++;
 	dfs.puts("<CopySymbolTable>\n");
 	if (src) {
 	  dfs.printf("A");
@@ -58,15 +62,22 @@ void TABLE::CopySymbolTable(TABLE *dst, TABLE *src)
 			newsym = SYM::Copy(sp);
   	  dfs.printf("C");
 			dst->insert(newsym);
-			if (newsym->tp->IsStructType())
+			if (newsym->tp->IsStructType()) {
+				if (level > 15)
+					break;
 				CopySymbolTable(&newsym->tp->lst, &sp->tp->lst);
+			}
   	  dfs.printf("D");
 			next = sp->GetNextPtr();
 			if (next == first)
 				break;
 			sp = next;
+			count++;
+			if (count > 1000)
+				break;
 		}
 	}
+	level--;
 	dfs.puts("</CopySymbolTable>\n");
 }
 
@@ -121,12 +132,17 @@ void TABLE::insert(SYM *sp)
     if( tab->head == 0) {
       tab->SetHead(sp->GetIndex());
 			tab->SetTail(sp->GetIndex());
+			tab->headp = sp;
+			tab->tailp = sp;
 		}
     else {
       sp->GetPtr(tab->tail)->next = sp->GetIndex();
+			tab->tailp->nextp = sp;
       tab->SetTail(sp->GetIndex());
+			tab->tailp = sp;
     }
     sp->SetNext(0);
+		sp->nextp = nullptr;
     dfs.printf("At insert:\n");
     sp->fi->GetProtoTypes()->Print();
   }
@@ -165,11 +181,14 @@ int TABLE::Find(std::string na,__int16 rettype, TypeArray *typearray, bool exact
 	TypeArray *ta;
 	int s1,s2,s3;
 	std::string name;
+	static int level = 0;
 
   dfs.puts("<Find>");
   dfs.puts((char *)na.c_str());
+	level++;
   if (this==nullptr) {
     matchno = 0;
+		level--;
     return 0;
   }
 	if (na.length()==0) {
@@ -179,9 +198,9 @@ int TABLE::Find(std::string na,__int16 rettype, TypeArray *typearray, bool exact
 
 	matchno = 0;
 	if (this==&gsyms[0])
-		thead = SYM::GetPtr(gsyms[hashadd((char *)na.c_str())].GetHead());
+		thead = gsyms[hashadd((char *)na.c_str())].headp;
 	else
-		thead = SYM::GetPtr(head);
+		thead = headp;
 	first = thead;
 //	while(thead != NULL) {
 //	  lfs.printf("Ele:%s|\n", (char *)thead->name->c_str());
@@ -212,6 +231,7 @@ int TABLE::Find(std::string na,__int16 rettype, TypeArray *typearray, bool exact
 				  ta->Print();
 				  typearray->Print();
 				  delete ta;
+					level--;
 				  return 1;
 				}
 				ta->Print();
@@ -219,7 +239,7 @@ int TABLE::Find(std::string na,__int16 rettype, TypeArray *typearray, bool exact
 			}
 		}
 		}
-    thead = thead->GetNextPtr();
+    thead = thead->nextp;
     if (thead==first) {
       dfs.printf("Circular list.\n");
       throw new C64PException(ERR_CIRCULAR_LIST,1);
@@ -232,17 +252,22 @@ int TABLE::Find(std::string na,__int16 rettype, TypeArray *typearray, bool exact
 		thead = first;
 		while (thead != NULL) {
 			if (thead->tp->IsAggregateType()) {
+				if (level > 15)
+					break;
 				thead->tp->lst.Find(na, rettype, typearray, exact);
-				if (matchno > 0)
+				if (matchno > 0) {
+					level--;
 					return (exact ? 0 : matchno);
+				}
 			}
-			thead = thead->GetNextPtr();
+			thead = thead->nextp;
 			if (thead == first) {
 				dfs.printf("Circular list.\n");
 				throw new C64PException(ERR_CIRCULAR_LIST, 1);
 			}
 		}
 	}
+	level--;
   return (exact ? 0 : matchno);
 }
 
@@ -263,6 +288,7 @@ int TABLE::FindRising(std::string na)
 	int sp;
   SYM *sym;
   int bse;
+	SYM* bsep;
   static SYM *mt[110];
   int nn, ii;
   int ndx;
@@ -277,14 +303,15 @@ int TABLE::FindRising(std::string na)
 	memcpy(&mt[0],TABLE::match,nn*sizeof(SYM *));
 	ndx += nn;
 	bse = base;
-	while (bse) {
-	  sym = SYM::GetPtr(bse);
+	bsep = basep;
+	while (bsep) {
+		sym = bsep;// SYM::GetPtr(bse);
 	  dfs.printf("Searching class:%s \n",(char *)sym->name->c_str());
 		sp = sym->tp->lst.Find(na);
   	nn = min(100,ndx+TABLE::matchno);
   	memcpy(&mt[ndx],TABLE::match,nn*sizeof(SYM *));
   	ndx += nn;
-		bse = sym->tp->lst.base;
+		bsep = sym->tp->lst.basep;
 	}
 	dfs.puts("</FindRising>");
 
@@ -315,8 +342,23 @@ SYM *TABLE::Find(std::string na, bool opt)
 {
 	Find(na,(__int16)bt_long,nullptr,false);
 	if (matchno==0)
-		return nullptr;
-	return match[matchno-1];
+		return (nullptr);
+	return (match[matchno-1]);
+}
+
+SYM* TABLE::Find(std::string na, bool opt, e_bt bt)
+{
+	SYM* sp;
+
+	for (sp = SYM::GetPtr(head); sp; sp = sp->GetNextPtr()) {
+		if (sp->name->compare(na) == 0) {
+			if (sp->tp) {
+				if (sp->tp->type == bt)
+					return (sp);
+			}
+		}
+	}
+	return (nullptr);
 }
 
 SYM** TABLE::GetParameters()

@@ -128,7 +128,7 @@ void CodeGenerator::GenerateComment(char *cm)
 
 void CodeGenerator::GenerateLoad(Operand *ap3, Operand *ap1, int ssize, int size)
 {
-	if (ap3->type==stdposit.GetIndex()) {
+	if (ap3->typep==&stdposit) {
 		switch (ap3->tp->precision) {
 		case 16:
 			GenerateDiadic(op_pldw, 0, ap3, ap1);
@@ -141,19 +141,19 @@ void CodeGenerator::GenerateLoad(Operand *ap3, Operand *ap1, int ssize, int size
 			break;
 		}
 	}
-	else if (ap3->type==stdvector.GetIndex()) {
+	else if (ap3->typep==&stdvector) {
         GenerateDiadic(op_lv,0,ap3,ap1);
 	}
-	else if (ap3->type == stdflt.GetIndex()) {
+	else if (ap3->typep == &stdflt) {
 		GenerateDiadic(op_fldo, 0, ap3, ap1);
 	}
-	else if (ap3->type==stddouble.GetIndex()) {
+	else if (ap3->typep==&stddouble) {
 		GenerateDiadic(op_fldo, 0, ap3,ap1);
 	}
-	else if (ap3->type == stdquad.GetIndex()) {
+	else if (ap3->typep == &stdquad) {
 		GenerateDiadic(op_ldf, 'q', ap3, ap1);
 	}
-	else if (ap3->type == stdtriple.GetIndex()) {
+	else if (ap3->typep == &stdtriple) {
 		GenerateDiadic(op_ldf, 't', ap3, ap1);
 	}
 	//else if (ap3->mode == am_fpreg) {
@@ -198,23 +198,23 @@ void CodeGenerator::GenerateStore(Operand *ap1, Operand *ap3, int size)
 			break;
 		}
 	}
-	if (ap3->type==stdposit.GetIndex()) {
+	if (ap3->typep==&stdposit) {
 		GenerateDiadic(op_sto, 0, ap1, ap3);
 	}
-	else if (ap1->type==stdvector.GetIndex())
+	else if (ap1->typep==&stdvector)
 	    GenerateDiadic(op_sv,0,ap1,ap3);
-	else if (ap1->type == stdflt.GetIndex()) {
+	else if (ap1->typep == &stdflt) {
 		GenerateDiadic(op_sto, 0, ap1, ap3);
 	}
-	else if (ap1->type == stddouble.GetIndex()) {
+	else if (ap1->typep == &stddouble) {
 		if (ap1->mode == am_fpreg)
 			printf("ho");
 		GenerateDiadic(op_sto, 0, ap1, ap3);
 	}
-	else if (ap1->type == stdquad.GetIndex()) {
+	else if (ap1->typep == &stdquad) {
 		GenerateDiadic(op_stf, 'q', ap1, ap3);
 	}
-	else if (ap1->type == stdtriple.GetIndex()) {
+	else if (ap1->typep == &stdtriple) {
 		GenerateDiadic(op_stf, 't', ap1, ap3);
 	}
 	//else if (ap1->mode==am_fpreg)
@@ -364,11 +364,11 @@ Operand* CodeGenerator::GenerateAutofconDereference(ENODE* node, TYP* tp, bool i
 	ap1->segment = stackseg;
 	if (node->tp) {
 		switch (node->tp->type) {
-		case bt_float:	ap1->type = stdflt.GetIndex(); break;
-		case bt_double:	ap1->type = stddouble.GetIndex(); break;
-		case bt_triple:	ap1->type = stdtriple.GetIndex(); break;
-		case bt_quad:	ap1->type = stdquad.GetIndex(); break;
-		case bt_posit:	ap1->type = stdposit.GetIndex(); break;
+		case bt_float:	ap1->typep = &stdflt; break;
+		case bt_double:	ap1->typep = &stddouble; break;
+		case bt_triple:	ap1->typep = &stdtriple; break;
+		case bt_quad:	ap1->typep = &stdquad; break;
+		case bt_posit:	ap1->typep = &stdposit; break;
 		}
 	}
 	else {
@@ -400,7 +400,7 @@ Operand* CodeGenerator::GenerateAutopconDereference(ENODE* node, TYP* tp, bool i
 		ap1->FloatSize = ' ';
 	ap1->segment = stackseg;
 	switch (node->tp->type) {
-	case bt_posit: ap1->type = stdposit.GetIndex(); break;
+	case bt_posit: ap1->typep = &stdposit; break;
 	}
 	//	    ap1->MakeLegal(flags,siz1);
 	ap1->MakeLegal(flags, size);
@@ -439,11 +439,11 @@ Operand* CodeGenerator::GenerateNaconDereference(ENODE* node, TYP* tp, bool isRe
 		ap1->MakeLegal(flags, siz1);
 	ap1->isVolatile = node->isVolatile;
 	switch (node->tp->type) {
-	case bt_float:	ap1->type = stdflt.GetIndex(); break;
-	case bt_double:	ap1->type = stddouble.GetIndex(); break;
-	case bt_triple:	ap1->type = stdtriple.GetIndex(); break;
-	case bt_quad:	ap1->type = stdquad.GetIndex(); break;
-	case bt_posit:	ap1->type = stdposit.GetIndex(); break;
+	case bt_float:	ap1->typep = &stdflt; break;
+	case bt_double:	ap1->typep = &stddouble; break;
+	case bt_triple:	ap1->typep = &stdtriple; break;
+	case bt_quad:	ap1->typep = &stdquad; break;
+	case bt_posit:	ap1->typep = &stdposit; break;
 	}
 	ap1->MakeLegal(flags, size);
 	return (ap1);
@@ -469,7 +469,7 @@ Operand* CodeGenerator::GenerateAutovconDereference(ENODE* node, TYP* tp, bool i
 	else
 		ap1->FloatSize = 'd';
 	ap1->segment = stackseg;
-	ap1->type = stdvector.GetIndex();
+	ap1->typep = &stdvector;
 	//	    ap1->MakeLegal(flags,siz1);
 	ap1->MakeLegal(flags, size);
 	return (ap1);
@@ -495,7 +495,7 @@ Operand* CodeGenerator::GenerateAutovmconDereference(ENODE* node, TYP* tp, bool 
 	else
 		ap1->FloatSize = 'd';
 	ap1->segment = stackseg;
-	ap1->type = stdvectormask->GetIndex();
+	ap1->typep = stdvectormask;
 	//	    ap1->MakeLegal(flags,siz1);
 	ap1->MakeLegal(flags, size);
 	return (ap1);
@@ -533,11 +533,11 @@ Operand* CodeGenerator::GenerateFPRegvarDereference(ENODE* node, TYP* tp, bool i
 	ap1->preg = node->rg;
 	ap1->tp = tp;
 	switch (node->tp->type) {
-	case bt_float:	ap1->type = stdflt.GetIndex(); break;
-	case bt_double:	ap1->type = stddouble.GetIndex(); break;
-	case bt_triple:	ap1->type = stdtriple.GetIndex(); break;
-	case bt_quad:	ap1->type = stdquad.GetIndex(); break;
-	case bt_posit:	ap1->type = stdposit.GetIndex(); break;
+	case bt_float:	ap1->typep = &stdflt; break;
+	case bt_double:	ap1->typep = &stddouble; break;
+	case bt_triple:	ap1->typep = &stdtriple; break;
+	case bt_quad:	ap1->typep = &stdquad; break;
+	case bt_posit:	ap1->typep = &stdposit; break;
 	}
 	ap1->MakeLegal(flags, size);
 	Leave("</Genderef>", 3);
@@ -555,7 +555,7 @@ Operand* CodeGenerator::GeneratePositRegvarDereference(ENODE* node, TYP* tp, boo
 	ap1->preg = node->rg;
 	ap1->tp = tp;
 	switch (node->tp->type) {
-	case bt_posit:	ap1->type = stdposit.GetIndex(); break;
+	case bt_posit:	ap1->typep = &stdposit; break;
 	}
 	ap1->MakeLegal(flags, size);
 	Leave("</Genderef>", 3);
@@ -843,7 +843,7 @@ void CodeGenerator::GenMemop(int op, Operand *ap1, Operand *ap2, int ssize, int 
 		ReleaseTempReg(ap3);
 		return;
 	}
-	if (ap1->type==stddouble.GetIndex()) {
+	if (ap1->typep==&stddouble) {
      	ap3 = GetTempFPRegister();
 		GenerateLoad(ap3,ap1,ssize,ssize);
 		GenerateTriadic(op,ap1->FloatSize,ap3,ap3,ap2);
@@ -851,7 +851,7 @@ void CodeGenerator::GenMemop(int op, Operand *ap1, Operand *ap2, int ssize, int 
 		ReleaseTempReg(ap3);
 		return;
 	}
-	if (ap1->type == stdposit.GetIndex()) {
+	if (ap1->typep == &stdposit) {
 		ap3 = GetTempPositRegister();
 		GenerateLoad(ap3, ap1, ssize, ssize);
 		GenerateTriadic(op, ap1->FloatSize, ap3, ap3, ap2);
@@ -859,7 +859,7 @@ void CodeGenerator::GenMemop(int op, Operand *ap1, Operand *ap2, int ssize, int 
 		ReleaseTempReg(ap3);
 		return;
 	}
-	if (ap1->type==stdvector.GetIndex()) {
+	if (ap1->typep==&stdvector) {
    		ap3 = GetTempVectorRegister();
 		GenerateLoad(ap3,ap1,ssize,ssize);
 		GenerateTriadic(op,0,ap3,ap3,ap2);
@@ -931,8 +931,9 @@ Operand *CodeGenerator::GenerateAssignMultiply(ENODE *node,int flags, int size, 
 	else if (node->etype==bt_vector) {
     ap1 = GenerateExpression(node->p[0],am_reg | am_mem,ssize);
     ap2 = GenerateExpression(node->p[1],am_reg,size);
-		op = ap2->type==stdvector.GetIndex() ? op_vmul : op_vmuls;
-  }
+		//op = ap2->type==stdvector.GetIndex() ? op_vmul : op_vmuls;
+		op = ap2->typep == &stdvector ? op_vmul : op_vmuls;
+	}
   else {
     ap1 = GenerateExpression(node->p[0],am_all & ~am_imm,ssize);
     ap2 = GenerateExpression(node->p[1],am_reg | am_imm,size);
@@ -1240,7 +1241,7 @@ void CodeGenerator::GenerateArrayAssign(TYP *tp, ENODE *node1, ENODE *node2, Ope
 
 	offset = 0;
 	if (node1->tp)
-		tp = node1->tp->GetBtp();
+		tp = node1->tp->btpp;
 	else
 		tp = nullptr;
 	if (tp==nullptr)
@@ -1335,7 +1336,7 @@ Operand* CodeGenerator::GenerateBigAssign(Operand* ap1, Operand* ap2, int size, 
 {
 	Operand* ap3;
 
-	if (ap1->type == stdvector.GetIndex() && ap2->type == stdvector.GetIndex()) {
+	if (ap1->typep == &stdvector && ap2->typep == &stdvector) {
 		if (ap2->mode == am_reg)
 			GenerateStore(ap2, ap1, ssize);
 		else {
@@ -1505,9 +1506,9 @@ Operand *CodeGenerator::GenerateAssign(ENODE *node, int flags, int64_t size)
 	//else {
 		ap1 = GenerateExpression(node->p[0], am_reg | am_mem | am_vreg, ssize);
 		flg = am_all;
-		if (ap1->type == stddouble.GetIndex())
+		if (ap1->typep == &stddouble)
 			flg = am_fpreg;
-		else if (ap1->type == stdposit.GetIndex())
+		else if (ap1->typep == &stdposit)
 			flg = am_preg;
 		flg = am_reg | am_mem | am_imm;
 		// We want the size of the RHS to be its natural size.
@@ -1620,7 +1621,7 @@ Operand *CodeGenerator::GenerateAssign(ENODE *node, int flags, int64_t size)
 
 // autocon and autofcon nodes
 
-Operand *CodeGenerator::GenAutocon(ENODE *node, int flags, int64_t size, int type)
+Operand *CodeGenerator::GenAutocon(ENODE *node, int flags, int64_t size, TYP* typ)
 {
 	Operand *ap1, *ap2;
 
@@ -1633,9 +1634,10 @@ Operand *CodeGenerator::GenAutocon(ENODE *node, int flags, int64_t size, int typ
 	ap2->offset = node;     /* use as constant node */
 	ap2->bit_offset = node->bit_offset;
 	ap2->bit_width = node->bit_width;
-	ap2->type = type;
+//	ap2->type = type;
 	ap2->tp = node->tp;
-	ap1->type = stdint.GetIndex();
+//	ap1->type = &stdint;
+	ap1->typep = typ;
 	ap1->tp = node->tp;
 	GenerateDiadic(op_lea,0,ap1,ap2);
 	ap1->MakeLegal(flags,size);
@@ -1664,7 +1666,7 @@ Operand* CodeGenerator::GenFloatcon(ENODE* node, int flags, int64_t size)
 		if (node)
 			DataLabels[node->i] = true;
 	}
-	ap1->type = stddouble.GetIndex();
+	ap1->typep = &stddouble;
 	if (node)
 		ap1->tp = node->tp;
 	// Don't allow the constant to be loaded into an integer register.
@@ -1687,7 +1689,7 @@ Operand* CodeGenerator::GenPositcon(ENODE* node, int flags, int64_t size)
 	ap1->offset = node;
 	if (node)
 		DataLabels[node->i] = true;
-	ap1->type = stdposit.GetIndex();
+	ap1->typep = &stdposit;
 	if (node)
 		ap1->tp = node->tp;
 	// Don't allow the constant to be loaded into an integer register.
@@ -1830,22 +1832,22 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
 		Leave("GenExpression",7); 
 		goto retpt;
 	case en_autocon:
-		ap1 = GenAutocon(node, flags, size, stdint.GetIndex());
+		ap1 = GenAutocon(node, flags, size, &stdint);
 		goto retpt;
   case en_autofcon:	
 		switch (node->tp->type)
 		{
 		case bt_float:
-			ap1 = GenAutocon(node, flags, size, stdflt.GetIndex());
+			ap1 = GenAutocon(node, flags, size, &stdflt);
 			goto retpt;
 		case bt_double:
-			ap1 = GenAutocon(node, flags, size, stddouble.GetIndex());
+			ap1 = GenAutocon(node, flags, size, &stddouble);
 			goto retpt;
-		case bt_triple:	return GenAutocon(node, flags, size, stdtriple.GetIndex());
-		case bt_quad:	return GenAutocon(node, flags, size, stdquad.GetIndex());
-		case bt_posit: return GenAutocon(node, flags, size, stdposit.GetIndex());
+		case bt_triple:	return GenAutocon(node, flags, size, &stdtriple);
+		case bt_quad:	return GenAutocon(node, flags, size, &stdquad);
+		case bt_posit: return GenAutocon(node, flags, size, &stdposit);
 		case bt_pointer:
-			ap1 = GenAutocon(node, flags, size, stdint.GetIndex());
+			ap1 = GenAutocon(node, flags, size, &stdint);
 			goto retpt;
 		}
 		break;
@@ -1854,22 +1856,22 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
 		switch (node->tp->type)
 		{
 		case bt_float:
-			ap1 = GenAutocon(node, flags, size, stdflt.GetIndex());
+			ap1 = GenAutocon(node, flags, size, &stdflt);
 			goto retpt;
 		case bt_double:
-			ap1 = GenAutocon(node, flags, size, stddouble.GetIndex());
+			ap1 = GenAutocon(node, flags, size, &stddouble);
 			goto retpt;
-		case bt_triple:	return GenAutocon(node, flags, size, stdtriple.GetIndex());
-		case bt_quad:	return GenAutocon(node, flags, size, stdquad.GetIndex());
-		case bt_posit: return GenAutocon(node, flags, size, stdposit.GetIndex());
+		case bt_triple:	return GenAutocon(node, flags, size, &stdtriple);
+		case bt_quad:	return GenAutocon(node, flags, size, &stdquad);
+		case bt_posit: return GenAutocon(node, flags, size, &stdposit);
 		case bt_pointer:
-			ap1 = GenAutocon(node, flags, size, stdint.GetIndex());
+			ap1 = GenAutocon(node, flags, size, &stdint);
 			goto retpt;
 		}
 		break;
 
-	case en_autovcon:	return GenAutocon(node, flags, size, stdvector.GetIndex());
-    case en_autovmcon:	return GenAutocon(node, flags, size, stdvectormask->GetIndex());
+	case en_autovcon:	return GenAutocon(node, flags, size, &stdvector);
+    case en_autovmcon:	return GenAutocon(node, flags, size, stdvectormask);
   case en_classcon:
     ap1 = GetTempRegister();
     ap2 = allocOperand();
@@ -1912,15 +1914,15 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
 		ap1->tempflag = 0;      /* not a temporary */
 		if (node->tp)
 			switch (node->tp->type) {
-			case bt_float:	ap1->type = stdflt.GetIndex(); break;
-			case bt_double:	ap1->type = stddouble.GetIndex(); break;
-			case bt_triple:	ap1->type = stdtriple.GetIndex(); break;
-			case bt_quad:	ap1->type = stdquad.GetIndex(); break;
-			case bt_posit: ap1->type = stdposit.GetIndex(); break;
-			default: ap1->type = stdint.GetIndex(); break;
+			case bt_float:	ap1->typep = &stdflt; break;
+			case bt_double:	ap1->typep = &stddouble; break;
+			case bt_triple:	ap1->typep = &stdtriple; break;
+			case bt_quad:	ap1->typep = &stdquad; break;
+			case bt_posit: ap1->typep = &stdposit; break;
+			default: ap1->typep = &stdint; break;
 			}
 		else
-			ap1->type = stddouble.GetIndex();
+			ap1->typep = &stddouble;
 		ap1->tp = node->tp;
 		goto retpt;
 
@@ -1932,11 +1934,11 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
 		ap1->tempflag = 0;      /* not a temporary */
 		if (node->tp)
 			switch (node->tp->type) {
-			case bt_posit: ap1->type = stdposit.GetIndex(); break;
-			default: ap1->type = stdint.GetIndex(); break;
+			case bt_posit: ap1->typep = &stdposit; break;
+			default: ap1->typep = &stdint; break;
 			}
 		else
-			ap1->type = stdposit.GetIndex();
+			ap1->typep = &stdposit;
 		ap1->tp = node->tp;
 		goto retpt;
 
@@ -1949,15 +1951,15 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
 		ap1->tempflag = 0;      /* not a temporary */
 		if (node->tp)
 			switch (node->tp->type) {
-			case bt_float:	ap1->type = stdflt.GetIndex(); break;
-			case bt_double:	ap1->type = stddouble.GetIndex(); break;
-			case bt_triple:	ap1->type = stdtriple.GetIndex(); break;
-			case bt_quad:	ap1->type = stdquad.GetIndex(); break;
-			case bt_posit: ap1->type = stdposit.GetIndex(); break;
-			default: ap1->type = stdint.GetIndex(); break;
+			case bt_float:	ap1->typep = &stdflt; break;
+			case bt_double:	ap1->typep = &stddouble; break;
+			case bt_triple:	ap1->typep = &stdtriple; break;
+			case bt_quad:	ap1->typep = &stdquad; break;
+			case bt_posit: ap1->typep = &stdposit; break;
+			default: ap1->typep = &stdint; break;
 			}
 		else
-			ap1->type = stddouble.GetIndex();
+			ap1->typep = &stddouble;
 		ap1->MakeLegal(flags,size);
 		goto retpt;
 
@@ -1970,11 +1972,11 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
 		ap1->tempflag = 0;      /* not a temporary */
 		if (node->tp)
 			switch (node->tp->type) {
-			case bt_posit: ap1->type = stdposit.GetIndex(); break;
-			default: ap1->type = stdint.GetIndex(); break;
+			case bt_posit: ap1->typep = &stdposit; break;
+			default: ap1->typep = &stdint; break;
 			}
 		else
-			ap1->type = stdposit.GetIndex();
+			ap1->typep = &stdposit;
 		ap1->MakeLegal(flags, size);
 		goto retpt;
 
@@ -2049,21 +2051,21 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
 		ap1 = GetTempFPRegister();
     ap2 = GenerateExpression(node->p[0],am_reg,sizeOfFPQ);
     GenerateDiadic(op_fcvtsq,0,ap1,ap2);
-		ap1->type = stdquad.GetIndex();
+		ap1->typep = &stdquad;
 		ReleaseTempReg(ap2);
 		goto retpt;
 	case en_d2q:
 		ap1 = GetTempFPRegister();
 		ap2 = GenerateExpression(node->p[0], am_reg, sizeOfFPQ);
 		GenerateDiadic(op_fcvtdq, 0, ap1, ap2);
-		ap1->type = stdquad.GetIndex();
+		ap1->typep = &stdquad;
 		ReleaseTempReg(ap2);
 		goto retpt;
 	case en_t2q:
 		ap1 = GetTempFPRegister();
 		ap2 = GenerateExpression(node->p[0], am_reg, sizeOfFPQ);
 		GenerateDiadic(op_fcvttq, 0, ap1, ap2);
-		ap1->type = stdquad.GetIndex();
+		ap1->typep = &stdquad;
 		ReleaseTempReg(ap2);
 		goto retpt;
 
@@ -2553,9 +2555,9 @@ int CodeGenerator::GenerateInlineArgumentList(Function *sym, ENODE *plist)
 	for (--nn, i = 0; nn >= 0; --nn, i++)
 	{
 		if (pl[nn]->etype == bt_pointer) {
-			if (pl[nn]->tp->GetBtp() == nullptr)
+			if (pl[nn]->tp->btpp == nullptr)
 				continue;
-			if (pl[nn]->tp->GetBtp()->type == bt_ichar || pl[nn]->tp->GetBtp()->type == bt_iuchar) {
+			if (pl[nn]->tp->btpp->type == bt_ichar || pl[nn]->tp->btpp->type == bt_iuchar) {
 				for (st = strtab; st; st = st->next) {
 					if (st->label == pl[nn]->i) {
 						cp = st->str;

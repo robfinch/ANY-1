@@ -34,7 +34,7 @@ extern bool isPrivate;
 
 int16_t typeno = bt_last;
 
-int StructDeclaration::ParseTag(TABLE* table, e_bt ztype)
+int StructDeclaration::ParseTag(TABLE* table, e_bt ztype, SYM** sym)
 {
   SYM* sp;
   ENODE nd;
@@ -63,13 +63,23 @@ int StructDeclaration::ParseTag(TABLE* table, e_bt ztype)
       tagtable.insert(sp);
       table->insert(sp);
       NextToken();
+      goto xit;
     }
     // Defining a pointer to an unknown struct ?
-    else if (lastst == star) {
-      tagtable.insert(sp);
+    if (lastst == star) {
       table->insert(sp);
+      goto xit;
     }
-    else if (lastst != begin)
+    if (isTypedef) {
+      table->insert(sp);
+      //NextToken();
+      if (lastst == begin) {
+        NextToken();
+        ParseMembers(sp, ztype);
+      }
+      goto xit;
+    }
+    if (lastst != begin)
       error(ERR_INCOMPLETE);
     else {
       tagtable.insert(sp);
@@ -86,7 +96,13 @@ int StructDeclaration::ParseTag(TABLE* table, e_bt ztype)
       NextToken();
       ParseMembers(sp, ztype);
     }
+    else if (lastst == star) {
+      table->insert(sp);
+      goto xit;
+    }
   }
+xit:
+  *sym = sp;
   head = sp->tp;
   return (ret);
 }
@@ -200,7 +216,7 @@ int StructDeclaration::Parse(TABLE* table, int ztype, SYM** sym)
   if (lastst == kw_attribute)
     ParseAttribute(nullptr);
   if (lastst == id) {
-    if (ParseTag(table, (e_bt)ztype))
+    if (ParseTag(table, (e_bt)ztype, &sp))
       ret = 1;
   }
   // Else there was no tag identifier

@@ -53,7 +53,7 @@ static void pad(char *p, int n)
 static bool IsFuncptrAssign(SYM* sp)
 {
 	if (sp->tp->type == bt_pointer) {
-		if (sp->tp->GetBtp()->type == bt_func || sp->tp->GetBtp()->type == bt_ifunc) {
+		if (sp->tp->btpp->type == bt_func || sp->tp->btpp->type == bt_ifunc) {
 			if (sp->initexp) {
 				return (true);
 			}
@@ -98,7 +98,7 @@ void doinit(SYM *sp)
         if (sp->tp->type==bt_struct || sp->tp->type==bt_union)
            algn = imax(sp->tp->alignment,8);
         else if (sp->tp->type==bt_pointer)// && sp->tp->val_flag)
-           algn = imax(sp->tp->GetBtp()->alignment,8);
+           algn = imax(sp->tp->btpp->alignment,8);
         else
             algn = 2;
 		seg(oseg==noseg ? tlsseg : oseg,algn);
@@ -108,7 +108,7 @@ void doinit(SYM *sp)
         if (sp->tp->type==bt_struct || sp->tp->type==bt_union)
            algn = imax(sp->tp->alignment,8);
         else if (sp->tp->type==bt_pointer)// && sp->tp->val_flag)
-           algn = imax(sp->tp->GetBtp()->alignment,8);
+           algn = imax(sp->tp->btpp->alignment,8);
         else
             algn = 2;
 		seg(oseg==noseg ? dataseg : oseg,algn);          /* initialize into data segment */
@@ -118,7 +118,7 @@ void doinit(SYM *sp)
         if (sp->tp->type==bt_struct || sp->tp->type==bt_union)
            algn = imax(sp->tp->alignment,8);
         else if (sp->tp->type==bt_pointer)// && sp->tp->val_flag)
-           algn = imax(sp->tp->GetBtp()->alignment,8);
+           algn = imax(sp->tp->btpp->alignment,8);
         else
             algn = 2;
 		seg(oseg==noseg ? (lastst==assign ? dataseg : bssseg) : oseg,algn);            /* initialize into data segment */
@@ -237,7 +237,7 @@ void doinit(SYM *sp)
 			typ_sp = 0;
 			tp = sp->tp;
 			push_typ(tp);
-			while (tp = tp->GetBtp()) {
+			while (tp = tp->btpp) {
 				push_typ(tp);
 			}
 			brace_level = 0;
@@ -246,9 +246,9 @@ void doinit(SYM *sp)
 			currentSym = sp;
 			sp->Initialize(nullptr, nullptr, 1);
 			if (sp->tp->numele == 0) {
-				if (sp->tp->GetBtp()) {
-					if (sp->tp->GetBtp()->type == bt_char || sp->tp->GetBtp()->type == bt_uchar
-						|| sp->tp->GetBtp()->type == bt_ichar || sp->tp->GetBtp()->type == bt_iuchar
+				if (sp->tp->btpp) {
+					if (sp->tp->btpp->type == bt_char || sp->tp->btpp->type == bt_uchar
+						|| sp->tp->btpp->type == bt_ichar || sp->tp->btpp->type == bt_iuchar
 						) {
 						sp->tp->numele = laststrlen;
 						sp->tp->size = laststrlen * 2;

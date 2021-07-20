@@ -434,7 +434,7 @@ bool ENODE::AssignTypeToList(TYP *tp)
 	if (tp->isArray) {
 		ne = tp->numele;
 		cnt = 0;
-		btp = tp->GetBtp();
+		btp = tp->btpp;
 		for (ep = p[0]->p[2]; ep; ep = ep->p[2]) {
 			cnt++;
 			ep->tp = btp;

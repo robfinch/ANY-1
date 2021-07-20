@@ -171,7 +171,8 @@ ENODE* Expression::ParseStringConst(ENODE** node)
 	if (sizeof_flag) {
 		tptr = (TYP*)TYP::Make(bt_pointer, 0);
 		tptr->size = strlen(str) + (int64_t)1;
-		tptr->btp = TYP::Make(bt_char, 2)->GetIndex();// stdchar.GetIndex();
+		tptr->btpp = TYP::Make(bt_char, 2);
+		tptr->btp = tptr->btpp->GetIndex();// stdchar.GetIndex();
 		tptr->val_flag = 1;
 		tptr->isUnsigned = TRUE;
 	}
@@ -200,7 +201,8 @@ ENODE* Expression::ParseInlineStringConst(ENODE** node)
 	if (sizeof_flag) {
 		tptr = (TYP*)TYP::Make(bt_pointer, 0);
 		tptr->size = strlen(str) + (int64_t)1;
-		tptr->btp = TYP::Make(bt_ichar, 2)->GetIndex();// stdchar.GetIndex();
+		tptr->btpp = TYP::Make(bt_ichar, 2);
+		tptr->btp = tptr->btpp->GetIndex();// stdchar.GetIndex();
 		tptr->val_flag = 1;
 		tptr->isUnsigned = TRUE;
 	}
@@ -231,16 +233,20 @@ ENODE* Expression::ParseStringConstWithSizePrefix(ENODE** node)
 		tptr->size = strlen(str) + (int64_t)1;
 		switch (str[0]) {
 		case 'B':
-			tptr->btp = TYP::Make(bt_byte, 1)->GetIndex();
+			tptr->btpp = TYP::Make(bt_byte, 1);
+			tptr->btp = tptr->btpp->GetIndex();
 			break;
 		case 'W':
-			tptr->btp = TYP::Make(bt_char, 2)->GetIndex();
+			tptr->btpp = TYP::Make(bt_char, 2);
+			tptr->btp = tptr->btpp->GetIndex();
 			break;
 		case 'T':
-			tptr->btp = TYP::Make(bt_short, 4)->GetIndex();
+			tptr->btpp = TYP::Make(bt_short, 4);
+			tptr->btp = tptr->btpp->GetIndex();
 			break;
 		case 'O':
-			tptr->btp = TYP::Make(bt_long, 8)->GetIndex();
+			tptr->btpp = TYP::Make(bt_long, 8);
+			tptr->btp = tptr->btpp->GetIndex();
 			break;
 		}
 		tptr->val_flag = 1;
@@ -285,8 +291,9 @@ ENODE* Expression::ParseThis(ENODE** node)
 	NextToken();
 	tptr = TYP::Make(bt_pointer, sizeOfPtr);
 	tptr->btp = tptr2->GetIndex();
+	tptr->btpp = tptr2;
 	tptr->isUnsigned = TRUE;
-	dfs.puts((char*)tptr->GetBtp()->sname->c_str());
+	dfs.puts((char*)tptr->btpp->sname->c_str());
 	pnode = makeinode(en_regvar, regCLP);
 	pnode->SetType(tptr);
 	dfs.puts("</ExprThis>");
@@ -422,7 +429,7 @@ ENODE* Expression::ParseNameRef(SYM* symi)
 		tptr->typeno = bt_long;
 		tptr->alignment = 8;
 		tptr->bit_offset = 0;
-		tptr->GetBtp() = nullptr;
+		tptr->btpp = nullptr;
 		tptr->isArray = false;
 		tptr->isConst = false;
 		tptr->isIO = false;
@@ -518,14 +525,14 @@ ENODE* Expression::ParseStar(SYM* symi)
 		error(ERR_IDEXPECT);
 		return (nullptr);
 	}
-	if (tp->GetBtp() == NULL)
+	if (tp->btpp == NULL)
 		error(ERR_DEREF);
 	else {
 		// A star before a function pointer just means that we want to
 		// invoke the function. We want to retain the pointer to the
 		// function as the type.
-		if (tp->GetBtp()->type != bt_func && tp->GetBtp()->type != bt_ifunc) {
-			tp = tp->GetBtp();
+		if (tp->btpp->type != bt_func && tp->btpp->type != bt_ifunc) {
+			tp = tp->btpp;
 		}
 		else
 			goto j1;
@@ -537,7 +544,7 @@ ENODE* Expression::ParseStar(SYM* symi)
 	tp1 = tp;
 	// Debugging?
 	if (tp->type == bt_pointer)
-		typ = tp->GetBtp()->type;
+		typ = tp->btpp->type;
 	//Autoincdec(tp,&ep1);
 	tp = CondDeref(&ep1, tp);
 j1:
@@ -751,6 +758,7 @@ ENODE* Expression::ParseAddressOf(SYM* symi)
 		ep1->esize = sizeOfPtr;		// converted to a pointer so size is now 8
 		tp1 = TYP::Make(bt_pointer, sizeOfPtr);
 		tp1->btp = tp->GetIndex();
+		tp1->btpp = tp;
 		tp1->val_flag = FALSE;
 		tp1->isUnsigned = TRUE;
 		tp = tp1;
@@ -974,8 +982,8 @@ j1:
 ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi, ENODE* parent)
 {
 	TypeArray typearray;
-	ENODE* ep2, * ep3, * qnode;
-	TYP* ptp1;
+	ENODE* ep2, * ep3, * qnode, *n1;
+	TYP* ptp1, * ptp2;
 	SYM* sp, *psp;
 	char* name;
 	int ii;
@@ -984,11 +992,15 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi, ENODE* pare
 	bool skip_id = false;
 
 	ExpressionHasReference = true;
+	NextToken();       /* past -> or . */
 	if (tp1 == nullptr) {
 		error(ERR_UNDEFINED);
 		goto xit;
 	}
-	NextToken();       /* past -> or . */
+	if (!tp1->IsStructType() && !(tp1->type == bt_pointer)) {
+		error(ERR_NOT_STRUCT);
+		goto xit;
+	}
 	if (tp1->IsVectorType()) {
 		ParseNonAssignExpression(&qnode, symi);
 		ep2 = makenode(en_shl, qnode, makeinode(en_icon, 3));
@@ -996,7 +1008,7 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi, ENODE* pare
 		// old dereference operation isn't needed. It is stripped 
 		// off by using ep->p[0] rather than ep.
 		ep1 = makenode(en_add, ep1->p[0], ep2);
-		tp1 = tp1->GetBtp();
+		tp1 = tp1->btpp;
 		tp1 = CondDeref(&ep1, tp1);
 		goto xit;
 	}
@@ -1010,12 +1022,35 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi, ENODE* pare
 	name = lastid;
 	//sp = FindMember(tp1, name);
 	
+	// If nothing is found under the type passed in, check the second type field
+	// to see if the identifier can be found there. Pointers to structs and 
+	// functions use the 'b' type field to store the pointed to type.
 	ii = tp1->lst.FindRising(name);
+	if (ii == 0) {
+		ptp2 = tp1->btpp;
+		while (ptp2 != nullptr) {
+			ii = ptp2->lst.FindRising(name);
+			if (ii != 0)
+				break;
+			ptp2 = ptp2->btpp;
+		}
+	}
+	n1 = ep1;
+	if (n1->nodetype == en_ref) {
+		if (n1->sym) {
+			if (n1->sym->name->compare(name) == 0) {
+				sp = n1->sym;
+				goto j1;
+			}
+		}
+	}
 	if (ii == 0) {
 		dfs.printf("Nomember1");
 		error(ERR_NOMEMBER);
 		goto xit;
 	}
+// It is possible to get multiple matches of the member, so choose the best
+	// match.
 	sp = TABLE::match[ii - 1];
 	sp = sp->FindRisingMatch();
 	if (sp == NULL) {
@@ -1023,6 +1058,8 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi, ENODE* pare
 		error(ERR_NOMEMBER);
 		goto xit;
 	}
+j1:
+	// Check the accessibility of the field.
 	if (sp->IsPrivate && sp->parent != currentFn->sym->parent) {
 		error(ERR_PRIVATE);
 		goto xit;
@@ -1058,7 +1095,7 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi, ENODE* pare
 				ep1 = makenode(en_fcall, ep3, ep2);
 				ep1->p[2] = parent;
 				ep1->isPascal = ep3->isPascal;
-				tp1 = sp->tp->GetBtp();
+				tp1 = sp->tp->btpp;
 				currentFn->IsLeaf = FALSE;
 			}
 			else {
@@ -1097,7 +1134,7 @@ ENODE* Expression::ParseDotOperator(TYP* tp1, ENODE *ep1, SYM* symi, ENODE* pare
 		ep1->isUnsigned = iu;
 		ep1->esize = sizeOfWord;
 //		ep1->p[2] = pep1;
-		//if (tp1->type==bt_pointer && (tp1->GetBtp()->type==bt_func || tp1->GetBtp()->type==bt_ifunc))
+		//if (tp1->type==bt_pointer && (tp1->btpp->type==bt_func || tp1->btpp->type==bt_ifunc))
 		//	dfs.printf("Pointer to func");
 		//else
 		tp1 = CondDeref(&ep1, tp1);
@@ -1114,11 +1151,14 @@ xit:
 
 ENODE* Expression::ParsePointsTo(TYP* tp1, ENODE* ep1)
 {
+	TYP* tp2;
+
+	tp2 = tp1;
 	if (tp1 == NULL) {
 		error(ERR_UNDEFINED);
 		goto xit;
 	}
-	if (tp1->type == bt_struct) {
+	if (tp1->IsStructType()) {
 		//printf("hello");
 		//ep1 = makenode(reftype, ep1, (ENODE *)NULL);
 	}
@@ -1126,15 +1166,16 @@ ENODE* Expression::ParsePointsTo(TYP* tp1, ENODE* ep1)
 		if (tp1->type != bt_pointer) {
 			error(ERR_NOPOINTER);
 		}
-		else
-			tp1 = tp1->GetBtp();
-	if (tp1->val_flag == FALSE) {
-		ep1 = makenode(en_ref, ep1, (ENODE*)NULL);
-		ep1->isPascal = ep1->p[0]->isPascal;
-		ep1->tp = tp1;
+		else {
+			tp1 = tp1->btpp;
+			if (tp1->val_flag == FALSE && FALSE) {
+				ep1 = makenode(en_ref, ep1, (ENODE*)NULL);
+				ep1->isPascal = ep1->p[0]->isPascal;
+			}
+			ep1->tp = tp2;
 	}
 xit:
-	if (ep1) ep1->tp = tp1;
+	//	if (ep1) ep1->tp = tp1;
 	return (ep1);
 }
 
@@ -1169,7 +1210,7 @@ ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1, SYM* symi)
 	dfs.printf("tp2->type=%d", tp2->type);
 	name = lastid;
 	//NextToken();
-	tp3 = tp1->GetBtp();
+	tp3 = tp1->btpp;
 	ep4 = nullptr;
 	if (tp3) {
 		if (tp3->type == bt_struct || tp3->type == bt_union || tp3->type == bt_class)
@@ -1202,14 +1243,16 @@ ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1, SYM* symi)
 		sp->storage_class = sc_external;
 		sp->SetName(name);
 		sp->tp = TYP::Make(bt_func, 0);
-		sp->tp->btp = TYP::Make(bt_long, sizeOfWord)->GetIndex();
+		sp->tp->btpp = TYP::Make(bt_long, sizeOfWord);
+		sp->tp->btp = sp->tp->btpp->GetIndex();
 		sp->fi->AddProto(&typearray);
 		sp->mangledName = sp->fi->BuildSignature();
 		gsyms[0].insert(sp);
 	}
 	else if (sp->IsUndefined) {
 		sp->tp = TYP::Make(bt_func, 0);
-		sp->tp->btp = TYP::Make(bt_long, sizeOfWord)->GetIndex();
+		sp->tp->btpp = TYP::Make(bt_long, sizeOfWord);
+		sp->tp->btp = sp->tp->btpp->GetIndex();
 		if (!sp->fi) {
 			sp->fi = MakeFunction(sp->id, sp, defaultcc == 1);
 		}
@@ -1239,7 +1282,7 @@ ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1, SYM* symi)
 		//else
 		//	currentFn->IsLeaf = FALSE;
 	}
-	tp1 = sp->tp->GetBtp();
+	tp1 = sp->tp->btpp;
 	//			tp1 = ExprFunction(tp1, &ep1);
 xit:
 	if (ep1) ep1->tp = tp1;
@@ -1286,7 +1329,7 @@ ENODE* Expression::ParseOpenbr(TYP* tp1, ENODE* ep1)
 	if (cnt == 0) {
 		numdimen = tp1->dimen;
 		cnt2 = 1;
-		for (; tp4; tp4 = tp4->GetBtp()) {
+		for (; tp4; tp4 = tp4->btpp) {
 			sa[cnt2] = max(tp4->numele, 1);
 			cnt2++;
 			if (cnt2 > 9) {
@@ -1295,7 +1338,7 @@ ENODE* Expression::ParseOpenbr(TYP* tp1, ENODE* ep1)
 			}
 		}
 		if (tp1->type == bt_pointer) {
-			sa[numdimen + 1] = tp1->GetBtp()->size;
+			sa[numdimen + 1] = tp1->btpp->size;
 			sa[numdimen + 1] = ep1->esize;
 		}
 		else
@@ -1343,7 +1386,7 @@ ENODE* Expression::ParseOpenbr(TYP* tp1, ENODE* ep1)
 		error(ERR_NOPOINTER);
 	}
 	else
-		tp1 = tp1->GetBtp();
+		tp1 = tp1->btpp;
 	//if (cnt==0) {
 	//	switch(numdimen) {
 	//	case 1: sz1 = sa[numdimen+1]; break;
@@ -1542,7 +1585,7 @@ ENODE* Expression::MakeMemberNameNode(SYM* sp)
 	isMember = true;
 	node = nullptr;
 	if ((sp->tp->type == bt_func || sp->tp->type == bt_ifunc)
-		|| (sp->tp->type == bt_pointer && (sp->tp->GetBtp()->type == bt_func || sp->tp->GetBtp()->type == bt_ifunc)))
+		|| (sp->tp->type == bt_pointer && (sp->tp->btpp->type == bt_func || sp->tp->btpp->type == bt_ifunc)))
 	{
 		if (sp->fi) {
 			node = makesnode(en_cnacon, sp->name, sp->fi->BuildSignature(), 25);
@@ -1599,6 +1642,10 @@ ENODE* Expression::MakeNameNode(SYM *sp)
 
 	case sc_auto:
 		node = MakeAutoNameNode(sp);
+		break;
+
+	case sc_label:
+		node = makesnode(en_cnacon, sp->name, sp->mangledName, sp->value.i);
 		break;
 
 	default:        /* auto and any errors */

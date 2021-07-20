@@ -25,10 +25,18 @@
 //
 #include "stdafx.h"
 
+#define ADD_SYMS \
+n = 0; \
+for (nn = TABLE::matchno; gSearchCnt < 100 && nn > 0; nn--) \
+	gSearchSyms[gSearchCnt++] = TABLE::match[n++];
+
 char *prefix;
 extern int nparms;
 extern bool isRegister;
 SYM* currentSym = nullptr;
+
+static SYM* gSearchSyms[100];
+static int gSearchCnt;
 
 Function* SYM::MakeFunction(int symnum, bool isPascal) {
 	Function* fn = compiler.ff.MakeFunction(symnum, this, isPascal);
@@ -99,14 +107,17 @@ uint8_t hashadd(char *nm)
 
 SYM *search2(std::string na,TABLE *tbl,TypeArray *typearray)
 {
-	SYM *thead;
+	SYM *thead, *sp;
+	TYP* tp;
 	TypeArray *ta;
 
 	if (&na == nullptr || tbl==nullptr || na == "")
 		return nullptr;
 //	printf("Enter search2\r\n");
-	if (tbl==&gsyms[0])
-		thead = compiler.symbolTable[0].GetPtr(hashadd((char *)na.c_str()));
+	if (tbl == &gsyms[0])
+		thead = compiler.symbolTable[0].GetPtr(hashadd((char*)na.c_str()));
+	else if (tbl == &tagtable)
+		thead = SYM::GetPtr(tagtable.GetHead());
 	else
 		thead = &compiler.symbolTable[tbl->GetHead()];
 	while( thead != NULL) {
@@ -151,13 +162,20 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
 	SYM *sp;
 	Statement *st;
 	SYM *p, *q;
+	int n;
+	int nn;
 
+	gSearchCnt = 0;
+	ZeroMemory(gSearchSyms, sizeof(gSearchSyms));
 	dfs.printf("\n<gsearch2> for: |%s|\n", (char *)na.c_str());
 	prefix = nullptr;
 	sp = currentSym;
 	if (sp) {
-		if (p = sp->Find(na))
+		if (p = sp->Find(na)) {
+			gSearchCnt = 0;
+			gSearchSyms[0] = p;
 			return (p);
+		}
 	}
 	sp = nullptr;
 	// There might not be a current statement if global declarations are
@@ -177,29 +195,33 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
     dfs.printf("Looking in statement table\n");
 		if (currentStmt->ssyms.Find(na,rettype,typearray,exact)) {
 			sp = TABLE::match[TABLE::matchno-1];
-     	dfs.printf("Found as an auto var\n");
-			dfs.puts("</gsearch2>\n");
-			return (sp);
+			ADD_SYMS
+			dfs.printf("Found as an auto var\n");
+//			dfs.puts("</gsearch2>\n");
+//			return (sp);
 		}
 		st = currentStmt->outer;
-		while (st) {
-    dfs.printf("Looking in outer statement table\n");
+		while (st && gSearchCnt < 100) {
+			dfs.printf("Looking in outer statement table\n");
 			if (st->ssyms.Find(na,rettype,typearray,exact)) {
 				sp = TABLE::match[TABLE::matchno-1];
-       	dfs.printf("Found as an auto var\n");
-  			dfs.puts("</gsearch2>\n");
-				return (sp);
+				ADD_SYMS
+				dfs.printf("Found as an auto var\n");
+//  			dfs.puts("</gsearch2>\n");
+//				return (sp);
 			}
 			st = st->outer;
 		}
+j1:
 		p = currentFn->sym;
 		if (p) {
       dfs.printf("Looking in function's symbol table\n");
   		if (currentFn->sym->lsyms.Find(na,rettype,typearray,exact)) {
   			sp = TABLE::match[TABLE::matchno-1];
-       	dfs.printf("Found in function symbol table (a label)\n");
-  			dfs.puts("</gsearch2>\n");
-  			return (sp);
+				ADD_SYMS
+				dfs.printf("Found in function symbol table (a label)\n");
+  			//dfs.puts("</gsearch2>\n");
+  			//return (sp);
   		}
   		while(p) {
   			dfs.printf("Searching method/class:%s|%p\n",(char *)p->name->c_str(),(char *)p);
@@ -208,9 +230,10 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
       			dfs.printf("Looking at params %p\n",(char *)&p->fi->params);
       			if (p->fi->params.Find(na,rettype,typearray,exact)) {
       				sp = TABLE::match[TABLE::matchno-1];
-             	dfs.printf("Found as parameter\n");
-        			dfs.puts("</gsearch2>\n");
-      				return (sp);
+							ADD_SYMS
+							dfs.printf("Found as parameter\n");
+//        			dfs.puts("</gsearch2>\n");
+//      				return (sp);
       			}
 						q = q->GetPtr(p->parent);
 						if (q)
@@ -218,9 +241,10 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
 						while (q) {
 							if (q->fi->params.Find(na, rettype, typearray, exact)) {
 								sp = TABLE::match[TABLE::matchno - 1];
+								ADD_SYMS
 								dfs.printf("Found as parameter\n");
-								dfs.puts("</gsearch2>\n");
-								return (sp);
+//								dfs.puts("</gsearch2>\n");
+//								return (sp);
 							}
 							q = q->GetPtr(p->parent);
 						}
@@ -231,9 +255,10 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
 						while (q) {
 							if (q->fi->params.Find(na, rettype, typearray, exact)) {
 								sp = TABLE::match[TABLE::matchno - 1];
+								ADD_SYMS
 								dfs.printf("Found as parameter\n");
-								dfs.puts("</gsearch2>\n");
-								return (sp);
+//								dfs.puts("</gsearch2>\n");
+//								return (sp);
 							}
 							q = q->GetNextPtr();
 							if (q == q->GetPtr(p->lsyms.head))
@@ -247,9 +272,10 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
     			  int nn;
     				if (p->tp->lst.Find(na,rettype,typearray,exact)) {
     					sp = TABLE::match[TABLE::matchno-1];
-             	dfs.printf("Found in class\n");
-        			dfs.puts("</gsearch2>\n");
-    					return (sp);
+							ADD_SYMS
+							dfs.printf("Found in class\n");
+//        			dfs.puts("</gsearch2>\n");
+//    					return (sp);
     				}
     				dfs.printf("Base=%d",p->tp->lst.base);
     				tab = p->GetPtr(p->tp->lst.base);
@@ -265,14 +291,19 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
            				  //sp = sp->FindRisingMatch();
         				    sp = Function::FindExactMatch(TABLE::matchno, na, bt_long, typearray)->sym;
         				    if (sp) {
+											if (gSearchCnt < 100) {
+												gSearchSyms[gSearchCnt] = sp;
+												gSearchCnt++;
+											}
                 			dfs.puts("</gsearch2>\n");
         				      return (sp);
       				      }
         				  }
         				  else {
     				        sp = TABLE::match[0];
-                		dfs.puts("</gsearch2>\n");
-    				        return (sp);
+										ADD_SYMS
+//										dfs.puts("</gsearch2>\n");
+//    				        return (sp);
     				      }
     				    }
       				}
@@ -286,12 +317,36 @@ SYM *gsearch2(std::string na, __int16 rettype, TypeArray *typearray, bool exact)
 		dfs.printf("Looking at global symbols\n");
 		if (gsyms[0].Find(na,rettype,typearray,exact)) {
 			sp = TABLE::match[TABLE::matchno-1];
+			ADD_SYMS
 			dfs.printf("Found in global symbol table\n");
-			dfs.puts("</gsearch2>\n");
-			return (sp);
+//			dfs.puts("</gsearch2>\n");
+//			return (sp);
+		}
+		// Second finally, search for an enum
+		dfs.printf("Looking at enums\n");
+		for (n = 0; n < 32768; n++) {
+			sp = &compiler.symbolTable[n];
+			if (sp->name) {
+				if (sp->name->compare(na) == 0) {
+					if (sp->tp == &stdconst) {
+						if (gSearchCnt < 100) {
+							gSearchSyms[gSearchCnt] = sp;
+							gSearchCnt++;
+						}
+						TABLE::match[0] = sp;
+						TABLE::matchno = 1;
+					}
+				}
+			}
 		}
 	}
-
+	ZeroMemory(TABLE::match, sizeof(TABLE::match));
+	memcpy(TABLE::match, gSearchSyms, gSearchCnt * sizeof(SYM*));
+	TABLE::matchno = gSearchCnt;
+	if (TABLE::matchno > 0)
+		sp = TABLE::match[0];
+	else
+		sp = nullptr;
 	dfs.puts("</gsearch2>\n");
   return (sp);
 }
@@ -561,6 +616,9 @@ void SYM::SetStorageOffset(TYP *head, int nbytes, int al, int ilc, int ztype)
 	}
 	else {
 		value.i = -(ilc + nbytes + head->roundSize());// + parentBytes);
+	}
+	if (head == nullptr) {
+		head = TYP::Make(bt_long, sizeOfWord);
 	}
 	head->struct_offset = value.i;
 }

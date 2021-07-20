@@ -390,7 +390,7 @@ Operand *GetTempVectorRegister()
     ap->mode = am_reg;
     ap->preg = next_vreg;
     ap->deep = vreg_alloc_ptr;
-	ap->type = stdvector.GetIndex();
+	ap->typep = &stdvector;
     vreg_alloc[vreg_alloc_ptr].reg = next_vreg;
     vreg_alloc[vreg_alloc_ptr].Operand = ap;
     vreg_alloc[vreg_alloc_ptr].f.isPushed = 'F';
@@ -415,7 +415,7 @@ Operand *GetTempVectorMaskRegister()
     ap->mode = am_vmreg;
     ap->preg = next_vmreg;
     ap->deep = vmreg_alloc_ptr;
-	ap->type = stdvectormask->GetIndex();
+	ap->typep = stdvectormask;
     vmreg_alloc[vmreg_alloc_ptr].reg = next_vmreg;
     vmreg_alloc[vmreg_alloc_ptr].Operand = ap;
     vmreg_alloc[vmreg_alloc_ptr].f.isPushed = 'F';
@@ -447,7 +447,7 @@ Operand *GetTempFPRegister()
     ap->mode = am_fpreg;
     ap->preg = next_fpreg;
     ap->deep = fpreg_alloc_ptr;
-	ap->type = stddouble.GetIndex();
+	ap->typep = &stddouble;
     fpreg_alloc[fpreg_alloc_ptr].reg = next_fpreg;
     fpreg_alloc[fpreg_alloc_ptr].Operand = ap;
     fpreg_alloc[fpreg_alloc_ptr].f.isPushed = 'F';
@@ -479,7 +479,7 @@ Operand* GetTempPositRegister()
 	ap->mode = am_preg;
 	ap->preg = next_preg;
 	ap->deep = preg_alloc_ptr;
-	ap->type = stdposit.GetIndex();
+	ap->typep = &stdposit;
 	ap->tp = &stdposit;
 	preg_alloc[preg_alloc_ptr].reg = next_preg;
 	preg_alloc[preg_alloc_ptr].Operand = ap;
@@ -567,7 +567,7 @@ void validate(Operand *ap)
     Function *sym = currentFn;
 	unsigned int frg = (unsigned)regFirstTemp;
 
-	if (ap->type!=stdvector.GetIndex())
+	if (ap->typep!=&stdvector)
     switch (ap->mode) {
 	case am_reg:
 		if ((ap->preg >= frg && ap->preg <= (unsigned)regLastTemp) && reg_alloc[ap->pdeep].f.isPushed == 'T' ) {
@@ -625,12 +625,12 @@ void ReleaseTempRegister(Operand *ap)
 	// is in use until it's released. The in_use flag will cause
 	// validate not to work. Need to keep the value of in_use for later.
 	nn = reg_in_use[ap->preg];
-	if (ap->type != stdvector.GetIndex() && ap->mode != am_fpreg)
+	if (ap->typep != &stdvector && ap->mode != am_fpreg)
 		reg_in_use[ap->preg] = -1;
 	validate(ap);
 	reg_in_use[ap->preg] = nn;
 
-	if (ap->type==stdvector.GetIndex()) {
+	if (ap->typep==&stdvector) {
 		switch (ap->mode) {
 		case am_vmreg:
 			if (ap->preg >= 1 && ap->preg <= 3) {
@@ -931,13 +931,13 @@ void ReleaseTempRegister(Operand *ap)
 		PushOnRstk(ap->preg);
 }
 */
-Operand *GetTempReg(int type)
+Operand *GetTempReg(TYP* typ)
 {
-	if (type==stdvectormask->GetIndex())
+	if (typ==stdvectormask)
 		return (GetTempVectorMaskRegister());
-	else if (type==stdvector.GetIndex())
+	else if (typ==&stdvector)
 		return (GetTempVectorRegister());
-	else if (type==stddouble.GetIndex())
+	else if (typ==&stddouble)
 		return (GetTempFPRegister());
 	else
 		return (GetTempRegister());
@@ -957,13 +957,13 @@ void ReleaseTempReg(Operand *ap)
 {
 	if (ap==nullptr)
 		return;
-	if (ap->type==stdvectormask->GetIndex())
+	if (ap->typep==stdvectormask)
 		ReleaseTempVectorMaskRegister();
-	else if (ap->type==stdvector.GetIndex())
+	else if (ap->typep==&stdvector)
 		ReleaseTempVectorRegister();
-	else if (ap->type==stddouble.GetIndex())
+	else if (ap->typep==&stddouble)
 		ReleaseTempFPRegister(ap);
-	else if (ap->type == stdposit.GetIndex())
+	else if (ap->typep == &stdposit)
 		ReleaseTempPositRegister(ap);
 	else
 		ReleaseTempRegister(ap);

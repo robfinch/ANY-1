@@ -143,6 +143,7 @@ int ClassDeclaration::Parse(int ztype)
 			// Start off at the size of the base.
 			sp->tp = allocTYP();
 			sp->tp->lst.SetBase(bcsp->GetIndex());
+			sp->tp->lst.basep = bcsp;
 			dfs.printf("Set base class: %d\n", sp->tp->lst.base);
 			sp->tp->size = bcsp->tp->size;
 			sp->tp->type = (e_bt)ztype;

@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2012-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2012-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -28,6 +28,19 @@
 extern TABLE tagtable;
 extern TYP *head;
 extern TYP stdconst;
+
+SYM* FindEnum(char *txt)
+{
+  SYM* sp;
+
+  sp = search(std::string(txt), &tagtable);
+  if (sp == nullptr)
+    return (nullptr);
+  if (sp->tp->type == bt_enum)
+    return (sp);
+  return (nullptr);
+}
+
 
 void Declaration::ParseEnum(TABLE *table)
 {   

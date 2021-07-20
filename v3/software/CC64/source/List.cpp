@@ -115,7 +115,7 @@ void put_ty(TYP *tp)
                                 lfs.printf("Pointer to ");
                         else
                                 lfs.printf("Array of ");
-                        put_ty(tp->GetBtp());
+                        put_ty(tp->btpp);
                         break;
                 case bt_class:
                         lfs.printf("class ");
@@ -133,7 +133,7 @@ ucont:                  if(tp->sname->length() == 0)
                 case bt_ifunc:
                 case bt_func:
                         lfs.printf("Function returning ");
-                        put_ty(tp->GetBtp());
+                        put_ty(tp->btpp);
                         break;
                 }
 }

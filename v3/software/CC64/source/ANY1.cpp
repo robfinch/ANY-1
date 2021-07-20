@@ -252,8 +252,9 @@ Operand* ANY1CodeGenerator::GenerateBitfieldExtract(Operand* ap, ENODE* offset, 
 		mask = 0;
 		wd = ap3->offset->i;
 		while (wd-- >= 0)	mask = mask + mask + 1;
-		if (ap2->offset->i > 0)
-			GenerateTriadic(op_srl, 0, ap1, ap, ap2);
+		if (ap2->offset)
+			if (ap2->offset->i > 0)
+				GenerateTriadic(op_srl, 0, ap1, ap, ap2);
 		GenerateTriadic(op_and, 0, ap1, ap1, MakeImmediate((int64_t)mask));
 		if (isSigned)
 			SignExtendBitfield(ap1, mask);
@@ -1094,16 +1095,16 @@ static void SaveRegisterSet(SYM *sym)
 	int nn, mm;
 
 	if (!cpu.SupportsPush || true) {
-		mm = sym->tp->GetBtp()->type!=bt_void ? 29 : 30;
+		mm = sym->tp->btpp->type!=bt_void ? 29 : 30;
 		GenerateTriadic(op_sub,0,makereg(regSP),makereg(regSP),cg.MakeImmediate(mm*sizeOfWord));
 		mm = 0;
-		for (nn = 1 + (sym->tp->GetBtp()->type!=bt_void ? 1 : 0); nn < 31; nn++) {
+		for (nn = 1 + (sym->tp->btpp->type!=bt_void ? 1 : 0); nn < 31; nn++) {
 			GenerateDiadic(op_sto,0,makereg(nn),cg.MakeIndexed(mm,regSP));
 			mm += sizeOfWord;
 		}
 	}
 	else
-		for (nn = 1 + (sym->tp->GetBtp()->type!=bt_void ? 1 : 0); nn < 31; nn++)
+		for (nn = 1 + (sym->tp->btpp->type!=bt_void ? 1 : 0); nn < 31; nn++)
 			GenerateMonadic(op_push,0,makereg(nn));
 }
 
@@ -1113,15 +1114,15 @@ static void RestoreRegisterSet(SYM * sym)
 
 	if (!cpu.SupportsPop || true) {
 		mm = 0;
-		for (nn = 1 + (sym->tp->GetBtp()->type!=bt_void ? 1 : 0); nn < 31; nn++) {
+		for (nn = 1 + (sym->tp->btpp->type!=bt_void ? 1 : 0); nn < 31; nn++) {
 			GenerateDiadic(op_ldo,0,makereg(nn),cg.MakeIndexed(mm,regSP));
 			mm += sizeOfWord;
 		}
-		mm = sym->tp->GetBtp()->type!=bt_void ? 29 : 30;
+		mm = sym->tp->btpp->type!=bt_void ? 29 : 30;
 		GenerateTriadic(op_add,0,makereg(regSP),makereg(regSP),cg.MakeImmediate(mm*sizeOfWord));
 	}
 	else // ToDo: check pop is in reverse order to push
-		for (nn = 1 + (sym->tp->GetBtp()->type!=bt_void ? 1 : 0); nn < 31; nn++)
+		for (nn = 1 + (sym->tp->btpp->type!=bt_void ? 1 : 0); nn < 31; nn++)
 			GenerateMonadic(op_pop,0,makereg(nn));
 }
 
@@ -1345,7 +1346,7 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 						*push_count = 1;
 					}
 					else {
-						if (ap->type==stddouble.GetIndex()) 
+						if (ap->typep==&stddouble) 
 						{
 							*isFloat = true;
 							GenerateMonadic(op_push,0,ap);
@@ -1377,12 +1378,12 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 						nn = 1;
 					}
 					else {
-						if (ap->type==stddouble.GetIndex() || ap->mode==am_reg) {
+						if (ap->typep==&stddouble || ap->mode==am_reg) {
 							*isFloat = true;
 							GenerateDiadic(op_sto,0,ap,MakeIndexed(stkoffs,regSP));
 							nn = sz/sizeOfWord;
 						}
-						else if (ap->type == stdposit.GetIndex() || ap->mode == am_reg) {
+						else if (ap->typep == &stdposit || ap->mode == am_reg) {
 							GenerateDiadic(op_sto, 0, ap, MakeIndexed(stkoffs, regSP));
 							nn = 1;
 						}
@@ -1436,11 +1437,11 @@ int ANY1CodeGenerator::PushArguments(Function *sym, ENODE *plist)
 	for(--nn, i = 0; nn >= 0; --nn,i++ )
   {
 		if (pl[nn]->etype == bt_pointer) {
-			if (pl[nn]->tp->GetBtp() == nullptr) {
+			if (pl[nn]->tp->btpp == nullptr) {
 				sum++;
 				continue;
 			}
-			if (pl[nn]->tp->GetBtp()->type == bt_ichar || pl[nn]->tp->GetBtp()->type == bt_iuchar)
+			if (pl[nn]->tp->btpp->type == bt_ichar || pl[nn]->tp->btpp->type == bt_iuchar)
 				continue;
 		}
 				//		sum += GeneratePushParameter(pl[nn],ta ? ta->preg[ta->length - i - 1] : 0,sum*8);
@@ -1476,7 +1477,7 @@ int ANY1CodeGenerator::PushArguments(Function *sym, ENODE *plist)
 		i = maxnn-1;
 		for (nn = 0; nn < maxnn; nn++, i--) {
 			if (pl[nn]->etype == bt_pointer)
-				if (pl[nn]->tp->GetBtp()->type == bt_ichar || pl[nn]->tp->GetBtp()->type == bt_iuchar)
+				if (pl[nn]->tp->btpp->type == bt_ichar || pl[nn]->tp->btpp->type == bt_iuchar)
 					continue;
 			if (pl[nn]->etype == bt_none) {	// was there an empty parameter?
 				if (sy == nullptr && sym)
@@ -1558,8 +1559,8 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
  		sym = s->fi;
         i = 0;
   /*
-    	if ((sym->tp->GetBtp()->type==bt_struct || sym->tp->GetBtp()->type==bt_union) && sym->tp->GetBtp()->size > 8) {
-            nn = tmpAlloc(sym->tp->GetBtp()->size) + lc_auto + round8(sym->tp->GetBtp()->size);
+    	if ((sym->tp->btpp->type==bt_struct || sym->tp->btpp->type==bt_union) && sym->tp->btpp->size > 8) {
+            nn = tmpAlloc(sym->tp->btpp->size) + lc_auto + round8(sym->tp->btpp->size);
             GenerateMonadic(op_pea,0,MakeIndexed(-nn,regFP));
             i = 1;
         }
@@ -1619,8 +1620,8 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
     {
         i = 0;
     /*
-    	if ((node->p[0]->tp->GetBtp()->type==bt_struct || node->p[0]->tp->GetBtp()->type==bt_union) && node->p[0]->tp->GetBtp()->size > 8) {
-            nn = tmpAlloc(node->p[0]->tp->GetBtp()->size) + lc_auto + round8(node->p[0]->tp->GetBtp()->size);
+    	if ((node->p[0]->tp->btpp->type==bt_struct || node->p[0]->tp->btpp->type==bt_union) && node->p[0]->tp->btpp->size > 8) {
+            nn = tmpAlloc(node->p[0]->tp->btpp->size) + lc_auto + round8(node->p[0]->tp->btpp->size);
             GenerateMonadic(op_pea,0,MakeIndexed(-nn,regFP));
             i = 1;
         }
@@ -1699,8 +1700,8 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 	if (sym
 		&& sym->sym
 		&& sym->sym->tp 
-		&& sym->sym->tp->GetBtp()
-		&& sym->sym->tp->GetBtp()->IsFloatType()) {
+		&& sym->sym->tp->btpp
+		&& sym->sym->tp->btpp->IsFloatType()) {
 		GenerateHint(end_func_call);
 		if (!(flags & am_novalue))
 			return (makereg(regFirstArg));
@@ -1710,8 +1711,8 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 	if (sym
 		&& sym->sym
 		&& sym->sym->tp
-		&& sym->sym->tp->GetBtp()
-		&& sym->sym->tp->GetBtp()->IsVectorType()) {
+		&& sym->sym->tp->btpp
+		&& sym->sym->tp->btpp->IsVectorType()) {
 		GenerateHint(end_func_call);
 		if (!(flags & am_novalue))
 			return (makevreg(1));
@@ -1721,17 +1722,17 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 	if (sym
 		&& sym->sym
 		&& sym->sym->tp
-		&& sym->sym->tp->GetBtp()
+		&& sym->sym->tp->btpp
 		) {
 		if (!(flags & am_novalue)) {
-			if (sym->sym->tp->GetBtp()->type != bt_void) {
+			if (sym->sym->tp->btpp->type != bt_void) {
 				ap = GetTempRegister();
 				GenerateDiadic(op_mov, 0, ap, makereg(regFirstArg));
 				regs[1].modified = true;
 			}
 			else
 				ap = makereg(regZero);
-			ap->isPtr = sym->sym->tp->GetBtp()->type == bt_pointer;
+			ap->isPtr = sym->sym->tp->btpp->type == bt_pointer;
 		}
 		else {
 			GenerateHint(end_func_call);
@@ -1755,7 +1756,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 	else {
 		if( result->preg != 1 || (flags & am_reg) == 0 ) {
 			if (sym) {
-				if (sym->tp->GetBtp()->type==bt_void)
+				if (sym->tp->btpp->type==bt_void)
 					;
 				else {
                     if (sym->tp->type==bt_double)

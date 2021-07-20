@@ -232,7 +232,7 @@ Operand *OperandFactory::makevreg(int r)
 	ap = allocOperand();
 	ap->mode = am_reg;
 	ap->preg = r;
-	ap->type = stdvector.GetIndex();
+	ap->typep = &stdvector;
 	return (ap);
 }
 
@@ -251,7 +251,7 @@ Operand *OperandFactory::makefpreg(int r)
 	ap = allocOperand();
 	ap->mode = am_reg;
 	ap->preg = r;// | 0x20;
-	ap->type = stddouble.GetIndex();
+	ap->typep = &stddouble;
 	return (ap);
 }
 
@@ -261,7 +261,7 @@ Operand* OperandFactory::makepreg(int r)
 	ap = allocOperand();
 	ap->mode = am_preg;
 	ap->preg = r|0x40;
-	ap->type = stdposit.GetIndex();
+	ap->typep = &stdposit;
 	return (ap);
 }
 

@@ -228,6 +228,7 @@ void Compiler::AddStandardTypes()
 	p->val_flag = 1;
 	p->size = sizeOfPtr;
 	p->btp = pchar->GetIndex();
+	p->btpp = pchar;
 	p->bit_width = nullptr;
 	p->precision = sizeOfPtr * 8;
 	p->isUnsigned = true;
@@ -239,6 +240,7 @@ void Compiler::AddStandardTypes()
 	p->val_flag = 1;
 	p->size = sizeOfPtr;
 	p->btp = pichar->GetIndex();
+	p->btpp = pichar;
 	p->bit_width = nullptr;
 	p->precision = sizeOfPtr * 8;
 	p->isUnsigned = true;
@@ -250,6 +252,7 @@ void Compiler::AddStandardTypes()
 	p->val_flag = 1;
 	p->size = sizeOfPtr;
 	p->btp = pbyte->GetIndex();
+	p->btpp = pbyte;
 	p->bit_width = nullptr;
 	p->precision = sizeOfPtr * 8;
 	p->isUnsigned = true;
@@ -314,6 +317,7 @@ void Compiler::AddStandardTypes()
 
 	p = TYP::Make(bt_func,0);
 	p->btp = pint->GetIndex();
+	p->btpp = pint;
 	stdfunc = *p;
 
 	p = allocTYP();

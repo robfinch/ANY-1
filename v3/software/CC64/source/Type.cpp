@@ -66,6 +66,8 @@ bool TYP::IsScalar()
 
 
 TYP *TYP::GetBtp() {
+	if (this == nullptr)
+		return (nullptr);
     if (btp==0)
       return nullptr;
     return &compiler.typeTable[btp];
@@ -88,9 +90,10 @@ TYP *TYP::Copy(TYP *src)
 //			throw gcnew C64::C64Exception();
 		memcpy(dst,src,sizeof(TYP));
 		dfs.printf("A");
-		if (src->btp && src->GetBtp()) {
+		if (src->btp && src->btpp) {
   		dfs.printf("B");
-			dst->btp = Copy(src->GetBtp())->GetIndex();
+			dst->btpp = Copy(src->btpp);
+			dst->btp = dst->btpp->GetIndex();// Copy(src->btpp)->GetIndex();
 		}
 		dfs.printf("C");
 		// We want to keep any base type indicator so Clear() isn't called.
@@ -157,7 +160,7 @@ int TYP::GetHash()
 		if (p->type==bt_pointer)
 			n+=8192;//20000;
 		p1 = p;
-		p = p->GetBtp();
+		p = p->btpp;
 	} while (p);
 	n += p1->typeno;
 	return (n);
@@ -172,7 +175,7 @@ int64_t TYP::GetElementSize()
 	p = this;
 	do {
 		p1 = p;
-		p = p->GetBtp();
+		p = p->btpp;
 	} while (p);
 	switch(p1->type) {
 	case bt_byte:
@@ -247,7 +250,7 @@ void TYP::put_ty()
                     lfs.printf("Pointer to ");
             else
                     lfs.printf("Array of ");
-            GetBtp()->put_ty();
+            btpp->put_ty();
             break;
     case bt_class:
             lfs.printf("class ");
@@ -265,7 +268,7 @@ ucont:                  if(sname->length() == 0)
     case bt_ifunc:
     case bt_func:
             lfs.printf("Function returning ");
-            GetBtp()->put_ty();
+            btpp->put_ty();
             break;
     }
 }
@@ -577,10 +580,10 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 		}
 		if (a->type != b->type)
 			goto chk;
-		if (a->GetBtp() == b->GetBtp())
+		if (a->btpp == b->btpp)
 			return (true);
-		if (a->GetBtp() && b->GetBtp())
-			return (TYP::IsSameType(a->GetBtp(), b->GetBtp(), exact));
+		if (a->btpp && b->btpp)
+			return (TYP::IsSameType(a->btpp, b->btpp, exact));
 		goto chk;
 
 	case bt_struct:
@@ -588,10 +591,10 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 	case bt_class:
 		if (a->type != b->type)
 			goto chk;
-		if (a->GetBtp() == b->GetBtp() || !exact)
+		if (a->btpp == b->btpp || !exact)
 			return (true);
-		if (a->GetBtp() && b->GetBtp())
-			return (TYP::IsSameType(a->GetBtp(), b->GetBtp(), exact));
+		if (a->btpp && b->btpp)
+			return (TYP::IsSameType(a->btpp, b->btpp, exact));
 		goto chk;
 
 	case bt_enum:
@@ -810,11 +813,11 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 	*/
 	// First create array full of empty elements.
 	/*
-	size = GetBtp()->size;
+	size = btpp->size;
 	poses = new Strmpos[(numele+1) * sizeof(Strmpos)];
 	for (n = 0; n < numele; n++) {
 		poses[n].poses = ofs.tellp();
-		GetBtp()->Initialize(nullptr, GetBtp(), 0);
+		btpp->Initialize(nullptr, btpp, 0);
 	}
 	poses[numele].poses = ofs.tellp();
 	*/
@@ -862,8 +865,8 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 			}
 
 			// Allow char array initialization like { "something", "somethingelse" }
-			if (lastst == sconst && (GetBtp()->type == bt_char || GetBtp()->type == bt_uchar
-				|| GetBtp()->type == bt_ichar || GetBtp()->type == bt_iuchar)) {
+			if (lastst == sconst && (btpp->type == bt_char || btpp->type == bt_uchar
+				|| btpp->type == bt_ichar || btpp->type == bt_iuchar)) {
 				if (fill > 0) {
 					while (fill > 0) {
 						fill--;
@@ -910,7 +913,7 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 				free(str);
 				pos++;
 			}
-			else if (lastst == asconst && GetBtp()->type == bt_byte) {
+			else if (lastst == asconst && btpp->type == bt_byte) {
 				while (fill > 0) {
 					fill--;
 					spitout = false;
@@ -955,9 +958,9 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 				pos++;
 			}
 			else {
-				switch (GetBtp()->type) {
+				switch (btpp->type) {
 				case bt_array:
-					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0, symi);
+					nbytes += btpp->Initialize(nullptr, btpp, fill == 0, symi);
 					pos++;
 					break;
 				case bt_byte:
@@ -1004,7 +1007,7 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 					}
 					break;
 				case bt_class:
-					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0, symi);
+					nbytes += btpp->Initialize(nullptr, btpp, fill == 0, symi);
 					pos++;
 					break;
 				case bt_double:
@@ -1094,12 +1097,12 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 					if (fill > 0) {
 						while (fill > 0) {
 							fill--;
-							nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0, symi);
+							nbytes += btpp->Initialize(nullptr, btpp, fill == 0, symi);
 							pos++;
 						}
 					}
 					else {
-						nbytes += GetBtp()->Initialize(nullptr, GetBtp(), 1, symi);
+						nbytes += btpp->Initialize(nullptr, btpp, 1, symi);
 						pos++;
 					}
 					break;
@@ -1127,9 +1130,9 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 			nbytes++;
 		}
 		/*
-			switch (GetBtp()->type) {
+			switch (btpp->type) {
 			case bt_array:
-				nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+				nbytes += btpp->Initialize(nullptr, btpp, fill == 0);
 				pos++;
 				break;
 			case bt_byte:
@@ -1168,7 +1171,7 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 				}
 				break;
 			case bt_class:
-				nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+				nbytes += btpp->Initialize(nullptr, btpp, fill == 0);
 				pos++;
 				break;
 			case bt_double:
@@ -1243,12 +1246,12 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 				if (fill > 0) {
 					while (fill > 0) {
 						fill--;
-						nbytes += GetBtp()->Initialize(nullptr, GetBtp(), fill == 0);
+						nbytes += btpp->Initialize(nullptr, btpp, fill == 0);
 						pos++;
 					}
 				}
 				else {
-					nbytes += GetBtp()->Initialize(nullptr, GetBtp(), 1);
+					nbytes += btpp->Initialize(nullptr, btpp, 1);
 					pos++;
 				}
 				break;
@@ -1257,7 +1260,7 @@ int64_t TYP::InitializeArray(int64_t maxsz, SYM* symi)
 //		}
 //		NextToken();               /* skip closing brace */
 	}
-	//else if (lastst == sconst && (GetBtp()->type == bt_char || GetBtp()->type == bt_uchar)) {
+	//else if (lastst == sconst && (btpp->type == bt_char || btpp->type == bt_uchar)) {
 	//	str = GetStrConst();
 	//	nbytes = strlen(str) * 2 + 2;
 	//	p = str;
@@ -1374,7 +1377,7 @@ int64_t TYP::GenerateT(TYP *tp, ENODE *node)
 		if (tp->val_flag) {
 			nbytes = 0;
 			nele = tp->numele;
-			tp = tp->GetBtp();
+			tp = tp->btpp;
 			nd = node->p[0]->p[2];
 			for (n = 0; n < nele; n++) {
 				if (nd == nullptr)
@@ -1412,7 +1415,7 @@ int64_t TYP::InitializeUnion(SYM* symi)
 	while (sp != 0) {
 		// Detect array of values
 		if (sp->tp->type == bt_pointer && sp->tp->val_flag) {
-			tp = sp->tp->GetBtp();
+			tp = sp->tp->btpp;
 			if (IsSameType(tp, node->tp, false))
 			{
 				nbytes = node->esize;
@@ -1542,7 +1545,7 @@ int TYP::Alignment()
 	case bt_enum:           return AL_CHAR;
 	case bt_pointer:
 		if (val_flag)
-			return (GetBtp()->Alignment());
+			return (btpp->Alignment());
 		else
 			return (sizeOfPtr);//isShort ? AL_SHORT : AL_POINTER);
 	case bt_float:          return AL_FLOAT;
@@ -1564,32 +1567,38 @@ int TYP::walignment()
 {
 	SYM *sp;
 	int64_t retval = 0;
+	static int level = 0;
 
+	level++;
+	if (level > 15) {
+		retval = imax(AL_BYTE, worstAlignment);
+		goto xit;
+	}
 	//printf("DIAG: type NULL in alignment()\r\n");
 	if (this == NULL) {
 		retval = imax(AL_BYTE, worstAlignment);
 		goto xit;
 	}
 	switch (type) {
-	case bt_byte:	case bt_ubyte:		return imax(AL_BYTE, worstAlignment);
-	case bt_char:   case bt_uchar:     return imax(AL_CHAR, worstAlignment);
-	case bt_ichar:   case bt_iuchar:     return imax(AL_CHAR, worstAlignment);
-	case bt_short:  case bt_ushort:    return imax(AL_SHORT, worstAlignment);
-	case bt_long:   case bt_ulong:     return imax(AL_LONG, worstAlignment);
-	case bt_enum:           return imax(AL_CHAR, worstAlignment);
+	case bt_byte:	case bt_ubyte:		level--; return imax(AL_BYTE, worstAlignment);
+	case bt_char:   case bt_uchar:     level--; return imax(AL_CHAR, worstAlignment);
+	case bt_ichar:   case bt_iuchar:     level--; return imax(AL_CHAR, worstAlignment);
+	case bt_short:  case bt_ushort:    level--; return imax(AL_SHORT, worstAlignment);
+	case bt_long:   case bt_ulong:     level--; return imax(AL_LONG, worstAlignment);
+	case bt_enum:           level--; return imax(AL_CHAR, worstAlignment);
 	case bt_pointer:
 		if (val_flag) {
-			retval = imax(GetBtp()->Alignment(), worstAlignment);
+			retval = imax(btpp->Alignment(), worstAlignment);
 			goto xit;
 		}
 		else {
 			return (imax(sizeOfPtr, worstAlignment));
 			//				return (imax(AL_POINTER,worstAlignment));
 		}
-	case bt_float:          return imax(AL_FLOAT, worstAlignment);
-	case bt_double:         return imax(AL_DOUBLE, worstAlignment);
-	case bt_posit:					return imax(AL_POSIT, worstAlignment);
-	case bt_triple:         return imax(AL_TRIPLE, worstAlignment);
+	case bt_float:          level--; return imax(AL_FLOAT, worstAlignment);
+	case bt_double:         level--; return imax(AL_DOUBLE, worstAlignment);
+	case bt_posit:					level--; return imax(AL_POSIT, worstAlignment);
+	case bt_triple:         level--; return imax(AL_TRIPLE, worstAlignment);
 	case bt_class:
 	case bt_struct:
 	case bt_union:
@@ -1607,9 +1616,10 @@ int TYP::walignment()
 		}
 		retval = worstAlignment;
 		goto xit;
-	default:                return (imax(AL_CHAR, worstAlignment));
+	default:                level--; return (imax(AL_CHAR, worstAlignment));
 	}
 xit:
+	level--;
 	return (retval);
 }
 
@@ -1617,10 +1627,12 @@ xit:
 int TYP::roundAlignment()
 {
 	worstAlignment = 0;
+	if (this == nullptr)
+		return (1);
 	if (type == bt_struct || type == bt_union || type == bt_class) {
-		return walignment();
+		return (walignment());
 	}
-	return Alignment();
+	return (Alignment());
 }
 
 

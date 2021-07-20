@@ -167,7 +167,8 @@ void Function::DoFuncptrAssign(Function *sp)
 	NextToken();
 	ep1 = nullptr;
 	tp1 = TYP::Make(bt_pointer, sizeOfPtr);
-	tp1->btp = TYP::Make(bt_func, sizeOfWord)->GetIndex();
+	tp1->btpp = TYP::Make(bt_func, sizeOfWord);
+	tp1->btp = tp1->btpp->GetIndex();
 	asym = nullptr;
 	exp.nameref2(sp->sym->name->c_str(), &ep1, en_ref, FALSE, nullptr, nullptr, sp->sym);
 	exp.CondDeref(&ep1, sp->sym->tp);
@@ -775,8 +776,8 @@ void Function::GenerateReturn(Statement* stmt)
 	if (stmt != NULL && stmt->exp != NULL)
 	{
 		initstack();
-		isFloat = sym->tp->GetBtp() && sym->tp->GetBtp()->IsFloatType();
-		isPosit = sym->tp->GetBtp() && sym->tp->GetBtp()->IsPositType();
+		isFloat = sym->tp->btpp && sym->tp->btpp->IsFloatType();
+		isPosit = sym->tp->btpp && sym->tp->btpp->IsPositType();
 		if (isFloat)
 			ap = cg.GenerateExpression(stmt->exp, am_reg, sizeOfFP);
 		else if (isPosit)
@@ -787,8 +788,8 @@ void Function::GenerateReturn(Statement* stmt)
 		if (ap->mode == am_imm)
 			GenerateDiadic(op_ldi, 0, makereg(regFirstArg), ap);
 		else if (ap->mode == am_reg) {
-			if (sym->tp->GetBtp() && (sym->tp->GetBtp()->type == bt_struct || sym->tp->GetBtp()->type == bt_union || sym->tp->GetBtp()->type == bt_class)) {
-				if ((sz = sym->tp->GetBtp()->size) > sizeOfWord) {
+			if (sym->tp->btpp && (sym->tp->btpp->type == bt_struct || sym->tp->btpp->type == bt_union || sym->tp->btpp->type == bt_class)) {
+				if ((sz = sym->tp->btpp->size) > sizeOfWord) {
 					p = params.Find("_pHiddenStructPtr", false);
 					if (p) {
 						if (p->IsRegister)
@@ -796,7 +797,7 @@ void Function::GenerateReturn(Statement* stmt)
 						else
 							GenerateDiadic(op_ldo, 0, makereg(regFirstArg), MakeIndexed(p->value.i, regFP));
 						ap2 = GetTempRegister();
-						GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(sym->tp->GetBtp()->size));
+						GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(sym->tp->btpp->size));
 						if (cpu.SupportsPush) {
 							GenerateMonadic(op_push, 0, ap2);
 							GenerateMonadic(op_push, 0, ap);
@@ -834,9 +835,9 @@ void Function::GenerateReturn(Statement* stmt)
 				}
 			}
 			else {
-				if (sym->tp->GetBtp()->IsFloatType() || sym->tp->GetBtp()->IsPositType())
+				if (sym->tp->btpp->IsFloatType() || sym->tp->btpp->IsPositType())
 					GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
-				else if (sym->tp->GetBtp()->IsVectorType())
+				else if (sym->tp->btpp->IsVectorType())
 					GenerateDiadic(op_mov, 0, makevreg(regFirstArg), ap);
 				else
 					GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
@@ -854,14 +855,14 @@ void Function::GenerateReturn(Statement* stmt)
 			else
 				GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
 		}
-		else if (ap->type == stddouble.GetIndex()) {
+		else if (ap->typep == &stddouble) {
 			if (isFloat)
 				GenerateDiadic(op_ldf, 'd', makereg(regFirstArg), ap);
 			else
 				GenerateDiadic(op_ldo, 0, makereg(regFirstArg), ap);
 		}
 		else {
-			if (sym->tp->GetBtp()->IsVectorType())
+			if (sym->tp->btpp->IsVectorType())
 				GenLoad(makevreg(regFirstArg), ap, sizeOfWord, sizeOfWord);
 			else
 				GenLoad(makereg(regFirstArg), ap, sizeOfWord, sizeOfWord);
@@ -1347,13 +1348,15 @@ Function *Function::FindExactMatch(int mm, std::string name, int rettype, TypeAr
 
 	sp1 = nullptr;
 	for (nn = 0; nn < mm; nn++) {
-		sp1 = TABLE::match[nn]->fi;
-		ta = sp1->GetProtoTypes();
-		if (ta->IsEqual(typearray)) {
+		if (TABLE::match[nn] != nullptr) {
+			sp1 = TABLE::match[nn]->fi;
+			ta = sp1->GetProtoTypes();
+			if (ta->IsEqual(typearray)) {
+				delete ta;
+				return sp1;
+			}
 			delete ta;
-			return sp1;
 		}
-		delete ta;
 	}
 	return (nullptr);
 }
@@ -1468,9 +1471,9 @@ void Function::BuildParameterList(int *num, int *numa)
 	// It is generated while processing expressions. It may not be needed
 	// here.
 	if (sym->tp) {
-		if (sym->tp->GetBtp()) {
-			if (sym->tp->GetBtp()->type == bt_struct || sym->tp->GetBtp()->type == bt_union || sym->tp->GetBtp()->type == bt_class) {
-				if (sym->tp->GetBtp()->size > sizeOfWord) {
+		if (sym->tp->btpp) {
+			if (sym->tp->btpp->type == bt_struct || sym->tp->btpp->type == bt_union || sym->tp->btpp->type == bt_class) {
+				if (sym->tp->btpp->size > sizeOfWord) {
 					sp1 = makeStructPtr("_pHiddenStructPtr");
 					sp1->parmno = i;
 					sp1->IsParameter = true;
