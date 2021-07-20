@@ -2207,7 +2207,8 @@ void ENODE::PutConstant(txtoStream& ofs, unsigned int lowhigh, unsigned int rshi
 		}
 		break;
 	case en_clabcon:
-		sprintf_s(buf, sizeof(buf), "%s_%lld", GetNamespace(), i);
+//		sprintf_s(buf, sizeof(buf), ".C%s_%lld", GetNamespace(), i);
+		sprintf_s(buf, sizeof(buf), ".C%05d", (int)i);
 		DataLabels[i] = true;
 		ofs.write(buf);
 		if (rshift > 0) {
@@ -2260,6 +2261,9 @@ void ENODE::PutConstant(txtoStream& ofs, unsigned int lowhigh, unsigned int rshi
 	case en_uminus:
 		ofs.write("-");
 		p[0]->PutConstant(ofs, 0, 0);
+		break;
+	case en_regvar:
+		ofs.write(RegMoniker(rg));
 		break;
 	default:
 		printf("DIAG - illegal constant node.\n");

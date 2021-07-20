@@ -1009,8 +1009,6 @@ SYM *Declaration::ParsePrefixOpenpa(bool isUnion, SYM* symi)
 	needpunc(closepa,20);
 	// Head could be NULL still if a type hasn't been found
 	// eg. int (getchar)();
-	if (head)
-		isFuncPtr = head->type == bt_pointer;
 	temp3 = head;
 	temp4 = tail;
 	//if (isFuncPtr) {
@@ -1485,7 +1483,6 @@ Function* Declaration::ParseSuffixOpenpa(Function *sp)
 	// An asterik before the function name indicates a function pointer but only
 	// if it's bracketed properly, otherwise it could be the return value that's
 	// a pointer.
-	isFuncPtr = head->type==bt_pointer;
 	temp1 =(TYP *) TYP::Make(bt_func,0/*isFuncPtr ? bt_func : bt_ifunc,0*/);
 	temp1->val_flag = 1;
 	dfs.printf("o ");

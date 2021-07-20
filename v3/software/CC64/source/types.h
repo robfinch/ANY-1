@@ -279,6 +279,7 @@ public:
 	void OptDoubleTargetRemoval();
 	void OptConstReg();
 	void OptLoopInvariants(OCODE *loophead);
+	void OptIf(OCODE* headif);
 
 	// Color Graphing
 	void SetAllUncolored();
@@ -1745,6 +1746,7 @@ class Declaration
 private:
 	void SetType(SYM* sp);
 	int decl_level; 
+	int pa_level;
 	SYM* CreateNonameVar();
 	bool isTypedefs[100];
 public:
@@ -1819,7 +1821,7 @@ private:
 	SYM* isym;
 private:
 	int ParseTag(TABLE* table, e_bt ztype, SYM** sym);
-	SYM* CreateSymbol(char* nmbuf, TABLE* table, e_bt ztype, int* fwd);
+	SYM* CreateSymbol(char* nmbuf, TABLE* table, e_bt ztype, int* ret);
 public:
 	StructDeclaration() { Declaration(); };
 	void GetType(TYP** hd, TYP** tl) {

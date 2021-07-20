@@ -691,12 +691,14 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 
 void ANY1CodeGenerator::GenerateBranchTrue(Operand* ap, int label)
 {
-	GenerateTriadic(op_bne, 0, ap, makereg(regZero), MakeDataLabel(label,regZero));
+	gHeadif = currentFn->pl.tail;
+	GenerateTriadic(op_bne, 0, ap, makereg(regZero), MakeCodeLabel(label));
 }
 
 void ANY1CodeGenerator::GenerateBranchFalse(Operand* ap, int label)
 {
-	GenerateTriadic(op_beq, 0, ap, makereg(regZero), MakeDataLabel(label,regZero));
+	gHeadif = currentFn->pl.tail;
+	GenerateTriadic(op_beq, 0, ap, makereg(regZero), MakeCodeLabel(label));
 }
 
 void ANY1CodeGenerator::GenerateBeq(Operand* ap1, Operand* ap2, int label)

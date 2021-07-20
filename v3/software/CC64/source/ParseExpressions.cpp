@@ -846,8 +846,6 @@ TYP *Expression::nameref(ENODE **node,int nt, SYM* symi)
 
 	dfs.puts("<Nameref>");
 	dfs.printf("GSearchfor:%s|",lastid);
-	if (strcmp(lastid, "_p") == 0)
-		printf("hi");
 	// Search locally first
 	sp = gsearch2(lastid, (__int16)bt_long, nullptr, false);
 	if (TABLE::matchno == 0) {

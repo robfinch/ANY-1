@@ -63,12 +63,28 @@ Statement *Function::ParseBody()
 		lbl += *sym->mangledName;
 		if (sym->tp->type == bt_pointer)
 			lbl += "_func";
-			//gen_strlab(lbl);
+//			gen_strlab((char *)lbl.c_str());
+		GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char *)lbl.c_str(), codeseg));
 	}
 	//	put_label((unsigned int) sp->value.i);
 	else {
-		if (sym->storage_class == sc_global)
+		if (sym->storage_class == sc_global) {
+			lbl = "\t.global ";
+			lbl += *sym->mangledName;
+			if (!IsInline) {
+				GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst((char*)lbl.c_str(), codeseg));
+				GenerateMonadic(op_remark, 0, MakeString("{+"));
+				GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char *)sym->mangledName->c_str(), codeseg));
+			}
 			lbl = "public code ";
+		}
+		else {
+			lbl = *sym->mangledName;
+			if (!IsInline) {
+				GenerateMonadic(op_remark, 0, MakeString("{+"));
+				GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char*)lbl.c_str(), codeseg));
+			}
+		}
 		//		strcat(lbl,sp->name);
 		lbl += *sym->mangledName;
 		if (sym->tp->type == bt_pointer)
@@ -78,7 +94,7 @@ Statement *Function::ParseBody()
 	dfs.printf("B");
 	p = my_strdup((char *)lbl.c_str());
 	dfs.printf("b");
-	if (!IsInline)
+	if (!IsInline && false)
 		GenerateMonadic(op_fnname, 0, MakeStringAsNameConst(p, codeseg));
 	currentFn = this;
 	IsLeaf = TRUE;
@@ -100,7 +116,10 @@ Statement *Function::ParseBody()
 		stkspace = round8(lc_auto);
 	if (!IsInline) {
 		pass = 1;
-		oc = pl.tail->opcode;
+		if (pl.tail)
+			oc = pl.tail->opcode;
+		else
+			oc = op_remark;
 		ip = pl.tail;
 		looplevel = 0;
 		max_reg_alloc_ptr = 0;
@@ -124,9 +143,11 @@ Statement *Function::ParseBody()
 
 		PeepOpt();
 		FlushPeep();
-		if (sym->storage_class == sc_global) {
-			ofs.printf("endpublic\r\n\r\n");
-		}
+//		if (sym->storage_class == sc_global) {
+//			ofs.printf("endpublic\r\n\r\n");
+//		}
+		if (!IsInline)
+			ofs.printf(";-}\n");
 	}
 	//if (sp->stkspace)
 	//ofs.printf("%sSTKSIZE_ EQU %d\r\n", (char *)sp->mangledName->c_str(), sp->stkspace);

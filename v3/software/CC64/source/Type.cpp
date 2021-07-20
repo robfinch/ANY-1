@@ -1296,7 +1296,7 @@ int64_t TYP::InitializeStruct(ENODE* node, SYM* symi)
 	
 //	needpunc(begin, 25);
 	nbytes = 0;
-	sp = sp->GetPtr(lst.GetHead());      /* start at top of symbol table */
+	sp = lst.headp;
 	count = 0;
 	while (sp != 0) {
 		while (nbytes < sp->value.i) {     /* align properly */
@@ -1312,7 +1312,7 @@ int64_t TYP::InitializeStruct(ENODE* node, SYM* symi)
 		}
 		else
 			error(ERR_PUNCT);
-		sp = sp->GetNextPtr();
+		sp = sp->nextp;
 		count++;
 	}
 	if (sp == nullptr) {

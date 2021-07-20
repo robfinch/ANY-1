@@ -13,6 +13,7 @@ Declaration::Declaration()
 	bit_next = 0;
 	funcdecl = 0;
 	decl_level = 0;
+	pa_level = 0;
 	isTypedef = false;
 }
 

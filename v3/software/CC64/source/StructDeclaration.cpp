@@ -72,7 +72,8 @@ int StructDeclaration::ParseTag(TABLE* table, e_bt ztype, SYM** sym)
     }
     if (isTypedef) {
       table->insert(sp);
-      //NextToken();
+      if (lastst == id)
+        NextToken();
       if (lastst == begin) {
         NextToken();
         ParseMembers(sp, ztype);
@@ -151,7 +152,7 @@ void StructDeclaration::ParseAttribute(SYM* sym)
 }
 
 
-SYM* StructDeclaration::CreateSymbol(char *nmbuf, TABLE* table, e_bt ztype, int* fwd)
+SYM* StructDeclaration::CreateSymbol(char *nmbuf, TABLE* table, e_bt ztype, int* ret)
 {
   SYM* sp;
   ENODE nd;
@@ -172,17 +173,28 @@ SYM* StructDeclaration::CreateSymbol(char *nmbuf, TABLE* table, e_bt ztype, int*
   // Could be a forward structure declaration like:
   // struct buf;
   if (lastst == semicolon) {
-    *fwd = 1;
+    *ret = 1;
     tagtable.insert(sp);
     table->insert(sp);
     NextToken();
+    goto xit;
   }
   // Defining a pointer to an unknown struct ?
-  else if (lastst == star) {
-    tagtable.insert(sp);
+  if (lastst == star) {
     table->insert(sp);
+    goto xit;
   }
-  else if (lastst != begin)
+  if (isTypedef) {
+    table->insert(sp);
+    if (lastst == id)
+      NextToken();
+    if (lastst == begin) {
+      NextToken();
+      ParseMembers(sp, ztype);
+    }
+    goto xit;
+  }
+  if (lastst != begin)
     error(ERR_INCOMPLETE);
   else {
     tagtable.insert(sp);
@@ -190,6 +202,8 @@ SYM* StructDeclaration::CreateSymbol(char *nmbuf, TABLE* table, e_bt ztype, int*
     NextToken();
     ParseMembers(sp, ztype);
   }
+xit:
+  head = sp->tp;
   return (sp);
 }
 
@@ -234,7 +248,6 @@ int StructDeclaration::Parse(TABLE* table, int ztype, SYM** sym)
         ParseMembers(sp, ztype);
       }
     }
-    head = sp->tp;
     sp = isym;
     goto xit;
     //***** DEAD code follows *****

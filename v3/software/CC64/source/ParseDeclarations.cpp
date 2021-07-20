@@ -1102,6 +1102,7 @@ j1:
 			goto lxit;
 		}
 		sp = ParseSuffix(sp);
+		isFuncPtr = false;
 		lastst;
 		if (lastst == begin)
 			needParseFunction = 2;
@@ -1119,17 +1120,24 @@ j1:
 		head->btpp = temp2;
 		if (tail == nullptr)
 			tail = head;
-		if (lastst==closepa || lastst==semicolon)
+		if (pa_level > 0)
+			isFuncPtr = true;
+		goto j1;
+		if (lastst == closepa) {
+			pa_level--;
+			goto lxit;
+		}
+		if (lastst == semicolon)
 			goto lxit;
 		sp = ParsePrefix(isUnion, symi);
 		if (lastst == closepa || lastst == comma) {
-			//head->btp = head->GetIndex();
-			//head = TYP::Make(bt_func, sizeOfWord);
-			//temp1 = TYP::Make(bt_pointer, sizeOfPtr);
-			//temp1->btp = head->GetIndex();
-			//head = temp1;
-			//if (tail == NULL)
-			//	tail = head;
+			head->btp = head->GetIndex();
+			head = TYP::Make(bt_func, sizeOfWord);
+			temp1 = TYP::Make(bt_pointer, sizeOfPtr);
+			temp1->btp = head->GetIndex();
+			head = temp1;
+			if (tail == NULL)
+				tail = head;
 			goto lxit;
 		}
 		if (lastst == semicolon) {
@@ -1187,12 +1195,18 @@ j1:
 		NextToken();
 		funcdecl = 1;
 		level++;
+		pa_level++;
 		declare(symi, 0, 0, &symo);
 		level--;
 		funcdecl = 0;
+		sp = symo;
 		//funcdecl--;
 		//sp = ParsePrefixOpenpa(isUnion, symi);
-		if (lastst == closepa || lastst == semicolon)
+		if (lastst == closepa) {
+			pa_level--;
+			NextToken();
+		}
+		else if (lastst == semicolon)
 			NextToken();
 		if (currentStmt) {
 			if (currentStmt->stype == st_compound) {
@@ -1210,12 +1224,12 @@ j1:
 			sp = 
 				ParseSuffix(sp);
 			sp = symo;
-			temp1 = TYP::Make(bt_pointer, sizeOfPtr);
-			temp1->btp = head->GetIndex();
-			temp1->btpp = head;
-			head = temp1;
-			if (tail == NULL)
-				tail = head;
+			//temp1 = TYP::Make(bt_pointer, sizeOfPtr);
+			//temp1->btp = head->GetIndex();
+			//temp1->btpp = head;
+			//head = temp1;
+			//if (tail == NULL)
+			//	tail = head;
 			lastst;
 			if (lastst == begin)
 				needParseFunction = 2;
@@ -1242,6 +1256,12 @@ j1:
 		goto lxit;
 	}
 lxit:
+	// Strip out extra "Func returns Func" due to (((
+	while (head->btpp && (head->btpp->type == bt_func || head->btpp->type == bt_ifunc)) {
+		if (tail == head)
+			tail = head->btpp;
+		head = head->btpp;
+	}
 	dfs.puts("</ParseDeclPrefix>\n");
 	return (sp);
 }

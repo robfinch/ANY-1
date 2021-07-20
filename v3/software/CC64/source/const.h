@@ -230,6 +230,7 @@ enum e_op {
 	op_abs, op_mulf, op_bytendx, op_zxw, op_zxt,
 	op_wydendx,
 	op_phi,
+	op_verbatium,
     op_empty,
 		op_last,
 		op_dot = 32768

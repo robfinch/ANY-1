@@ -37,6 +37,7 @@ char *llptr;
 extern char *lptr;
 extern int isidch(char);
 
+OCODE* gHeadif;
 int     breaklab;
 int     contlab;
 int     retlab;
@@ -1075,11 +1076,14 @@ void Statement::GenStore(Operand *ap1, Operand *ap3, int size) { cg.GenerateStor
 
 void Statement::GenMixedSource()
 {
+	std::string str(" ");
+
 	if (mixedSource) {
 		if (lptr) {
 			rtrim(lptr);
+			str += lptr;
 			if (strcmp(lptr, last_rem) != 0) {
-				GenerateMonadic(op_remark, 0, cg.MakeStringAsNameConst(lptr, codeseg));
+				GenerateMonadic(op_remark, 0, cg.MakeStringAsNameConst((char *)str.c_str(), codeseg));
 				strncpy_s(last_rem, 131, lptr, 130);
 				last_rem[131] = '\0';
 			}
@@ -1284,6 +1288,7 @@ void Statement::GenerateIf()
 	ENODE *ep, *node;
 	int size, siz1;
 	Operand *ap1, *ap2, *ap3;
+	OCODE* headif;
 
 	lab1 = nextlabel++;     // else label
 	lab2 = nextlabel++;     // exit label
@@ -1340,6 +1345,7 @@ void Statement::GenerateIf()
 	}
 	else 
 	*/
+	gHeadif = nullptr;
 	if (!opt_nocgo && ep->nodetype == en_lor_safe) {
 		/*
 		OCODE *ip1 = currentFn->pl.tail;
@@ -1409,6 +1415,7 @@ void Statement::GenerateIf()
 	else
 		cg.GenerateFalseJump(exp, lab1, prediction);
 j1:
+	headif = gHeadif;
 	initstack();
 	s1->Generate();
 	if (s2 != 0)             /* else part exists */
@@ -1420,8 +1427,10 @@ j1:
 		s2->Generate();
 		GenerateLabel(lab2);
 	}
-	else
+	else {
 		GenerateLabel(lab1);
+		currentFn->pl.OptIf(headif);
+	}
 }
 
 void Statement::GenerateDoOnce()

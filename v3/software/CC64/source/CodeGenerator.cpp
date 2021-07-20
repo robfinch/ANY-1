@@ -645,6 +645,8 @@ Operand* CodeGenerator::GenerateDereference2(ENODE* node, TYP* tp, bool isRefTyp
 {
 	Operand* ap1, * ap2, * ap3, * ap4;
 
+	if (node == nullptr)
+		return (nullptr);
 	switch (node->nodetype) {
 	case en_fieldref: return (GenerateFieldrefDereference(node, tp, isRefType, flags, size));
 	case en_asadd:	return (GenerateAsaddDereference(node, tp, isRefType, flags, size, siz1, su, false));
@@ -2193,9 +2195,9 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
   case en_asand:  ap1 = node->GenerateAssignLogic(flags,size,op_and); goto retpt;
   case en_asor:   ap1 = node->GenerateAssignLogic(flags,size,op_or); goto retpt;
 	case en_asxor:  ap1 = node->GenerateAssignLogic(flags,size,op_xor); goto retpt;
-  case en_aslsh:  ap1 = (node->GenerateAssignShift(flags,size,op_asl)); goto retpt;
-  case en_asrsh:  ap1 = (node->GenerateAssignShift(flags,size,op_asr)); goto retpt;
-	case en_asrshu: ap1 = (node->GenerateAssignShift(flags,size,op_lsr)); goto retpt;
+  case en_aslsh:  ap1 = (node->GenerateAssignShift(flags,size,op_sll)); goto retpt;
+  case en_asrsh:  ap1 = (node->GenerateAssignShift(flags,size,op_sra)); goto retpt;
+	case en_asrshu: ap1 = (node->GenerateAssignShift(flags,size,op_srl)); goto retpt;
   case en_asmul: ap1 = GenerateAssignMultiply(node,flags,size,op_mul); goto retpt;
   case en_asmulu: ap1 = GenerateAssignMultiply(node,flags,size,op_mulu); goto retpt;
   case en_asdiv: ap1 = GenerateAssignModiv(node,flags,size,op_div); goto retpt;

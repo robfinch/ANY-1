@@ -45,7 +45,7 @@ struct nlit *numeric_tab = nullptr;
 // Please keep table in alphabetical order.
 // Instruction.cpp has the number of table elements hard-coded in it.
 //
-Instruction opl[288] =
+Instruction opl[289] =
 {   
 { ";", op_remark },
 { ";asm",op_asm,300 },
@@ -218,7 +218,7 @@ Instruction opl[288] =
 { "mtfp", op_mtfp },
 { "mul",op_mul,18,1,false,am_reg,am_reg,am_reg|am_imm,0 },
 { "mulf",op_mulf,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
-{ "mulu",op_mulu,10,1,false,am_reg,am_reg,am_reg|am_imm,0 },
+{ "mulu", op_mulu, 10, 1, false, am_reg, am_reg, am_reg | am_imm, 0 },
 { "nand",op_nand,1,1,false,am_reg,am_reg,am_reg,0 },
 { "ne",op_ne },
 { "neg",op_neg, 1, 1, false,am_reg,am_reg,0,0 },
@@ -227,7 +227,7 @@ Instruction opl[288] =
 { "not", op_not,2,1,false,am_reg,am_reg,0,0 },
 { "not",op_not,2,1, false,am_reg, am_reg,0,0 },
 { "nr", op_nr },
-{ "or",op_or,1,1,false,am_reg,am_reg,am_reg|am_imm,0 },
+{ "or",op_or,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "orcm",op_orcm,1,1,false,am_reg,am_reg,am_reg,0 },
 { "padd", op_padd, 6, 1, false, am_reg, am_reg, am_reg, 0 },
 { "pdiv", op_pdiv, 10, 1, false, am_reg, am_reg, am_reg, 0 },
@@ -245,15 +245,15 @@ Instruction opl[288] =
 { "pstw", op_pstw,4,1,true,am_reg,am_mem,0,0 },
 { "psub", op_psub, 6, 1, false, am_reg, am_reg, am_reg, 0 },
 { "ptrdif",op_ptrdif,1,1,false,am_reg,am_reg,am_reg,am_imm },
-{ "push",op_push,4,1,true,am_reg|am_imm,am_reg,0,0 },
+{ "push",op_push,4,1,true,am_reg | am_imm,am_reg,0,0 },
 { "pushf",op_pushf,4,0,true,am_reg,0,0,0 },
 { "redor", op_redor,2,1,false,am_reg,am_reg,am_reg,0 },
 { "regs", op_reglist,1,1,false,am_imm,0,0,0 },
 { "rem", op_rem,68,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "remu",op_remu,68,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "ret", op_ret,1,0,am_imm,0,0,0 },
-{ "rol", op_rol,2,1,false,am_reg,am_reg,am_reg|am_ui6,0 },
-{ "ror", op_ror,2,1,false,am_reg,am_reg,am_reg|am_ui6,0 },
+{ "rol", op_rol,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
+{ "ror", op_ror,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
 { "rtd", op_rtd },
 { "rte", op_rte,2,0 },
 { "rti", op_rti,2,0 },
@@ -262,28 +262,28 @@ Instruction opl[288] =
 { "rtx", op_rtx,1,0,0,0,0,0 },
 { "sand",op_sand,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "sei", op_sei,1,0,false,am_reg,0,0,0 },
-{ "seq", op_seq,1,1,false,am_reg,am_reg,am_reg|am_i26,0 },
+{ "seq", op_seq,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "setwb", op_setwb, 1, 0 },
 { "sge",op_sge,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "sgeu",op_sgeu,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "sgt",op_sgt,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "sgtu",op_sgtu,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
-{ "shl", op_stpl,2,1,false,am_reg,am_reg,am_reg|am_ui6,0 },
-{ "shlu", op_stplu,2,1,false,am_reg,am_reg,am_reg|am_ui6,0 },
-{ "shr", op_stpr,2,1,false,am_reg,am_reg,am_reg|am_ui6,0 },
-{ "shru", op_stpru,2,1,false,am_reg,am_reg,am_reg|am_ui6,0 },
+{ "shl", op_stpl,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
+{ "shlu", op_stplu,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
+{ "shr", op_stpr,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
+{ "shru", op_stpru,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
 { "sle",op_sle,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "sleu",op_sleu,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "sll", op_sll,2,1,false,am_reg,am_reg,am_reg,0 },
 { "slt", op_slt,1,1,false,am_reg,am_reg,am_reg,0 },
 { "sltu", op_sltu,1,1,false,am_reg,am_reg,am_reg,0 },
 { "sm",op_sm },
-{ "sne",op_sne,1,1,false,am_reg,am_reg,am_reg|am_i26,0 },
+{ "sne",op_sne,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "sor",op_sor,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "spt", op_spt,4,0,true ,am_reg,am_mem,0,0 },
 { "sptr", op_sptr,4,0,true,am_reg,am_mem,0,0 },
-{ "sra", op_sra,2,1,false,am_reg,am_reg,am_reg|am_ui6,0 },
-{ "srl", op_srl,2,1,false,am_reg,am_reg,am_reg|am_ui6,0 },
+{ "sra", op_sra,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
+{ "srl", op_srl,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
 { "stb",op_stb,4,0,true,am_reg,am_mem,0,0 },
 { "std", op_std,4,0,true,am_reg,am_mem,0,0 },
 { "stdcr", op_stdc,4,0,true, am_reg, am_mem,0,0 },
@@ -297,7 +297,7 @@ Instruction opl[288] =
 { "stp",op_stp,4,0,true,am_reg,am_mem,0,0 },
 { "stt",op_stt,4,0,true,am_reg,am_mem,0,0 },
 { "stw",op_stw,4,0,true,am_reg,am_mem,0,0 },
-{ "sub",op_sub,1,1,false,am_reg,am_reg,am_reg|am_imm,0 },
+{ "sub",op_sub,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "subu", op_subu,1,1 },
 { "sv", op_sv,256,0 },
 { "swap",op_stdap,1,1,false },
@@ -318,6 +318,7 @@ Instruction opl[288] =
 { "vdiv", op_vdiv,100,1,false, am_vreg,am_vreg,am_vreg,0 },
 { "vdivs", op_vdivs,100 },
 { "veins",op_veins,10 },
+{ "ver", op_verbatium,0,1,false, 0,0,0,0 },
 { "vex", op_vex,10 },
 { "vmul", op_vmul,10,1,false, am_vreg,am_vreg,am_vreg,0 },
 { "vmuls", op_vmuls,10 },
@@ -519,7 +520,10 @@ char *put_label(int lab, char *nm, char *ns, char d)
 		buf[0] = '\0';
 		return buf;
 	}
-  sprintf_s(buf, sizeof(buf), "%.400s_%d", ns, lab);
+	if (d=='C')
+		sprintf_s(buf, sizeof(buf), ".C%05d", lab);
+	else
+		sprintf_s(buf, sizeof(buf), "%.400s_%d", ns, lab);
 	if (nm==NULL)
 		ofs.printf("%s:\n",buf);
 	else if (strlen(nm) == 0) {

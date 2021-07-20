@@ -1223,7 +1223,8 @@ ENODE* Expression::ParseOpenpa(TYP* tp1, ENODE* ep1, SYM* symi)
 	if (tp1->type == bt_pointer) {
 		dfs.printf("Got function pointer.\n");
 		ep1 = makefcnode(en_fcall, ep1, ep2, nullptr);
-		currentFn->IsLeaf = FALSE;
+		if (currentFn)
+			currentFn->IsLeaf = FALSE;
 		goto xit;
 	}
 	dfs.printf("openpa calling gsearch2");

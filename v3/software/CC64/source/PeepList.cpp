@@ -71,8 +71,9 @@ OCODE* PeepList::FindTarget(OCODE *ip, int reg, OCODE* eip)
 				if (reg == regFirstArg || reg == regFirstArg+1)
 					return (ip);
 			}
-			if (ip->oper1->preg == reg)
-				return (ip);
+			if (ip->oper1)
+				if (ip->oper1->preg == reg)
+					return (ip);
 		}
 	}
 	//Dump("=====PeepList=====\n");
@@ -752,6 +753,8 @@ void PeepList::OptLoopInvariants(OCODE *loophead)
 	bool canHoist;
 	bool fcall = false;
 
+	// Disable this optimization for now, seems to hoist too much.
+	return;
 	if (!opt_loop_invariant)
 		return;
 	if (loophead == nullptr)
@@ -767,6 +770,8 @@ void PeepList::OptLoopInvariants(OCODE *loophead)
 	for (ip2 = loophead; ip2 != loopend; ip2 = ip2->fwd) {
 		canHoist = true;
 		if (ip2->opcode == op_label || ip2->opcode == op_remark)
+			continue;
+		if (ip2->opcode == op_unlk || ip2->opcode == op_ldm)
 			continue;
 		// We don't want to move these outside the loop.
 		if (ip2->opcode == op_hint && ip2->oper1->offset->i == begin_func_call) {
@@ -817,6 +822,7 @@ void PeepList::OptLoopInvariants(OCODE *loophead)
 		else {
 			// See if there is an instruction that does a modify-copy of the target
 			// register. If so then the instruction cannot be hoisted.
+			if (ip2->oper1)
 			switch (ip2->oper1->mode) {
 			case am_imm:
 			case am_direct:
@@ -991,6 +997,58 @@ void PeepList::OptLoopInvariants(OCODE *loophead)
 			break;
 	}
 }
+
+bool IsOptIfInsn(Instruction* insn)
+{
+	if (
+		insn->opcode == op_add ||
+		insn->opcode == op_sub ||
+		insn->opcode == op_or ||
+		insn->opcode == op_xor
+		)
+		return (true);
+	return (false);
+}
+
+void PeepList::OptIf(OCODE* headif)
+{
+	OCODE* ip, *tip;
+	int nn;
+	Operand* ap, * ap2;
+
+	if (headif == nullptr)
+		return;
+
+	// Count the number of instructions in the IF statement to see if it's
+	// worthwhile to optimize.
+	nn = Count(headif);
+	if (nn > 4)
+		return;
+	for (ip = headif; ip; ip = ip->fwd) {
+		if (!IsOptIfInsn(ip->insn))
+			return;
+	}
+	for (ip = headif; ip; ip = ip->fwd)
+		ip->MarkRemove();
+	ap = GetTempRegister();
+	ap2 = GetTempRegister();
+	ip = headif;
+	tip = tail;
+	GenerateDiadic(op_neg, 0, ap, ip->oper1);
+	for (ip = headif; ip && ip != tail; ip = ip->fwd) {
+		switch (ip->insn->opcode) {
+		case op_add:
+		case op_sub:
+		case op_or:
+		case op_xor:
+			GenerateTriadic(op_and, 0, ap2, ip->oper3, ap);
+			GenerateTriadic(ip->insn->opcode, 0, ip->oper1, ip->oper2, ap2);
+			break;
+		}
+	}
+	optimized++;
+}
+
 
 void PeepList::RemoveReturnBlock()
 {
