@@ -850,6 +850,7 @@ TYP *Expression::nameref(ENODE **node,int nt, SYM* symi)
 	sp = gsearch2(lastid, (__int16)bt_long, nullptr, false);
 	if (TABLE::matchno == 0) {
 		str = GetNamespace();
+		str = "";
 		str += lastid;
 		sp = gsearch2(str.c_str(), (__int16)bt_long, nullptr, false);
 		tp = nameref2(str.c_str(), node, nt, true, nullptr, nullptr, symi);

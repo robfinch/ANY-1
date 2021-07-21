@@ -69,11 +69,13 @@ Statement *Function::ParseBody()
 	//	put_label((unsigned int) sp->value.i);
 	else {
 		if (sym->storage_class == sc_global) {
-			lbl = "\t.global ";
+			lbl = "\n\t.global ";
 			lbl += *sym->mangledName;
 			if (!IsInline) {
-				GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst((char*)lbl.c_str(), codeseg));
-				GenerateMonadic(op_remark, 0, MakeString("{+"));
+				ofs.printf((char*)lbl.c_str());
+				ofs.printf("\n;{+\n");
+				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst(my_strdup((char*)lbl.c_str()), codeseg));
+				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst("\n;{+",codeseg));
 				GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char *)sym->mangledName->c_str(), codeseg));
 			}
 			lbl = "public code ";
@@ -81,7 +83,8 @@ Statement *Function::ParseBody()
 		else {
 			lbl = *sym->mangledName;
 			if (!IsInline) {
-				GenerateMonadic(op_remark, 0, MakeString("{+"));
+				ofs.printf("\n;{+\n");
+				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst("\n;{+", codeseg));
 				GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char*)lbl.c_str(), codeseg));
 			}
 		}
@@ -727,8 +730,9 @@ int64_t Function::SizeofReturnBlock()
 // For a leaf routine don't bother to store the link register.
 void Function::SetupReturnBlock()
 {
-	Operand *ap;
+	Operand *ap, *ap1;
 	int n;
+	char buf[300];
 	
 	alstk = false;
 	if (!cpu.SupportsEnter)
@@ -803,6 +807,15 @@ void Function::SetupReturnBlock()
 	//	GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(stkspace));
 		//spAdjust = pl.tail;
 //	}
+	// Store the catch handler address at 16[$FP]
+	if (exceptions) {
+		ap = GetTempRegister();
+		sprintf_s(buf, sizeof(buf), "#.C%05lld", defCatchLabel);
+		defCatchLabelPatchPoint = currentFn->pl.tail;
+		GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
+		GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)16, regFP));
+	}
+	tryCount = 0;
 }
 
 // Generate a return statement.
@@ -1098,6 +1111,7 @@ void Function::Generate()
 	throwlab = nextlabel++;
 	defcatch = nextlabel++;
 	lab0 = nextlabel++;
+	defCatchLabel = nextlabel++;
 
 	while (lc_auto % sizeOfWord)	// round frame size to word
 		++lc_auto;
@@ -1142,7 +1156,7 @@ void Function::Generate()
 	save_mask = ::save_mask;// CSet::MakeNew();
 	psave_mask = ::psave_mask;// CSet::MakeNew();
 	stmt->Generate();
-
+/*
 	if (exceptions) {
 		ip = pl.tail;
 		GenerateMonadic(op_bra, 0, MakeDataLabel(lab0, regZero));
@@ -1154,20 +1168,19 @@ void Function::Generate()
 				pl.tail->fwd = nullptr;
 		}
 	}
-
+*/
 //	if (!IsInline)
 		GenerateReturn(nullptr);
 
-	/*
 	// Inline code needs to branch around the default exception handler.
 	if (exceptions && sym->IsInline)
-	GenerateMonadic(op_bra,0,MakeDataLabel(lab0));
+		GenerateMonadic(op_bra,0,MakeCodeLabel(lab0));
 	// Generate code for the hidden default catch
 	if (exceptions)
-	GenerateDefaultCatch(sym);
+		GenerateDefaultCatch();
 	if (exceptions && sym->IsInline)
-	GenerateLabel(lab0);
-	*/
+		GenerateLabel(lab0);
+
 	dfs.puts("<StaticRegs>");
 	dfs.puts("====== Statically Assigned Registers =======\n");
 	for (n = 0; n < nregs; n++) {
@@ -1184,6 +1197,25 @@ void Function::Generate()
 	contlab = o_contlab;
 	breaklab = o_breaklab;
 }
+
+// Get catch handler address for next higher catch and force a return to the 
+// catch handler. This code jumps to the normal return code so the stack can
+// be unwound. But the return address is also set to point to the next higher
+// catch handler, so control is transferred there.
+
+void Function::GenerateDefaultCatch()
+{
+	Operand* ap;
+
+	ap = GetTempRegister();
+	GenerateLabel(defCatchLabel);
+	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)8, regFP));				// Get previous frame pointer
+	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16, ap->preg));		// Get previous handler address
+	GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)0, regFP));				// move it to return address loc
+	ReleaseTempRegister(ap);
+	GenerateMonadic(op_bra, 0, MakeCodeLabel(retlab));										// And execute return code
+}
+
 
 // Get the parameter types into an array of short integers.
 // Only the first 20 parameters are processed.

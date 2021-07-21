@@ -350,6 +350,9 @@ public:
 	PeepList pl;					// under construction
 	OCODE *spAdjust;				// place where sp adjustment takes place
 	OCODE *rcode;
+	int64_t defCatchLabel;
+	int64_t tryCount;
+	OCODE* defCatchLabelPatchPoint;
 public:
 	Function();
 	void RemoveDuplicates();
@@ -418,6 +421,7 @@ public:
 	bool GenDefaultCatch();
 	void GenerateReturn(Statement *stmt);
 	void Generate();
+	void GenerateDefaultCatch();
 
 	void CreateVars();
 	void ComputeLiveVars();
@@ -1766,7 +1770,7 @@ public:
 	void AssignParameterName();
 	int declare(SYM *parent,TABLE *table,e_sc al,int ilc,int ztype, SYM** symo);
 	int declare(SYM* parent, int ilc, int ztype, SYM** symo);
-	void ParseEnumerationList(TABLE *table, int amt, SYM *parent);
+	void ParseEnumerationList(TABLE *table, int amt, SYM *parent, bool power);
 	void ParseEnum(TABLE *table);
 	void ParseVoid();
 	void ParseInterrupt();

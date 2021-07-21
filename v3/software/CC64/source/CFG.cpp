@@ -311,7 +311,7 @@ void CFG::InsertPhiInsns()
 							m++;
 						}
 						ip = basicBlocks[y]->code;
-						while (ip && ip->opcode==op_label) ip = ip->fwd;
+						while (ip && (ip->opcode==op_label)) ip = ip->fwd;
 						// For now this is disabled.
 						// Peep::InsertBefore(ip,phiNode);
 						basicBlocks[y]->HasAlready = IterCount;

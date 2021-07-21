@@ -47,6 +47,7 @@ void Declaration::ParseEnum(TABLE *table)
 	SYM *sp;
   TYP *tp;
 	int amt = 1;
+  bool power = false;
 
   if(lastst == id) {
     if((sp = search(std::string(lastid),&tagtable)) == NULL) {
@@ -61,7 +62,7 @@ void Declaration::ParseEnum(TABLE *table)
       else {
 				tagtable.insert(sp);
 				NextToken();
-				ParseEnumerationList(table,amt,sp);
+				ParseEnumerationList(table,amt,sp,false);
       }
 		}
     else
@@ -75,23 +76,30 @@ void Declaration::ParseEnum(TABLE *table)
 		if (lastst==openpa) {
 			NextToken();
 			amt = (int)GetIntegerExpression((ENODE **)NULL,nullptr,0);
+      if (lastst == uparrow) {
+        NextToken();
+        power = true;
+      }
 			needpunc(closepa,10);
 		}
     if( lastst != begin)
       error(ERR_INCOMPLETE);
     else {
       NextToken();
-      ParseEnumerationList(table,amt,nullptr);
+      ParseEnumerationList(table,amt,nullptr,power);
     }
     head = tp;
   }
 }
 
-void Declaration::ParseEnumerationList(TABLE *table, int amt, SYM *parent)
+void Declaration::ParseEnumerationList(TABLE *table, int amt, SYM *parent, bool power)
 {
-	int evalue;
+	int16_t evalue;
   SYM *sp;
-  evalue = 0;
+  if (power)
+    evalue = 1;
+  else
+    evalue = 0;
   while(lastst == id) {
     sp = allocSYM();
     sp->SetName(*(new std::string(lastid)));
@@ -106,14 +114,18 @@ void Declaration::ParseEnumerationList(TABLE *table, int amt, SYM *parent)
 		if (lastst==assign) {
 			NextToken();
 			sp->value.i = GetIntegerExpression((ENODE **)NULL,sp,0);
-			evalue = (int)sp->value.i+amt;
+			evalue = (int)sp->value.i;
 		}
 		else
-			sp->value.i = evalue++;
+			sp->value.i = evalue;
     if(lastst == comma)
       NextToken();
     else if(lastst != end)
       break;
+    if (power)
+      evalue *= amt;
+    else
+      evalue += amt;
   }
   needpunc(end,48);
 }

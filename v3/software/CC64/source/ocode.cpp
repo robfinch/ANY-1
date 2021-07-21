@@ -1586,9 +1586,6 @@ void OCODE::store(txtoStream& ofs)
 				if (op == op_string) {
 					ofs.printf("dc");
 				}
-				else if (op == op_verbatium) {
-					; // skip opcode
-				}
 				else
 					nn = insn->store(ofs);
 			}
@@ -1618,7 +1615,7 @@ void OCODE::store(txtoStream& ofs)
 			}
 			ofs.write(buf);
 			// The longest mnemonic is 7 chars
-			if (op != op_verbatium) {
+			{
 				ofs.write(" ");
 				nn++;
 				while (nn < 7) {
@@ -1634,8 +1631,7 @@ void OCODE::store(txtoStream& ofs)
 	}
 	else if (ap1 != 0)
 	{
-		if (op != op_verbatium)
-			ofs.printf("  ");
+		ofs.printf("  ");
 		ap1->store(ofs);
 		if (ap2 != 0)
 		{

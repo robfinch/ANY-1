@@ -322,7 +322,7 @@ Statement *Statement::ParseCatch()
 	currentStmt = snp;
 	if (lastst != openpa) {
 		snp->label = (int64_t *)NULL;
-		snp->s2 = (Statement *)99999;
+		snp->num = 99999;
 		snp->s1 = Statement::Parse();
 		// Empty statements return NULL
 		if (snp->s1)
@@ -333,7 +333,7 @@ Statement *Statement::ParseCatch()
 	if (lastst == closepa) {
 		NextToken();
 		snp->label = (int64_t*)NULL;
-		snp->s2 = (Statement*)99999;
+		snp->num = 99999;
 		snp->s1 = Statement::Parse();
 		// Empty statements return NULL
 		if (snp->s1)
@@ -344,7 +344,7 @@ Statement *Statement::ParseCatch()
 		NextToken();
 		needpunc(closepa, 33);
 		snp->label = (int64_t*)NULL;
-		snp->s2 = (Statement*)99999;
+		snp->num = 99999;
 		snp->s1 = Statement::Parse();
 		// Empty statements return NULL
 		if (snp->s1)
@@ -1556,41 +1556,37 @@ void Statement::GenerateTry()
 	throwlab = nextlabel++;
 
 	a = MakeCodeLabel(throwlab);
+	if (currentFn->tryCount == 0) {
+		oldthrow = currentFn->defCatchLabel;
+		//sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)throwlab);
+		//currentFn->defCatchLabelPatchPoint->oper2 = MakeStringAsNameConst(buf, codeseg);
+	}
+	currentFn->tryCount++;
 	a->mode = am_imm;
-	// Push catch handler address on catch handler address stack
-//	GenerateDiadic(op_ldi, 0, makereg(regAsm), MakeCodeLabel(throwlab));
-//	GenerateTriadic(op_gcsub, 0, makereg(regXHSP), makereg(regXHSP), MakeImmediate(sizeOfWord));
-//	GenerateDiadic(op_sto, 0, makereg(regAsm), MakeIndexed((int64_t)0, regXHSP));
-	GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(sizeOfWord*(int64_t)2));
-	GenerateDiadic(op_ldo, 0, makereg(regAsm), MakeStringAsNameConst("__xhandler_head", dataseg));
-	GenerateDiadic(op_sto, 0, makereg(regAsm), MakeIndexed(sizeOfWord, regSP));
-	sprintf_s(buf, sizeof(buf), "#%s_%lld", GetNamespace(), (int64_t)throwlab);
-	GenerateDiadic(op_ldi, 0, makereg(regAsm), MakeStringAsNameConst(buf,codeseg));
-	GenerateDiadic(op_sto, 0, makereg(regAsm), MakeIndexed((int64_t)0, regSP));
-	GenerateDiadic(op_sto, 0, makereg(regSP), MakeStringAsNameConst("__xhandler_head", dataseg));
 	s1->Generate();
-	// Restore previous handler
-	GenerateDiadic(op_ldo, 0, makereg(regAsm), MakeIndexed(sizeOfWord, regSP));
-	GenerateDiadic(op_sto, 0, makereg(regAsm), MakeStringAsNameConst("__xhandler_head", dataseg));
-	GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(sizeOfWord * (int64_t)2));
-	GenerateMonadic(op_bra, 0, MakeCodeLabel(lab1));	// branch around catch statements
+	// Branch around the catch handlers
+	GenerateMonadic(op_bra, 0, MakeCodeLabel(lab1));
 	GenerateLabel(throwlab);
 	// Generate catch statements
-	// r1 holds the value to be assigned to the catch variable
-	// r2 holds the type number
+	// $a0 holds the value to be assigned to the catch variable
+	// $a1 holds the type number
 	for (stmt = s2; stmt; stmt = stmt->next) {
 		stmt->GenMixedSource();
-		throwlab = oldthrow;
+		//throwlab = oldthrow;
+		curlab = nextlabel++;
 		if (stmt->num == 99999)
 			;
 		else {
-			curlab = nextlabel++;
-			ap2 = GetTempRegister();
-			GenerateTriadic(op_sne, 0, ap2, makereg(regFirstArg+1), MakeImmediate(stmt->num));
-			GenerateDiadic(op_bne, 0, ap2, MakeCodeLabel(curlab));
-			ReleaseTempRegister(ap2);
+			if (stmt->num >= -32 && stmt->num < 32)
+				GenerateTriadic(op_bne, 0, makereg(regFirstArg + 1), MakeImmediate(stmt->num), MakeCodeLabel(curlab));
+			else {
+				ap2 = GetTempRegister();
+				GenerateTriadic(op_sne, 0, ap2, makereg(regFirstArg + 1), MakeImmediate(stmt->num));
+				GenerateDiadic(op_bnez, 0, ap2, MakeCodeLabel(curlab));
+				ReleaseTempRegister(ap2);
+			}
 		}
-		// move the throw expression result in 'r1' into the catch variable.
+		// move the throw expression result in '$a0' into the catch variable.
 		node = stmt->exp;
 		if (node) {
 			ap2 = cg.GenerateExpression(node, am_reg | am_mem, node->GetNaturalSize());
@@ -1601,19 +1597,14 @@ void Statement::GenerateTry()
 			ReleaseTempRegister(ap2);
 		}
 		stmt->s1->Generate();
+		GenerateMonadic(op_bra, 0, MakeCodeLabel(lab1));
 		GenerateLabel(curlab);
 	}
-	// Restore previous handler
 	// Here the none of the catch handlers could process the throw. Move to the next
 	// level of handlers.
-	GenerateDiadic(op_ldo, 0, makereg(regAsm), MakeIndexed(sizeOfWord, regSP));
-	GenerateDiadic(op_sto, 0, makereg(regAsm), MakeStringAsNameConst("__xhandler_head", dataseg));
-	GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(sizeOfWord * (int64_t)2));
-	GenerateMonadic(op_brk, 0, MakeImmediate(239));
-	GenerateLabel(lab1);
 	throwlab = oldthrow;
-	a = MakeCodeLabel(throwlab);
-	a->mode = am_imm;
+	GenerateMonadic(op_bra, 0, MakeCodeLabel(throwlab));
+	GenerateLabel(lab1);
 }
 
 void Statement::GenerateThrow()
@@ -1639,9 +1630,10 @@ void Statement::GenerateThrow()
 		GenerateDiadic(op_ldi, 0, makereg(regFirstArg+1), MakeImmediate(num));
 	}
 	// Jump to handler address.
-	GenerateMonadic(op_brk, 0, MakeImmediate(239));
-//	GenerateDiadic(op_ldo, 0, makereg(114), MakeStringAsNameConst("__xhandler_head", dataseg));
-//	GenerateMonadic(op_jmp, 0, MakeIndexed((int64_t)0, 114));
+	//GenerateMonadic(op_brk, 0, MakeImmediate(239));
+	ap = GetTempRegister();
+	GenerateMonadic(op_bra, 0, MakeCodeLabel(throwlab));
+	ReleaseTempRegister(ap);
 }
 
 void Statement::GenerateCheck()
