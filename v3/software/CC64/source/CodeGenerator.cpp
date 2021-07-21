@@ -736,7 +736,8 @@ Operand *CodeGenerator::GenerateDereference(ENODE *node,int flags,int size, int 
   {
 			// This seems a bit of a kludge. If we are dereferencing and there's a
 			// pointer in the register, then we want the value at the pointer location.
-			if (ap1->isPtr && FALSE){// && !IsLValue(node)) {
+			// MAkes the ch=*s work in: while (ch = *s) { DBGDisplayChar(ch); s++; }
+			if (ap1->isPtr){// && !IsLValue(node)) {
 				int sz = node->GetReferenceSize();
 				int rg = ap1->preg;
 				ReleaseTempRegister(ap1);

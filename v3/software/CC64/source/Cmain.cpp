@@ -158,6 +158,8 @@ int main(int argc, char **argv)
 	cpu.SupportsLDM = true;
 	cpu.SupportsSTM = true;
 	cpu.SupportsPtrdif = false;
+	cpu.SupportsEnter = true;
+	cpu.SupportsLeave = true;
 
 //	printf("c64 starting...\r\n");
 	while(--argc) {

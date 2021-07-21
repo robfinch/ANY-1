@@ -666,7 +666,7 @@ void Function::RestoreTemporaries(int sp, int fsp, int psp)
 
 // Unlink the stack
 
-void Function::UnlinkStack()
+void Function::UnlinkStack(int64_t amt)
 {
 	/* auto news are garbage collected
 	if (hasAutonew) {
@@ -674,18 +674,24 @@ void Function::UnlinkStack()
 		GenerateMonadic(op_bex, 0, MakeDataLabel(throwlab));
 	}
 	*/
-	GenerateMonadic(op_hint, 0, MakeImmediate(begin_stack_unlink));
-	if (!IsLeaf && doesJAL) {
+	if (!cpu.SupportsLeave)
+		GenerateMonadic(op_hint, 0, MakeImmediate(begin_stack_unlink));
+	if (cpu.SupportsLeave) {
+	}
+	else if (!IsLeaf && doesJAL) {
 		if (alstk)
 			GenerateDiadic(op_ldo, 0, makereg(regLR), MakeIndexed(sizeOfWord + stkspace, regSP));
 	}
-	cg.GenerateUnlink();
-	if (!IsLeaf && doesJAL) {
+	cg.GenerateUnlink(amt);
+	if (cpu.SupportsLeave) {
+	}
+	else if (!IsLeaf && doesJAL) {
 		if (!alstk)
 			GenerateDiadic(op_ldo, 0, makereg(regLR), MakeIndexed(sizeOfWord, regSP));
 	}
 	//	GenerateTriadic(op_add,0,makereg(regSP),makereg(regSP),MakeImmediate(3*sizeOfWord));
-	GenerateMonadic(op_hint, 0, MakeImmediate(end_stack_unlink));
+	if (!cpu.SupportsLeave)
+		GenerateMonadic(op_hint, 0, MakeImmediate(end_stack_unlink));
 }
 
 bool Function::GenDefaultCatch()
@@ -725,8 +731,24 @@ void Function::SetupReturnBlock()
 	int n;
 	
 	alstk = false;
-	GenerateMonadic(op_hint,0,MakeImmediate(begin_return_block));
-	if (cpu.SupportsLink) {
+	if (!cpu.SupportsEnter)
+		GenerateMonadic(op_hint,0,MakeImmediate(begin_return_block));
+	if (cpu.SupportsEnter)
+	{
+		if (stkspace < 32767 - Compiler::GetReturnBlockSize()) {
+			GenerateMonadic(op_enter, 0, MakeImmediate(Compiler::GetReturnBlockSize() + stkspace));
+			//			GenerateMonadic(op_link, 0, MakeImmediate(stkspace));
+						//spAdjust = pl.tail;
+			alstk = true;
+		}
+		else {
+			GenerateMonadic(op_enter, 0, MakeImmediate(32760));
+			GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(Compiler::GetReturnBlockSize() + stkspace - 32760));
+			//GenerateMonadic(op_link, 0, MakeImmediate(SizeofReturnBlock() * sizeOfWord));
+			alstk = true;
+		}
+	}
+	else if (cpu.SupportsLink) {
 		if (stkspace < 32767 - Compiler::GetReturnBlockSize()) {
 			GenerateMonadic(op_link, 0, MakeImmediate(Compiler::GetReturnBlockSize() + stkspace));
 //			GenerateMonadic(op_link, 0, MakeImmediate(stkspace));
@@ -749,7 +771,8 @@ void Function::SetupReturnBlock()
 	}
 	// Put this marker here so that storing the link register relative to the
 	// frame pointer counts as a frame pointer reference.
-	GenerateMonadic(op_hint, 0, MakeImmediate(end_return_block));
+	if (!cpu.SupportsEnter)
+		GenerateMonadic(op_hint, 0, MakeImmediate(end_return_block));
 	//	GenerateTriadic(op_stdp, 0, makereg(regFP), makereg(regZero), MakeIndirect(regSP));
 	n = 0;
 	if (!currentFn->IsLeaf && doesJAL) {
@@ -760,7 +783,8 @@ void Function::SetupReturnBlock()
 		}
 		else
 		*/
-			GenerateDiadic(op_sto, 0, makereg(regLR), MakeIndexed(1 * sizeOfWord + stkspace, regSP));
+			if (!cpu.SupportsEnter)
+				GenerateDiadic(op_sto, 0, makereg(regLR), MakeIndexed(1 * sizeOfWord + stkspace, regSP));
 	}
 	/*
 	switch (n) {
@@ -788,7 +812,7 @@ void Function::GenerateReturn(Statement* stmt)
 	Operand* ap, * ap2;
 	int nn;
 	int cnt, cnt2;
-	int toAdd;
+	int64_t toAdd;
 	SYM* p;
 	bool isFloat, isPosit;
 	int64_t sz;
@@ -893,7 +917,7 @@ void Function::GenerateReturn(Statement* stmt)
 
 	// Generate the return code only once. Branch to the return code for all returns.
 	if (retGenerated) {
-		GenerateMonadic(op_bra, 0, MakeDataLabel(retlab, regZero));
+		GenerateMonadic(op_bra, 0, MakeCodeLabel(retlab));
 		return;
 	}
 	retGenerated = true;
@@ -939,7 +963,8 @@ void Function::GenerateReturn(Statement* stmt)
 		}
 		return;
 	}
-	UnlinkStack();
+	if (!cpu.SupportsLeave)
+		UnlinkStack(0);
 	if (!alstk) {
 		// The size of the return block is included in the link instruction, so the
 		// unlink instruction will reverse the allocation.
@@ -1021,11 +1046,23 @@ void Function::GenerateReturn(Statement* stmt)
 	}
 
 	if (!IsInline) {
-		if (toAdd > 0) {
-			GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));
-			toAdd = 0;
+		if (cpu.SupportsLeave) {
+			if (toAdd < 32760)
+				UnlinkStack(toAdd);
+			else {
+				GenerateDiadic(op_mov, 0, makereg(regSP), makereg(regFP));
+				GenerateDiadic(op_ldo, 0, makereg(regFP), MakeIndexed(-sizeOfWord, regSP));
+				GenerateDiadic(op_ldo, 0, makereg(regLR), MakeIndirect(regSP));
+				GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));
+			}
 		}
-		GenerateZeradic(currentFn->IsLeaf ? op_ret : op_ret);// , MakeImmediate(toAdd));
+		else {
+			if (toAdd > 0) {
+				GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));
+				toAdd = 0;
+			}
+			GenerateZeradic(currentFn->IsLeaf ? op_ret : op_ret);// , MakeImmediate(toAdd));
+		}
 	}
 	else
 		GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));

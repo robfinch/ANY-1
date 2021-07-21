@@ -224,7 +224,7 @@ enum e_op {
 	op_stdp,
 	op_string,
 	op_rem,
-	op_rtl, op_rtx,
+	op_rtl, op_rtx, op_enter, op_leave,
 	op_ptrdif, op_isnullptr,
 	// Built in functions
 	op_abs, op_mulf, op_bytendx, op_zxw, op_zxt,

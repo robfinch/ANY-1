@@ -1136,7 +1136,7 @@ void Statement::GenerateWhile()
 	if (s1 != NULL)
 	{
 		looplevel++;
-		if (opt_nocgo) {
+		if (opt_nocgo|opt_size) {
 			initstack();
 			cg.GenerateFalseJump(exp, breaklab, 2);
 		}

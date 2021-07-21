@@ -525,7 +525,7 @@ ENODE* Expression::ParseStar(SYM* symi)
 		error(ERR_IDEXPECT);
 		return (nullptr);
 	}
-	if (tp->btpp == NULL)
+	if (tp->btpp == nullptr)
 		error(ERR_DEREF);
 	else {
 		// A star before a function pointer just means that we want to

@@ -2233,7 +2233,10 @@ void ENODE::PutConstant(txtoStream& ofs, unsigned int lowhigh, unsigned int rshi
 		ofs.write(buf);
 		break;
 	case en_cnacon:
-		sprintf_s(buf, sizeof(buf), "%s", (char *)msp->c_str());
+		if (mangledNames)
+			sprintf_s(buf, sizeof(buf), "%s", (char *)msp->c_str());
+		else
+			sprintf_s(buf, sizeof(buf), "%s", (char*)sp->c_str());
 		ofs.write(buf);
 		if (rshift > 0) {
 			sprintf_s(buf, sizeof(buf), ">>%d", rshift);

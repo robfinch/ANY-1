@@ -706,6 +706,7 @@ void PeepList::OptInstructions()
 			case op_jal:	ip->OptJAL(); break;
 			case op_brk:
 			case op_jmp:
+			case op_leave:
 			case op_ret:
 			case op_rtl:
 			case op_rts:

@@ -1779,9 +1779,12 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 	*/
 }
 
-void ANY1CodeGenerator::GenerateUnlink()
+void ANY1CodeGenerator::GenerateUnlink(int64_t amt)
 {
-	if (cpu.SupportsUnlink)
+	if (cpu.SupportsLeave) {
+		GenerateMonadic(op_leave, 0, MakeImmediate(Compiler::GetReturnBlockSize()+amt,0));
+	}
+	else if (cpu.SupportsUnlink)
 		GenerateZeradic(op_unlk);
 	else
 	{

@@ -394,7 +394,7 @@ public:
 	void SaveTemporaries(int *sp, int *fsp, int* psp);
 	void RestoreTemporaries(int sp, int fsp, int psp);
 
-	void UnlinkStack();
+	void UnlinkStack(int64_t amt);
 
 	// Optimization
 	void PeepOpt();
@@ -1141,7 +1141,7 @@ public:
 	virtual Operand *GenerateFunctionCall(ENODE *node, int flags) { return (nullptr); };
 	void GenerateFunction(Function *fn) { fn->Generate(); };
 	Operand* GenerateTrinary(ENODE* node, int flags, int size, int op);
-	virtual void GenerateUnlink();
+	virtual void GenerateUnlink(int64_t amt);
 };
 
 class ANY1CodeGenerator : public CodeGenerator
@@ -1196,7 +1196,7 @@ public:
 	void GenerateBitfieldInsert(Operand* ap1, Operand* ap2, ENODE* offset, ENODE* width);
 	Operand* GenerateBitfieldExtract(Operand* src, Operand* offset, Operand* width);
 	Operand* GenerateBitfieldExtract(Operand* ap1, ENODE* offset, ENODE* width);
-	void GenerateUnlink();
+	void GenerateUnlink(int64_t amt);
 };
 
 // Control Flow Graph
@@ -1905,6 +1905,8 @@ public:
 	bool SupportsLDM;
 	bool SupportsSTM;
 	bool SupportsPtrdif;
+	bool SupportsEnter;
+	bool SupportsLeave;
 	void SetRealRegisters();
 	void SetVirtualRegisters();
 };
