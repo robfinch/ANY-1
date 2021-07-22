@@ -27,7 +27,6 @@
 #include "stdafx.h"
 extern int optimized;
 extern OCODE *LabelTable[50000];
-extern void opt_peep();
 
 OCODE *PeepList::FindLabel(int64_t i)
 {
@@ -86,6 +85,8 @@ void PeepList::InsertBefore(OCODE *an, OCODE *cd)
 	cd->back = an->back;
 	if (an->back)
 		an->back->fwd = cd;
+	else
+		head = cd;
 	an->back = cd;
 }
 
@@ -95,6 +96,8 @@ void PeepList::InsertAfter(OCODE *an, OCODE *cd)
 	cd->back = an;
 	if (an->fwd)
 		an->fwd->back = cd;
+	else
+		tail = cd;
 	an->fwd = cd;
 }
 

@@ -45,7 +45,7 @@ struct nlit *numeric_tab = nullptr;
 // Please keep table in alphabetical order.
 // Instruction.cpp has the number of table elements hard-coded in it.
 //
-Instruction opl[291] =
+Instruction opl[292] =
 {   
 { ";", op_remark },
 { ";asm",op_asm,300 },
@@ -235,6 +235,7 @@ Instruction opl[291] =
 { "pdiv", op_pdiv, 10, 1, false, am_reg, am_reg, am_reg, 0 },
 { "pea", op_pea },
 { "pea",op_pea },
+{ "pfi", op_pfi, 1, 1, false, 0, 0, 0, 0 },
 { "phi", op_phi },
 { "pldo", op_pldo,4,1,true,am_reg,am_mem,0,0 },
 { "pldt", op_pldt,4,1,true,am_reg,am_mem,0,0 },
@@ -263,7 +264,7 @@ Instruction opl[291] =
 { "rts", op_rts,1,0,am_imm,0,0,0 },
 { "rtx", op_rtx,1,0,0,0,0,0 },
 { "sand",op_sand,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
-{ "sei", op_sei,1,0,false,am_reg,0,0,0 },
+{ "sei", op_sei,1,0,false,am_reg|am_ui6,0,0,0 },
 { "seq", op_seq,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "setwb", op_setwb, 1, 0 },
 { "sge",op_sge,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
@@ -1152,7 +1153,7 @@ void align(int n)
 void cseg()
 {
 	{
-		if (curseg != codeseg || true) {
+		if (curseg != codeseg) {
 			nl();
 			ofs.printf("\tcode\n");
 			ofs.printf("\talign\t16\n");

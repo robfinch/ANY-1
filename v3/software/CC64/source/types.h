@@ -247,8 +247,8 @@ public:
 	int Count(OCODE *pos);
 	bool HasCall(OCODE *pos);
 	static OCODE *FindLabel(int64_t i);
-	static void InsertBefore(OCODE *an, OCODE *cd);
-	static void InsertAfter(OCODE *an, OCODE *cd);
+	void InsertBefore(OCODE *an, OCODE *cd);
+	void InsertAfter(OCODE *an, OCODE *cd);
 	void MarkAllKeep();
 	void MarkAllKeep2();
 	void RemoveCompilerHints();
@@ -321,6 +321,7 @@ public:
 	unsigned int hasAutonew : 1;
 	unsigned int alstk : 1;		// stack space was allocated with link
 	unsigned int hasParameters : 1;
+	unsigned int hasDefaultCatch : 1;	// programmer coded a default catch
 	uint8_t NumRegisterVars;
 	__int8 NumParms;
 	__int8 numa;			// number of stack parameters (autos)
@@ -333,6 +334,7 @@ public:
 	TABLE params;
 	Statement *prolog;
 	Statement *epilog;
+	Statement* body;
 	unsigned int stksize;
 	CSETable *csetbl;
 	SYM *sym;
@@ -1704,6 +1706,7 @@ public:
 	void GenerateNakedTabularSwitch(int64_t, Operand*, int);
 	void GenerateTry();
 	void GenerateThrow();
+	void GenerateCatch(int opt, int oldthrowlab);
 	void GenerateCheck();
 	void GenerateFuncBody();
 	void GenerateSwitch();
@@ -1880,8 +1883,10 @@ public:
 	ExpressionFactory ef;
 	StatementFactory sf;
 	short int pass;
+	bool ipoll;
+	int pollCount;
 public:
-	Compiler() { typenum = 0; };
+	Compiler() { typenum = 0; ipoll = false; pollCount = 33; };
 	GlobalDeclaration *decls;
 	void compile();
 	int PreprocessFile(char *nm);

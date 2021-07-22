@@ -782,9 +782,9 @@ void BasicBlock::InsertSpillCode(int reg, int64_t offs)
 	cd->oper2->offset->i = offs;
 	cd->bb = this;
 	if (num==0)
-		PeepList::InsertBefore(lcode, cd);
+		currentFn->pl.InsertBefore(lcode, cd);
 	else
-		PeepList::InsertBefore(code, cd);
+		currentFn->pl.InsertBefore(code, cd);
 }
 
 void BasicBlock::InsertFillCode(int reg, int64_t offs)
@@ -807,9 +807,9 @@ void BasicBlock::InsertFillCode(int reg, int64_t offs)
 	cd->oper2->offset->i = offs;
 	cd->bb = this;
 	if (currentFn->rcode->bb==this)
-		PeepList::InsertAfter(currentFn->rcode, cd);
+		currentFn->pl.InsertAfter(currentFn->rcode, cd);
 	else
-		PeepList::InsertBefore(lcode, cd);
+		currentFn->pl.InsertBefore(lcode, cd);
 }
 
 void BasicBlock::SetAllUncolored()

@@ -2263,6 +2263,8 @@ int Declaration::declare(SYM *parent,TABLE *table,e_sc al,int ilc,int ztype, SYM
 
 void GlobalDeclaration::Parse()
 {
+	SYM* symo;
+
 	dfs.puts("<ParseGlobalDecl>\n");
 	isPascal = defaultcc==1;
 	isInline = false;
@@ -2296,8 +2298,13 @@ void GlobalDeclaration::Parse()
 		  NextToken();
 		  isInline = true;
 		  break;
+
+		case kw_try:
+			NextToken();
+			continue;
+
 		case id:
-			lc_static += declare(NULL, &gsyms[0], sc_global, lc_static, bt_struct,nullptr);
+			lc_static += declare(NULL, &gsyms[0], sc_global, lc_static, bt_struct, &symo);
 			isInline = false;
 			break;
 		case ellipsis:
@@ -2317,24 +2324,24 @@ void GlobalDeclaration::Parse()
 				case kw_enum: case kw_void: case kw_bit:
 				case kw_float: case kw_double: case kw_float128: case kw_posit:
 		case kw_vector: case kw_vector_mask:
-                lc_static += declare(NULL,&gsyms[0],sc_global,lc_static,bt_struct,nullptr);
+                lc_static += declare(NULL,&gsyms[0],sc_global,lc_static,bt_struct, &symo);
 				isInline = false;
 				break;
         case kw_thread:
 				NextToken();
-                lc_thread += declare(NULL,&gsyms[0],sc_thread,lc_thread,bt_struct,nullptr);
+                lc_thread += declare(NULL,&gsyms[0],sc_thread,lc_thread,bt_struct, &symo);
 				isInline = false;
 				break;
 		case kw_register:
 			NextToken();
       error(ERR_ILLCLASS);
-      lc_static += declare(NULL,&gsyms[0],sc_global,lc_static,bt_struct,nullptr);
+      lc_static += declare(NULL,&gsyms[0],sc_global,lc_static,bt_struct, &symo);
 			isInline = false;
 			break;
 		case kw_private:
         case kw_static:
                 NextToken();
-				lc_static += declare(NULL,&gsyms[0],sc_static,lc_static,bt_struct,nullptr);
+				lc_static += declare(NULL,&gsyms[0],sc_static,lc_static,bt_struct, &symo);
 				isInline = false;
                 break;
     case kw_extern:
@@ -2355,7 +2362,7 @@ j1:
 				else if (lastst==kw_oscall || lastst==kw_interrupt || lastst==kw_nocall || lastst==kw_naked)
 					NextToken();
           ++global_flag;
-          declare(NULL,&gsyms[0],sc_external,0,bt_struct,nullptr);
+          declare(NULL,&gsyms[0],sc_external,0,bt_struct, &symo);
           isInline = false;
           --global_flag;
           break;

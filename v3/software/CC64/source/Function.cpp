@@ -43,7 +43,7 @@ Statement *Function::ParseBody()
 	char *p;
 	OCODE *ip;
 	int oc;
-	int label;
+	int label, lab1;
 
 	dfs.printf("<Parse function body>:%s|\n", (char *)sym->name->c_str());
 
@@ -110,7 +110,14 @@ Statement *Function::ParseBody()
 	currentStmt = (Statement *)NULL;
 	dfs.printf("C");
 	stmtdepth = 0;
-	sym->stmt = sym->stmt->ParseCompound();
+	body = sym->stmt = sym->stmt->ParseCompound();
+	if (lastst == kw_catch) {
+		int lab1;
+		Statement stmt;
+
+		currentFn->hasDefaultCatch = true;
+		currentFn->body->next = stmt.ParseCatch();
+	}
 	dfs.printf("D");
 	//	stmt->stype = st_funcbody;
 	while (lc_auto % sizeOfWord)	// round frame size to word
@@ -814,6 +821,7 @@ void Function::SetupReturnBlock()
 		defCatchLabelPatchPoint = currentFn->pl.tail;
 		GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
 		GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)16, regFP));
+		GenerateMonadic(op_bex, 0, cg.MakeCodeLabel(currentFn->defCatchLabel));
 	}
 	tryCount = 0;
 }
@@ -934,7 +942,6 @@ void Function::GenerateReturn(Statement* stmt)
 		return;
 	}
 	retGenerated = true;
-	GenerateLabel(throwlab);
 	GenerateLabel(retlab);
 	rcode = pl.tail;
 
@@ -1208,7 +1215,8 @@ void Function::GenerateDefaultCatch()
 	Operand* ap;
 
 	ap = GetTempRegister();
-	GenerateLabel(defCatchLabel);
+	if (!hasDefaultCatch)
+		GenerateLabel(defCatchLabel);
 	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)8, regFP));				// Get previous frame pointer
 	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16, ap->preg));		// Get previous handler address
 	GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)0, regFP));				// move it to return address loc

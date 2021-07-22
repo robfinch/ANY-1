@@ -1130,6 +1130,8 @@ void Statement::GenerateWhile()
 	contlab = nextlabel++;
 	breaklab = nextlabel++;
 	loophead = currentFn->pl.tail;
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	if (!opt_nocgo && !opt_size)
 		cg.GenerateFalseJump(exp, breaklab, 2);
 	GenerateLabel(contlab);
@@ -1140,6 +1142,8 @@ void Statement::GenerateWhile()
 			initstack();
 			cg.GenerateFalseJump(exp, breaklab, 2);
 		}
+		if (compiler.ipoll)
+			GenerateZeradic(op_pfi);
 		s1->Generate();
 		looplevel--;
 		if (!opt_nocgo && !opt_size) {
@@ -1171,6 +1175,8 @@ void Statement::GenerateUntil()
 	contlab = nextlabel++;
 	breaklab = nextlabel++;
 	loophead = currentFn->pl.tail;
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	if (!opt_nocgo && !opt_size)
 		cg.GenerateTrueJump(exp, breaklab, 2);
 	GenerateLabel(contlab);
@@ -1181,6 +1187,8 @@ void Statement::GenerateUntil()
 			initstack();
 			cg.GenerateTrueJump(exp, breaklab, 2);
 		}
+		if (compiler.ipoll)
+			GenerateZeradic(op_pfi);
 		s1->Generate();
 		looplevel--;
 		if (!opt_nocgo && !opt_size) {
@@ -1212,6 +1220,8 @@ void Statement::GenerateFor()
 	loop_label = nextlabel++;
 	exit_label = nextlabel++;
 	contlab = nextlabel++;
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	initstack();
 	if (initExpr != NULL)
 		ReleaseTempRegister(cg.GenerateExpression(initExpr, am_all | am_novalue
@@ -1230,6 +1240,8 @@ void Statement::GenerateFor()
 			cg.GenerateFalseJump(exp, exit_label, 2);
 		}
 	}
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	if (s1 != NULL)
 	{
 		breaklab = exit_label;
@@ -1268,10 +1280,14 @@ void Statement::GenerateForever()
 	contlab = loop_label;
 	loophead = currentFn->pl.tail;
 	GenerateLabel(loop_label);
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	if (s1 != NULL)
 	{
 		breaklab = exit_label;
 		looplevel++;
+		if (compiler.ipoll)
+			GenerateZeradic(op_pfi);
 		s1->Generate();
 		looplevel--;
 	}
@@ -1295,6 +1311,8 @@ void Statement::GenerateIf()
 	initstack();            // clear temps
 	ep = node = exp;
 
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	if (ep == nullptr)
 		return;
 
@@ -1445,6 +1463,8 @@ void Statement::GenerateDoOnce()
 	loophead = currentFn->pl.tail;
 	GenerateLabel(contlab);
 	looplevel++;
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	s1->Generate();
 	looplevel--;
 	GenerateLabel(breaklab);
@@ -1465,6 +1485,8 @@ void Statement::GenerateDoWhile()
 	loophead = currentFn->pl.tail;
 	GenerateLabel(contlab);
 	looplevel++;
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	s1->Generate();
 	looplevel--;
 	initstack();
@@ -1488,6 +1510,8 @@ void Statement::GenerateDoUntil()
 	loophead = currentFn->pl.tail;
 	GenerateLabel(contlab);
 	looplevel++;
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	s1->Generate();
 	looplevel--;
 	initstack();
@@ -1511,6 +1535,8 @@ void Statement::GenerateDoLoop()
 	loophead = currentFn->pl.tail;
 	GenerateLabel(contlab);
 	looplevel++;
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	s1->Generate();
 	looplevel--;
 	GenMixedSource2();
@@ -1546,7 +1572,7 @@ void Statement::GenerateTry()
 {
 	int lab1, curlab;
 	int oldthrow;
-	Operand *a, *ap2;
+	Operand *a, *ap, *ap2;
 	ENODE *node;
 	Statement *stmt;
 	char buf[200];
@@ -1555,56 +1581,29 @@ void Statement::GenerateTry()
 	oldthrow = throwlab;
 	throwlab = nextlabel++;
 
-	a = MakeCodeLabel(throwlab);
 	if (currentFn->tryCount == 0) {
 		oldthrow = currentFn->defCatchLabel;
 		//sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)throwlab);
 		//currentFn->defCatchLabelPatchPoint->oper2 = MakeStringAsNameConst(buf, codeseg);
 	}
 	currentFn->tryCount++;
-	a->mode = am_imm;
+	initstack();
+	ap = GetTempRegister();
+	ap2 = GetTempRegister();
+	GenerateDiadic(op_sei, 0, ap2, MakeImmediate((int64_t)15));
+	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16,regFP));	// Get current handler
+	GenerateMonadic(op_push, 0, ap);	// stack it
+	sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)throwlab);
+	GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
+	GenerateDiadic(op_sto, 0, ap, MakeIndexed(16, regFP));	// Set current handler
+	GenerateDiadic(op_sei, 0, makereg(regZero), ap2);
+	ReleaseTempRegister(ap2);
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
+	ReleaseTempRegister(ap);
 	s1->Generate();
-	// Branch around the catch handlers
-	GenerateMonadic(op_bra, 0, MakeCodeLabel(lab1));
-	GenerateLabel(throwlab);
-	// Generate catch statements
-	// $a0 holds the value to be assigned to the catch variable
-	// $a1 holds the type number
-	for (stmt = s2; stmt; stmt = stmt->next) {
-		stmt->GenMixedSource();
-		//throwlab = oldthrow;
-		curlab = nextlabel++;
-		if (stmt->num == 99999)
-			;
-		else {
-			if (stmt->num >= -32 && stmt->num < 32)
-				GenerateTriadic(op_bne, 0, makereg(regFirstArg + 1), MakeImmediate(stmt->num), MakeCodeLabel(curlab));
-			else {
-				ap2 = GetTempRegister();
-				GenerateTriadic(op_sne, 0, ap2, makereg(regFirstArg + 1), MakeImmediate(stmt->num));
-				GenerateDiadic(op_bnez, 0, ap2, MakeCodeLabel(curlab));
-				ReleaseTempRegister(ap2);
-			}
-		}
-		// move the throw expression result in '$a0' into the catch variable.
-		node = stmt->exp;
-		if (node) {
-			ap2 = cg.GenerateExpression(node, am_reg | am_mem, node->GetNaturalSize());
-			if (ap2->mode == am_reg)
-				GenerateDiadic(op_mov, 0, ap2, makereg(regFirstArg));
-			else
-				GenStore(makereg(regFirstArg), ap2, node->GetNaturalSize());
-			ReleaseTempRegister(ap2);
-		}
-		stmt->s1->Generate();
-		GenerateMonadic(op_bra, 0, MakeCodeLabel(lab1));
-		GenerateLabel(curlab);
-	}
-	// Here the none of the catch handlers could process the throw. Move to the next
-	// level of handlers.
+	GenerateCatch(0, oldthrow);
 	throwlab = oldthrow;
-	GenerateMonadic(op_bra, 0, MakeCodeLabel(throwlab));
-	GenerateLabel(lab1);
 }
 
 void Statement::GenerateThrow()
@@ -1613,6 +1612,8 @@ void Statement::GenerateThrow()
 
 	if (exp != NULL)
 	{
+		if (compiler.ipoll)
+			GenerateZeradic(op_pfi);
 		initstack();
 		ap = cg.GenerateExpression(exp, am_all, 8);
 		if (ap->mode == am_imm)
@@ -1634,6 +1635,79 @@ void Statement::GenerateThrow()
 	ap = GetTempRegister();
 	GenerateMonadic(op_bra, 0, MakeCodeLabel(throwlab));
 	ReleaseTempRegister(ap);
+}
+
+void Statement::GenerateCatch(int opt, int oldthrow)
+{
+	int lab1, lab2, curlab;
+	Operand* a, * ap2, * ap;
+	ENODE* node;
+	Statement* stmt;
+	char buf[200];
+
+	lab1 = nextlabel++;
+
+	// Restore previous handler
+	ap = GetTempRegister();
+	GenerateMonadic(op_pop, 0, ap);
+	GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)16, regFP));	// Restore handler
+	ReleaseTempRegister(ap);
+	// Branch around the catch handlers
+	if (opt == 0) {
+		GenerateMonadic(op_bra, 0, MakeCodeLabel(lab1));
+		GenerateLabel(throwlab);
+	}
+	else {
+		if (currentFn->IsInline) {
+			GenerateMonadic(op_bra, 0, MakeCodeLabel(lab1));
+		}
+		GenerateLabel(currentFn->defCatchLabel);
+	}
+	// Generate catch statements
+	// $a0 holds the value to be assigned to the catch variable
+	// $a1 holds the type number
+	for (stmt = opt ? this : s2; stmt; stmt = stmt->next) {
+		stmt->GenMixedSource();
+		curlab = nextlabel++;
+		if (stmt->num != 99999) {
+			if (stmt->num >= -32 && stmt->num < 32)
+				GenerateTriadic(op_bne, 0, makereg(regFirstArg + 1), MakeImmediate(stmt->num), MakeCodeLabel(curlab));
+			else {
+				ap2 = GetTempRegister();
+				GenerateTriadic(op_sne, 0, ap2, makereg(regFirstArg + 1), MakeImmediate(stmt->num));
+				GenerateDiadic(op_bnez, 0, ap2, MakeCodeLabel(curlab));
+				ReleaseTempRegister(ap2);
+			}
+		}
+		// move the throw expression result in '$a0' into the catch variable.
+		node = stmt->exp;
+		if (node) {
+			ap2 = cg.GenerateExpression(node, am_reg | am_mem, node->GetNaturalSize());
+			if (ap2->mode == am_reg)
+				GenerateDiadic(op_mov, 0, ap2, makereg(regFirstArg));
+			else
+				GenStore(makereg(regFirstArg), ap2, node->GetNaturalSize());
+			ReleaseTempRegister(ap2);
+		}
+		if (compiler.ipoll)
+			GenerateZeradic(op_pfi);
+		stmt->s1->Generate();
+		if (stmt->num == 99999 && opt==1)
+			currentFn->GenerateDefaultCatch();
+		else
+			GenerateMonadic(op_bra, 0, MakeCodeLabel(opt ? retlab : lab1));
+		GenerateLabel(curlab);
+	}
+	// Here the none of the catch handlers could process the throw. Move to the next
+	// level of handlers.
+	throwlab = oldthrow;
+	lab2 = nextlabel++;
+	if (opt == 0)
+		GenerateMonadic(op_bra, 0, MakeCodeLabel(throwlab));
+	GenerateLabel(lab1);
+	if (opt) {
+		currentFn->GenerateDefaultCatch();
+	}
 }
 
 void Statement::GenerateCheck()
@@ -1762,6 +1836,9 @@ void Statement::Generate()
 		case st_throw:
 			stmt->GenerateThrow();
 			break;
+		case st_catch:
+			stmt->GenerateCatch(1, throwlab);
+			break;
 		case st_stop:
 			stmt->GenerateStop();
 			break;
@@ -1864,6 +1941,8 @@ void Statement::GenerateAsm()
 	char* p;
 	char* buf = (char*)label;
 
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	ll = strlen(buf);
 	thead = firsts = SYM::GetPtr(currentFn->params.head);
 	while (thead) {
@@ -1916,6 +1995,8 @@ void Statement::GenerateFirstcall()
 	lab1 = contlab;
 	lab2 = breaklab;
 	contlab = nextlabel++;
+	if (compiler.ipoll)
+		GenerateZeradic(op_pfi);
 	if (s1 != NULL)
 	{
 		initstack();

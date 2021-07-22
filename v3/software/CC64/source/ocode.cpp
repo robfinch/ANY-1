@@ -134,15 +134,17 @@ int OCODE::GetTargetReg(int *rg1, int *rg2) const
 			*rg2 = 0;
 			return (0);
 		default:
-			if (oper1->mode == am_reg) {
-				*rg1 = oper1->preg;
-				*rg2 = 0;
-				return (1);
-			}
-			else {
-				*rg1 = oper1->preg;
-				*rg2 = 0;
-				return (0);
+			if (oper1) {
+				if (oper1->mode == am_reg) {
+					*rg1 = oper1->preg;
+					*rg2 = 0;
+					return (1);
+				}
+				else {
+					*rg1 = oper1->preg;
+					*rg2 = 0;
+					return (0);
+				}
 			}
 		}
 	}

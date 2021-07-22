@@ -191,7 +191,9 @@ int main(int argc, char **argv)
 int	options(char *s)
 {
     int nn;
+		int cnt;
 
+		compiler.ipoll = false;
 	if (s[1]=='o') {
         for (nn = 2; s[nn]; nn++) {
             switch(s[nn]) {
@@ -217,6 +219,12 @@ int	options(char *s)
 			exceptions = 0;
 		if (strcmp(&s[2],"farcode")==0)
 			farcode = 1;
+		if (strncmp(&s[2], "poll",4) == 0) {
+			compiler.ipoll = true;
+			cnt = atoi(&s[6]);
+			if (cnt > 0)
+				compiler.pollCount = cnt;
+		}
 	}
 	else if (s[1]=='a') {
         address_bits = atoi(&s[2]);

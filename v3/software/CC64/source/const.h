@@ -229,7 +229,7 @@ enum e_op {
 	// Built in functions
 	op_abs, op_mulf, op_bytendx, op_zxw, op_zxt,
 	op_wydendx,
-	op_phi,
+	op_phi, op_pfi,
 	op_verbatium,
     op_empty,
 		op_last,
