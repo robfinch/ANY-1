@@ -677,7 +677,7 @@ SYM *Declaration::ParseId()
 //					head = tail = maketype(bt_long,4);
 	}
 	else {
-		head = (TYP *)TYP::Make(bt_long,8);
+		head = (TYP *)TYP::Make(bt_long,sizeOfWord);
 		tail = head;
 		bit_max = head->precision;
 	}
@@ -1123,6 +1123,8 @@ j1:
 		if (pa_level > 0)
 			isFuncPtr = true;
 		goto j1;
+
+		// Dead code follows
 		if (lastst == closepa) {
 			pa_level--;
 			goto lxit;
@@ -1196,7 +1198,12 @@ j1:
 		funcdecl = 1;
 		level++;
 		pa_level++;
-		declare(symi, 0, 0, &symo);
+		if (!IsDeclBegin(lastst) || true)
+			declare(symi, 0, 0, &symo);
+		else {
+			sp = ParsePrefix(isUnion, symi);
+			symo = sp;
+		}
 		level--;
 		funcdecl = 0;
 		sp = symo;
@@ -1221,9 +1228,13 @@ j1:
 		}
 		else {
 			lastst;
-			sp = 
+			//sp = 
+			temp2 = head;
+			temp3 = tail;
 				ParseSuffix(sp);
-			sp = symo;
+				head = temp2;
+				tail = temp3;
+			//sp = symo;
 			//temp1 = TYP::Make(bt_pointer, sizeOfPtr);
 			//temp1->btp = head->GetIndex();
 			//temp1->btpp = head;
@@ -1505,7 +1516,7 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 
 Function* Declaration::ParseSuffixOpenpa(Function *sp)
 {
-	TYP *temp1, *temp2;
+	TYP *temp1, *temp2, *temp3;
 	TYP *tempHead, *tempTail;
 	int fd;
 	std::string odecl;
@@ -1541,6 +1552,7 @@ Function* Declaration::ParseSuffixOpenpa(Function *sp)
 	temp1 =(TYP *) TYP::Make(bt_func,0/*isFuncPtr ? bt_func : bt_ifunc,0*/);
 	temp1->val_flag = 1;
 	dfs.printf("o ");
+	/*
 	if (isFuncPtr) {
 		dfs.printf("Got function pointer in declarations.\n");
 		temp2 = (TYP *)TYP::Make(bt_pointer, 0);
@@ -1552,17 +1564,18 @@ Function* Declaration::ParseSuffixOpenpa(Function *sp)
 		temp2->btpp = temp1;
 		head = temp1;
 	}
-	else {
+	else
+	*/
+	{
 		temp1->btp= head->GetIndex();
 		temp1->btpp = head;
 		head = temp1;
+		//tail->btpp = temp1;
+		//tail = temp1;
 	}
 	dfs.printf("p ");
-	if (tail==NULL) {
-		/*if (temp1->btpp)
-			tail = temp1->btpp;
-		else*/
-			tail = temp1;
+	if (tail==nullptr) {
+			tail = head;
 	}
 	dfs.printf("q ");
 	needParseFunction = 1;
@@ -1644,6 +1657,7 @@ SYM *Declaration::ParseSuffix(SYM *sp)
 			//	sp1->name = UnknownFuncName();
 			//	sp1->parent = sp->id;
 			//}
+			//sp1->tp = head;
 			parsingParameterList++;
 			ParseSuffixOpenpa(sp1->fi);
 			parsingParameterList--;

@@ -1183,7 +1183,7 @@ void Function::Generate()
 	if (exceptions && sym->IsInline)
 		GenerateMonadic(op_bra,0,MakeCodeLabel(lab0));
 	// Generate code for the hidden default catch
-	if (exceptions)
+	if (exceptions && !IsNocall)
 		GenerateDefaultCatch();
 	if (exceptions && sym->IsInline)
 		GenerateLabel(lab0);
@@ -1214,14 +1214,17 @@ void Function::GenerateDefaultCatch()
 {
 	Operand* ap;
 
-	ap = GetTempRegister();
-	if (!hasDefaultCatch)
-		GenerateLabel(defCatchLabel);
-	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)8, regFP));				// Get previous frame pointer
-	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16, ap->preg));		// Get previous handler address
-	GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)0, regFP));				// move it to return address loc
-	ReleaseTempRegister(ap);
-	GenerateMonadic(op_bra, 0, MakeCodeLabel(retlab));										// And execute return code
+	if (!isNocall) {
+		initstack();
+		ap = GetTempRegister();
+		if (!hasDefaultCatch)
+			GenerateLabel(defCatchLabel);
+		GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)8, regFP));				// Get previous frame pointer
+		GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16, ap->preg));		// Get previous handler address
+		GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)0, regFP));				// move it to return address loc
+		ReleaseTempRegister(ap);
+		GenerateMonadic(op_bra, 0, MakeCodeLabel(retlab));										// And execute return code
+	}
 }
 
 

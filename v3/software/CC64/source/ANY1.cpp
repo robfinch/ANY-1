@@ -1256,6 +1256,9 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 
 	*isFloat = false;
 	*push_count = 0;
+	if (ep == nullptr) {
+		return (0);
+	}
 	switch(ep->etype) {
 	case bt_quad:	sz = sizeOfFPD; break;
 	case bt_triple:	sz = sizeOfFPT; break;

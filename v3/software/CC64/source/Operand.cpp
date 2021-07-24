@@ -274,6 +274,9 @@ void Operand::MakeLegal(int flags, int size)
 			}
 			cg.GenerateLoad(ap2, this, size, size);
 			break;
+		case am_indx2:
+			cg.GenerateLoad(ap2, this, size, size);
+			break;
 		case am_imm:
 			cg.GenerateLoadConst(this, ap2);
 			//GenerateDiadic(op_ldi, 0, ap2, this);
@@ -296,6 +299,7 @@ void Operand::MakeLegal(int flags, int size)
 		}
 		mode = am_reg;
 		switch (size) {
+		case 0: typep = &stdvoid; break;
 		case 1: typep = &stdbyte; break;
 		case 2: typep = &stdchar; break;
 		case 4:	typep = &stdshort; break;

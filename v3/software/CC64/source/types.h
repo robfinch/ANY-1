@@ -679,7 +679,15 @@ public:
 	bool IsVectorType() { return (etype == bt_vector); };
 	bool IsAutocon() { return (nodetype == en_autocon || nodetype == en_autofcon || nodetype == en_autopcon || nodetype == en_autovcon || nodetype == en_classcon); };
 	bool IsUnsignedType() { return (etype == bt_ubyte || etype == bt_uchar || etype == bt_ushort || etype == bt_ulong || etype == bt_pointer || nodetype==en_addrof || nodetype==en_autofcon || nodetype==en_autocon); };
-	bool IsRefType() { if (this) return (nodetype == en_ref || etype == bt_struct || etype == bt_union || etype == bt_class); else return (false); };
+	bool IsRefType() {
+		if (this) {
+			// This hack to get exit() to work, which uses an array of function pointers.
+			if (nodetype == en_ref)
+				return (tp->type != bt_void);
+			return (nodetype == en_ref || etype == bt_struct || etype == bt_union || etype == bt_class);
+		}
+		else return (false);
+	};
 	bool IsBitfield();
 	static bool IsEqualOperand(Operand *a, Operand *b);
 	char fsize();
@@ -1625,6 +1633,9 @@ public:
 	unsigned int prediction : 2;	// static prediction for if statements
 	int depth;
 	e_sym kw;				// statement's keyword
+	static int throwlab;
+	static int oldthrow;
+	static int olderthrow;
 	
 	Statement* MakeStatement(int typ, int gt);
 
@@ -1706,7 +1717,7 @@ public:
 	void GenerateNakedTabularSwitch(int64_t, Operand*, int);
 	void GenerateTry();
 	void GenerateThrow();
-	void GenerateCatch(int opt, int oldthrowlab);
+	void GenerateCatch(int opt, int oldthrowlab, int olderthrow);
 	void GenerateCheck();
 	void GenerateFuncBody();
 	void GenerateSwitch();

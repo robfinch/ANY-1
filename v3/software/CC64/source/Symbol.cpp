@@ -682,6 +682,10 @@ j1:
 	else {
 		tp = typ_vector[max(base - brace_level, 0)];
 	}
+	// xisdst.c ultimately an object is being pointed to.
+	if (typ_vector[0]->type == bt_pointer) {
+		tp = typ_vector[0];
+	}
 	do {
 		if (lastst == assign)
 			NextToken();

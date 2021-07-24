@@ -284,6 +284,9 @@ bool TYP::IsSameType(TYP *a, TYP *b, bool exact)
 			return (false);
 	}
 
+	if (a->type == b->type && a->typeno == b->typeno)
+		return (true);
+
 	switch (a->type) {
 
 	// None will match any type.
@@ -1402,21 +1405,22 @@ int64_t TYP::InitializeUnion(SYM* symi)
 	int64_t val;
 	ENODE *node = nullptr;
 	bool found = false;
-	TYP *tp;
+	TYP *tp, *ntp;
 	int count;
 
 	nbytes = 0;
 	val = GetConstExpression(&node, symi);
 	if (node == nullptr)	// syntax error in GetConstExpression()
 		return (0);
-	sp = sp->GetPtr(lst.GetHead());      /* start at top of symbol table */
+	sp = lst.headp;      /* start at top of symbol table */
 	osp = sp;
 	count = 0;
 	while (sp != 0) {
 		// Detect array of values
 		if (sp->tp->type == bt_pointer && sp->tp->val_flag) {
 			tp = sp->tp->btpp;
-			if (IsSameType(tp, node->tp, false))
+			ntp = node->tp->btpp;
+			if (IsSameType(tp, ntp, false))
 			{
 				nbytes = node->esize;
 				nbytes = GenerateT(tp, node);

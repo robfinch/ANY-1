@@ -48,6 +48,9 @@ char *semaphores[20];
 char last_rem[132];
 
 extern TYP              stdfunc;
+int Statement::throwlab = 0;
+int Statement::oldthrow = 0;
+int Statement::olderthrow = 0;
 
 static SYM *makeint(char *name)
 {
@@ -1081,7 +1084,7 @@ void Statement::GenMixedSource()
 	if (mixedSource) {
 		if (lptr) {
 			rtrim(lptr);
-			str += lptr;
+			str += std::string(lptr);
 			if (strcmp(lptr, last_rem) != 0) {
 				GenerateMonadic(op_remark, 0, cg.MakeStringAsNameConst((char *)str.c_str(), codeseg));
 				strncpy_s(last_rem, 131, lptr, 130);
@@ -1571,13 +1574,13 @@ void Statement::GenerateDoLoop()
 void Statement::GenerateTry()
 {
 	int lab1, curlab;
-	int oldthrow;
-	Operand *a, *ap, *ap2;
+	Operand *a, *ap;
 	ENODE *node;
 	Statement *stmt;
 	char buf[200];
 
 	lab1 = nextlabel++;
+	olderthrow = oldthrow;
 	oldthrow = throwlab;
 	throwlab = nextlabel++;
 
@@ -1589,21 +1592,19 @@ void Statement::GenerateTry()
 	currentFn->tryCount++;
 	initstack();
 	ap = GetTempRegister();
-	ap2 = GetTempRegister();
-	GenerateDiadic(op_sei, 0, ap2, MakeImmediate((int64_t)15));
-	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16,regFP));	// Get current handler
-	GenerateMonadic(op_push, 0, ap);	// stack it
+//	GenerateDiadic(op_sei, 0, ap2, MakeImmediate((int64_t)15));
+//	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16,regFP));	// Get current handler
+//	GenerateMonadic(op_push, 0, ap);	// stack it
 	sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)throwlab);
 	GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
 	GenerateDiadic(op_sto, 0, ap, MakeIndexed(16, regFP));	// Set current handler
-	GenerateDiadic(op_sei, 0, makereg(regZero), ap2);
-	ReleaseTempRegister(ap2);
 	if (compiler.ipoll)
 		GenerateZeradic(op_pfi);
 	ReleaseTempRegister(ap);
 	s1->Generate();
-	GenerateCatch(0, oldthrow);
+	GenerateCatch(0, oldthrow, olderthrow);
 	throwlab = oldthrow;
+	oldthrow = olderthrow;
 }
 
 void Statement::GenerateThrow()
@@ -1625,7 +1626,14 @@ void Statement::GenerateThrow()
 		ReleaseTempRegister(ap);
 		// If a system exception is desired create an appropriate BRK instruction.
 		if (num == bt_exception) {
-			GenerateDiadic(op_brk, 0, makereg(regFirstArg), MakeImmediate(1));
+			if (ap->mode != am_imm)
+				error(ERR_INT0255);
+			else {
+				if (ap->offset->i < 0 || ap->offset->i > 255)
+					error(ERR_INT0255);
+				else
+					GenerateMonadic(op_brk, 0, ap);
+			}
 			return;
 		}
 		GenerateDiadic(op_ldi, 0, makereg(regFirstArg+1), MakeImmediate(num));
@@ -1637,7 +1645,7 @@ void Statement::GenerateThrow()
 	ReleaseTempRegister(ap);
 }
 
-void Statement::GenerateCatch(int opt, int oldthrow)
+void Statement::GenerateCatch(int opt, int oldthrow, int olderthrow)
 {
 	int lab1, lab2, curlab;
 	Operand* a, * ap2, * ap;
@@ -1649,7 +1657,8 @@ void Statement::GenerateCatch(int opt, int oldthrow)
 
 	// Restore previous handler
 	ap = GetTempRegister();
-	GenerateMonadic(op_pop, 0, ap);
+	sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)oldthrow);
+	GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
 	GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)16, regFP));	// Restore handler
 	ReleaseTempRegister(ap);
 	// Branch around the catch handlers
@@ -1837,7 +1846,7 @@ void Statement::Generate()
 			stmt->GenerateThrow();
 			break;
 		case st_catch:
-			stmt->GenerateCatch(1, throwlab);
+			stmt->GenerateCatch(1, throwlab, oldthrow);
 			break;
 		case st_stop:
 			stmt->GenerateStop();

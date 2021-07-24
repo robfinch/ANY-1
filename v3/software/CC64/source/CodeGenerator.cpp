@@ -160,7 +160,9 @@ void CodeGenerator::GenerateLoad(Operand *ap3, Operand *ap1, int ssize, int size
 	//	GenerateDiadic(op_fldo, 0, ap3, ap1);
 	//}
 	else if (ap3->isUnsigned) {
+		// If size is zero, probably a pointer to void being processed.
 			switch (size) {
+			case 0: GenerateDiadic(op_ldo, 0, ap3, ap1); break;
 			case 1:	GenerateDiadic(op_ldbu, 0, ap3, ap1); break;
 			case 2:	GenerateDiadic(op_ldwu, 0, ap3, ap1); break;
 			case 4:	GenerateDiadic(op_ldtu, 0, ap3, ap1); break;
@@ -169,6 +171,7 @@ void CodeGenerator::GenerateLoad(Operand *ap3, Operand *ap1, int ssize, int size
     }
     else {
 			switch (size) {
+			case 0: GenerateDiadic(op_ldo, 0, ap3, ap1); break;
 			case 1:	GenerateDiadic(op_ldb, 0, ap3, ap1); break;
 			case 2:	GenerateDiadic(op_ldw, 0, ap3, ap1); break;
 			case 4:	GenerateDiadic(op_ldt, 0, ap3, ap1); break;

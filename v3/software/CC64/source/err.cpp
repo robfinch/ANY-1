@@ -100,7 +100,8 @@ static char *errtextstr[] = {
 	"E Cast aggregate should be a constant",
 	"E Unsupported precision.",
 	"E Too many designators.",
-	"E The dot operator must reference a struct / union or class."
+	"E The dot operator must reference a struct / union or class.",
+	"E Integer constant between 0 and 255 required."
 };
 
 static char *errtext1000[] =

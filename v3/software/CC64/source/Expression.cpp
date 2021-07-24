@@ -313,6 +313,7 @@ ENODE* Expression::ParseAggregate(ENODE** node, SYM* symi)
 	int64_t pos = 0;
 	SYM* sp;
 	TABLE* tbl;
+	int count;
 
 	parsingAggregate++;
 	NextToken();
@@ -320,7 +321,7 @@ ENODE* Expression::ParseAggregate(ENODE** node, SYM* symi)
 	list = makenode(en_list, nullptr, nullptr);
 	tptr2 = nullptr;
 	//tbl = symi->tp->lst.GetPtr(symi->tp->lst.GetHead());
-	while (lastst != end) {
+	for (count = 0; lastst != end; count++) {
 		if (lastst == openbr) {
 			n = GetConstExpression(&cnode, symi);
 			needpunc(closebr,49);
@@ -351,14 +352,23 @@ ENODE* Expression::ParseAggregate(ENODE** node, SYM* symi)
 		tptr2 = tptr;
 	}
 	needpunc(end, 9);
+	// If we specifed an aggregate with just a single value, return the type of
+	// the value, not an aggregate list.
+	if (count < 2) {
+		*node = pnode;
+		return (pnode);
+	}
 	pnode = makenode(en_aggregate, list, nullptr);
 	pnode->SetType(tptr = TYP::Make(consistentType ? bt_array : bt_struct, sz));
+	if (consistentType)
+		pnode->tp->btpp = tptr2;
 	pnode->esize = sz;
 	pnode->i = litlist(pnode);
 	pnode->segment = cnst ? rodataseg : dataseg;
 	list->i = pnode->i;
 	list->segment = pnode->segment;
 	parsingAggregate--;
+	*node = pnode;
 	return (pnode);
 }
 
@@ -1542,7 +1552,8 @@ ENODE* Expression::MakeExternNameNode(SYM* sp)
 
 	if (sp->tp->type == bt_func || sp->tp->type == bt_ifunc) {
 		node = makesnode(en_cnacon, sp->name, sp->mangledName, sp->value.i);
-		node->isPascal = sp->fi->IsPascal;
+		if (sp->fi)
+			node->isPascal = sp->fi->IsPascal;
 		node->constflag = TRUE;
 	}
 	else {
