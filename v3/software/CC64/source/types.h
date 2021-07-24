@@ -1895,6 +1895,7 @@ public:
 	StatementFactory sf;
 	short int pass;
 	bool ipoll;
+	bool nogcskips;
 	int pollCount;
 public:
 	Compiler() { typenum = 0; ipoll = false; pollCount = 33; };
@@ -1927,8 +1928,24 @@ public:
 	bool SupportsPtrdif;
 	bool SupportsEnter;
 	bool SupportsLeave;
+	bool SupportsIndexed;
 	void SetRealRegisters();
 	void SetVirtualRegisters();
+	bool Addsi;
+	int mov_op;
+	int lea_op;
+	int ldi_op;
+	int ldo_op;
+	int ldt_op;
+	int ldw_op;
+	int ldb_op;
+	int ldbu_op;
+	int ldwu_op;
+	int ldtu_op;
+	int sto_op;
+	int stt_op;
+	int stw_op;
+	int stb_op;
 };
 
 //#define SYM     struct sym

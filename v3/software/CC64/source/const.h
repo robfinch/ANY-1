@@ -204,6 +204,10 @@ enum e_op {
 	op_vseq, op_vsne,
 	op_vslt, op_vsge, op_vsle, op_vsgt,
 	op_vex, op_veins,
+	// RISCV
+	op_lb, op_lbu, op_lh, op_lhu, op_lw, op_lwu,
+	op_sb, op_sh, op_sw, op_sd,
+	op_l, op_la, op_mv,
 	// DSD9
 	op_ldt, op_ldtu,
 	op_calltgt,

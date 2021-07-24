@@ -588,7 +588,8 @@ void Operand::store(txtoStream& ofs)
 	switch (mode)
 	{
 	case am_imm:
-		ofs.write("#");
+		if (!cpu.Addsi)
+			ofs.write("#");
 		// Fall through
 	case am_direct:
 		if (offset2) {

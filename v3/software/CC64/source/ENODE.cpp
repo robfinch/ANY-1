@@ -1100,7 +1100,7 @@ void ENODE::GenRedor(Operand *ap1, Operand *ap2)
 // ----------------------------------------------------------------------------
 Operand *ENODE::GenIndex(bool neg)
 {
-	Operand *ap1, *ap2;
+	Operand *ap1, *ap2, *ap3;
 
 	if ((p[0]->nodetype == en_tempref || p[0]->nodetype == en_regvar)
 		&& (p[1]->nodetype == en_tempref || p[1]->nodetype == en_regvar))
@@ -1110,12 +1110,22 @@ Operand *ENODE::GenIndex(bool neg)
 		ap1 = cg.GenerateExpression(p[0], am_reg, 8);
 		ap2 = cg.GenerateExpression(p[1], am_reg, 8);
 		GenerateHint(9);
-		ap1->mode = am_indx2;
-		ap1->sreg = ap2->preg;
-		ap1->deep2 = ap2->deep2;
-		ap1->offset = makeinode(en_icon, 0);
-		ap1->scale = scale;
-		ap1->isUnsigned = ap2->isUnsigned;
+		if (cpu.SupportsIndexed) {
+			ap1->mode = am_indx2;
+			ap1->sreg = ap2->preg;
+			ap1->deep2 = ap2->deep2;
+			ap1->offset = makeinode(en_icon, 0);
+			ap1->scale = scale;
+			ap1->isUnsigned = ap2->isUnsigned;
+		}
+		else {
+			GenerateTriadic(op_add, 0, ap1, ap1, ap2);
+			ap1->mode = am_indx;
+			ap1->deep2 = ap2->deep2;
+			ap1->offset = makeinode(en_icon, 0);
+			ap1->scale = scale;
+			ap1->isUnsigned = ap2->isUnsigned;
+		}
 		return (ap1);
 	}
 	GenerateHint(8);
@@ -1162,9 +1172,17 @@ Operand *ENODE::GenIndex(bool neg)
 		return (ap1);
 	}
 	if (ap2->mode == am_ind && ap1->mode == am_reg) {
-		ap2->mode = am_indx2;
-		ap2->sreg = ap1->preg;
-		ap2->deep2 = ap1->deep;
+		if (cpu.SupportsIndexed) {
+			ap2->mode = am_indx2;
+			ap2->sreg = ap1->preg;
+			ap2->deep2 = ap1->deep;
+		}
+		else {
+			GenerateTriadic(op_add, 0, ap2, ap1, ap2);
+			ap2->mode = am_indx;
+			ap2->deep2 = ap1->deep;
+			ap2->offset = makeinode(en_icon, 0);
+		}
 		return (ap2);
 	}
 	if (ap2->mode == am_direct && ap1->mode == am_reg) {
@@ -1174,12 +1192,21 @@ Operand *ENODE::GenIndex(bool neg)
 		return (ap2);
 	}
 	// ap1->mode must be am_reg
-	ap2->MakeLegal( am_reg, 8);
-	ap1->mode = am_indx2;            /* make indexed */
-	ap1->sreg = ap2->preg;
-	ap1->deep2 = ap2->deep;
-	ap1->offset = makeinode(en_icon, 0);
-	ap1->scale = scale;
+	ap2->MakeLegal(am_reg, 8);
+	if (cpu.SupportsIndexed) {
+		ap1->mode = am_indx2;            /* make indexed */
+		ap1->sreg = ap2->preg;
+		ap1->deep2 = ap2->deep;
+		ap1->offset = makeinode(en_icon, 0);
+		ap1->scale = scale;
+	}
+	else {
+		GenerateTriadic(op_add, 0, ap1, ap1, ap2);
+		ap1->mode = am_indx;            /* make indexed */
+		ap1->sreg = ap2->preg;
+		ap1->deep2 = ap2->deep;
+		ap1->offset = makeinode(en_icon, 0);
+	}
 	return (ap1);                     /* return indexed */
 }
 
@@ -1750,7 +1777,7 @@ Operand *ENODE::GenerateBinary(int flags, int size, int op)
 						if (ap1->isPtr && ap2->isPtr)
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
 						else if (ap2->isPtr)
-							GenerateDiadic(op_lea, 0, ap3, op==op_sub ? compiler.of.MakeNegIndexed(ap2->offset, ap1->preg) : MakeIndexed(ap2->offset, ap1->preg));
+							GenerateDiadic(cpu.lea_op, 0, ap3, op==op_sub ? compiler.of.MakeNegIndexed(ap2->offset, ap1->preg) : MakeIndexed(ap2->offset, ap1->preg));
 						else {
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
 						}

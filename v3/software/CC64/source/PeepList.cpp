@@ -432,7 +432,7 @@ void PeepList::RemoveGPLoad()
 
 	for (ip = head; ip != NULL; ip = ip->fwd)
 	{
-		if (ip->opcode == op_lea) {
+		if (ip->opcode == cpu.lea_op) {
 			if (ip->oper1->preg == regGP) {
 				ip->MarkRemove();
 			}
@@ -689,9 +689,11 @@ void PeepList::OptInstructions()
 					ip->MarkRemove();
 				}
 				break;
-			case op_ld:		ip->OptLoad();	break;
+			//case op_ld:		ip->OptLoad();	break;
 			case op_ldi:	ip->OptLdi();	break;
+			case op_l:		ip->OptLdi(); break;
 			case op_lea:	ip->OptLea();	break;
+			case op_la:		ip->OptLea(); break;
 			case op_mov:	ip->OptMove();	break;
 			case op_add:	ip->OptAdd(); break;
 			case op_sub:	ip->OptSubtract(); break;

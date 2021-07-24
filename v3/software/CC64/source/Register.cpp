@@ -113,7 +113,8 @@ static short int save_vmreg_alloc_ptr;
 static short int breg_stack_ptr;
 static short int breg_alloc_ptr;
 
-char tmpregs[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20};
+//char tmpregs[] = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20};
+char tmpregs[32];
 char tmpfpregs[] = {1,2,3,4,5,6,7,8,9,10};
 char tmppregs[] = { 1,2,3,4,5,6,7,8,9,10 };
 char tmpvregs[] = {1,2,3,4,5,6,7,8,9,10};
@@ -132,6 +133,10 @@ int save_rap[20];
 
 int NumTempRegs()
 {
+	if (isRiscv)
+		return (7);
+	else
+		return (6);
 	if (currentFn->IsLeaf)
 		return (regLastTemp - 1 + 1);
 	else
@@ -143,7 +148,26 @@ void initRegStack()
 	int i;
 	Function *sym = currentFn;
 
+	if (isRiscv) {
+		tmpregs[0] = 5;
+		tmpregs[1] = 6;
+		tmpregs[2] = 7;
+		tmpregs[3] = 28;
+		tmpregs[4] = 29;
+		tmpregs[5] = 30;
+		tmpregs[6] = 31;
+	}
+	else {
+		tmpregs[0] = 4;
+		tmpregs[1] = 5;
+		tmpregs[2] = 6;
+		tmpregs[3] = 7;
+		tmpregs[4] = 8;
+		tmpregs[5] = 9;
+	}
+
 	next_reg = regFirstTemp;
+	next_reg = 0;
 	next_fpreg = regFirstTemp;
 	next_preg = regFirstTemp;
 	next_vreg = regFirstTemp;
@@ -194,6 +218,17 @@ void initRegStack()
     memset(save_vmreg_alloc,0,sizeof(save_vmreg_alloc));
 	wrapno = 0;
 	ZeroMemory(rap, sizeof(rap));
+}
+
+int IsTempReg(int rg)
+{
+	int nn;
+
+	for (nn = 0; nn < NumTempRegs(); nn++) {
+		if (rg == tmpregs[nn])
+			return (nn+1);
+	}
+	return (0);
 }
 
 // Spill a register to memory.
@@ -335,7 +370,7 @@ Operand *GetTempRegister()
 	int number;
 	int nr, nn;
 
-	number = reg_in_use[next_reg];
+	number = reg_in_use[tmpregs[next_reg]];
 	if (number >= 0) {// && number < rap[wrapno]) {
 		/*
 		nr = next_reg;
@@ -351,22 +386,22 @@ Operand *GetTempRegister()
 			}
 		}
 		*/
-		SpillRegister(makereg(next_reg),number);
+		SpillRegister(makereg(tmpregs[next_reg]),number);
 	}
 	TRACE(printf("GetTempRegister:r%d\r\n", next_reg);)
-    reg_in_use[next_reg] = reg_alloc_ptr;
+    reg_in_use[tmpregs[next_reg]] = reg_alloc_ptr;
     ap = allocOperand();
     ap->mode = am_reg;
-    ap->preg = next_reg;
+    ap->preg = tmpregs[next_reg];
 	ap->pdeep = ap->deep;
     ap->deep = reg_alloc_ptr;
-    reg_alloc[reg_alloc_ptr].reg = next_reg;
+    reg_alloc[reg_alloc_ptr].reg = tmpregs[next_reg];
     reg_alloc[reg_alloc_ptr].Operand = ap;
     reg_alloc[reg_alloc_ptr].f.isPushed = 'F';
-	if (next_reg++ >= regLastTemp) {
+	if (next_reg++ >= NumTempRegs()) {// regLastTemp) {
 		wrapno++;
 		rap[wrapno] = reg_alloc_ptr;
-		next_reg = regFirstTemp;		/* wrap around */
+		next_reg = 0;// regFirstTemp;		/* wrap around */
 	}
     if (reg_alloc_ptr++ == MAX_REG_STACK)
 		fatal("GetTempRegister(): register stack overflow");
@@ -565,12 +600,12 @@ void checkbrstack()
 void validate(Operand *ap)
 {
     Function *sym = currentFn;
-	unsigned int frg = (unsigned)regFirstTemp;
+		unsigned int frg = (unsigned)0;// regFirstTemp;
 
 	if (ap->typep!=&stdvector)
     switch (ap->mode) {
 	case am_reg:
-		if ((ap->preg >= frg && ap->preg <= (unsigned)regLastTemp) && reg_alloc[ap->pdeep].f.isPushed == 'T' ) {
+		if (IsTempReg(ap->preg) && reg_alloc[ap->pdeep].f.isPushed == 'T' ) {
 			LoadRegister(ap->preg, (int) ap->pdeep);
 		}
 		break;
@@ -585,22 +620,22 @@ void validate(Operand *ap)
 		}
 		break;
 	case am_indx2:
-		if ((ap->preg >= frg && ap->preg <= (unsigned)regLastTemp) && reg_alloc[ap->deep].f.isPushed == 'T') {
+		if (IsTempReg(ap->preg) && reg_alloc[ap->deep].f.isPushed == 'T') {
 			LoadRegister(ap->preg, (int) ap->deep);
 		}
-		if ((ap->sreg >= frg && ap->sreg <= (unsigned)regLastTemp) && reg_alloc[ap->deep2].f.isPushed  == 'T') {
+		if (IsTempReg(ap->sreg) && reg_alloc[ap->deep2].f.isPushed  == 'T') {
 			LoadRegister(ap->sreg, (int) ap->deep2);
 		}
 		break;
-    case am_ind:
-    case am_indx:
-    case am_ainc:
-    case am_adec:
-		if ((ap->preg >= frg && ap->preg <= (unsigned)regLastTemp) && reg_alloc[ap->deep].f.isPushed == 'T') {
-			LoadRegister(ap->preg, (int) ap->deep);
-		}
-		break;
-    }
+  case am_ind:
+  case am_indx:
+  case am_ainc:
+  case am_adec:
+	if (IsTempReg(ap->preg) && reg_alloc[ap->deep].f.isPushed == 'T') {
+		LoadRegister(ap->preg, (int) ap->deep);
+	}
+	break;
+  }
 }
 
 
@@ -612,7 +647,7 @@ void ReleaseTempRegister(Operand *ap)
 	int nn;
     int number;
     Function *sym = currentFn;
-	unsigned int frg = regFirstTemp;
+		unsigned int frg = 0;// regFirstTemp;
 
 	TRACE(printf("ReleaseTempRegister:r%d r%d\r\n", ap->preg, ap->sreg);)
 
@@ -723,7 +758,7 @@ void ReleaseTempRegister(Operand *ap)
 	case am_adec:
 	case am_reg:
 common:
-		if (ap->preg >= frg && ap->preg <= (unsigned)regLastTemp) {
+		if (IsTempReg(ap->preg)) {
 			if (reg_in_use[ap->preg]==-1)
 				return;
 			if (next_reg-- <= frg) {
@@ -736,7 +771,7 @@ common:
 		}
 		return;
     case am_indx2:
-		if (ap->sreg >= frg && ap->sreg <= (unsigned)regLastTemp) {
+		if (IsTempReg(ap->sreg)) {
 			if (reg_in_use[ap->sreg]==-1)
 				return;
 			if (next_reg-- <= frg) {

@@ -32,6 +32,7 @@
 #define RAPTOR64	64
 #define W65C816     816
 #define FISA64      164
+#define RISCV       5
 #define DSD7        7
 #define isThor		(gCpu==THOR)
 #define isTable888	(gCpu==TABLE888)
@@ -39,6 +40,7 @@
 #define is816       (gCpu==W65C816)
 #define isFISA64    (gCpu==FISA64)
 #define isDSD7      (gCpu==DSD7)
+#define isRiscv     (gCpu==RISCV)
 //#define DOTRACE	1
 #ifdef DOTRACE
 #define TRACE(x)	x
@@ -172,6 +174,7 @@ extern int opt_noexpr;
 extern int opt_nocgo;
 extern int opt_size;
 extern int opt_loop_invariant;
+extern int opt_rv5;
 extern int exceptions;
 extern int mixedSource;
 extern Function *currentFn;
@@ -415,7 +418,7 @@ extern BasicBlock *basicBlocks[10000];
 extern BasicBlock *sortedBlocks[10000];
 extern Forest forest;
 extern IGraph iGraph;
-extern Instruction opl[292];
+extern Instruction opl[306];
 extern BasicBlock *LastBlock;
 extern Instruction *GetInsn(int);
 extern char inpline[100000];
@@ -427,5 +430,6 @@ extern int window_pos;
 extern txtoStream irfs;
 extern CSet* ru, * rru;
 extern OCODE* gHeadif;
+extern char tmpregs[32];
 
 #endif

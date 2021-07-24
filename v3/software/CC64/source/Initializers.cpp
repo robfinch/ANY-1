@@ -137,13 +137,13 @@ void doinit(SYM *sp)
 	}
 	else {
 		if (sp->storage_class == sc_global) {
-			strcpy_s(lbl, sizeof(lbl), "public ");
+			strcpy_s(lbl, sizeof(lbl), isRiscv ? ".global " : "public ");
 			if (curseg==dataseg)
-				strcat_s(lbl, sizeof(lbl), "data ");
+				strcat_s(lbl, sizeof(lbl), isRiscv ? "" : "data ");
 			else if (curseg==bssseg)
-				strcat_s(lbl, sizeof(lbl), "bss ");
+				strcat_s(lbl, sizeof(lbl), isRiscv ? "" : "bss ");
 			else if (curseg==tlsseg)
-				strcat_s(lbl, sizeof(lbl), "tls ");
+				strcat_s(lbl, sizeof(lbl), isRiscv ? "" : "tls ");
 		}
 		strcat_s(lbl, sizeof(lbl), sp->name->c_str());
 		if (sp->tp->IsSkippable()) {
@@ -174,7 +174,7 @@ void doinit(SYM *sp)
 				char buf[400];
 				char buf2[40];
 				if (sp->storage_class == sc_global)
-					strcpy(buf2, "endpublic\n");
+					strcpy(buf2, isRiscv ? "" : "endpublic\n");
 				else
 					strcpy(buf2, "");
 				sprintf(buf, "%s:\ndco %s_dat\n%s%s_dat:\n", lbl, sp->name->c_str(), buf2, lbl);
@@ -191,7 +191,7 @@ void doinit(SYM *sp)
 			char buf2[40];
 			int64_t val = 0;
 			if (sp->storage_class == sc_global)
-				strcpy(buf2, "endpublic\n");
+				strcpy(buf2, isRiscv ? "" : "endpublic\n");
 			else
 				strcpy(buf2, "");
 			if (sp->initexp) {
@@ -276,7 +276,7 @@ void doinit(SYM *sp)
 	if (!IsFuncptrAssign(sp))
 		endinit();
 	if (sp->storage_class == sc_global)
-		ofs.printf("\nendpublic\n");
+		ofs.printf(isRiscv ? "" : "\nendpublic\n");
 xit:
 	sp->storage_endpos = ofs.tellp();
 }

@@ -45,7 +45,7 @@ struct nlit *numeric_tab = nullptr;
 // Please keep table in alphabetical order.
 // Instruction.cpp has the number of table elements hard-coded in it.
 //
-Instruction opl[292] =
+Instruction opl[306] =
 {   
 { ";", op_remark },
 { ";asm",op_asm,300 },
@@ -179,6 +179,11 @@ Instruction opl[292] =
 { "jal", op_jal,1,1,false },
 { "jmp",op_jmp,1,0,false,am_mem,0,0,0 },
 { "jsr", op_jsr,1,1,false },
+{ "l",op_l,1,1,false,am_reg,am_imm,0,0 },
+{ "la",op_la,1,1,false,am_reg,am_mem,0,0 },
+{ "lb", op_lb,4,1,true,am_reg,am_mem,0,0 },
+{ "lbu", op_lbu,4,1,true,am_reg,am_mem,0,0 },
+{ "ld", op_ld,4,1,true,am_reg,am_mem,0,0 },
 { "ldb", op_ldb,4,1,true,am_reg,am_mem,0,0 },
 { "ldbu", op_ldbu,4,1,true,am_reg,am_mem,0,0 },
 { "ldd", op_ldd,4,1,true,am_reg,am_mem,0,0 },
@@ -200,6 +205,8 @@ Instruction opl[292] =
 { "lea",op_lea,1,1,false,am_reg,am_mem,0,0 },
 { "leave",op_leave,10,2,true, 0, 0, 0, 0 },
 { "leu",op_leu },
+{ "lh", op_lh,4,1,true,am_reg,am_mem,0,0 },
+{ "lhu", op_lhu,4,1,true,am_reg,am_mem,0,0 },
 { "link",op_link,4,1,true,am_imm,0,0,0 },
 { "lm", op_lm },
 { "loop", op_loop,1,0 },
@@ -210,6 +217,8 @@ Instruction opl[292] =
 { "lvbu", op_lvbu,4,1,true ,am_reg,am_mem,0,0 },
 { "lvcu", op_lvcu,4,1,true ,am_reg,am_mem,0,0 },
 { "lvhu", op_lvhu,4,1,true ,am_reg,am_mem,0,0 },
+{ "lw", op_lw,4,1,true,am_reg,am_mem,0,0 },
+{ "lwu", op_lwu,4,1,true,am_reg,am_mem,0,0 },
 { "lws", op_ldds,4,1,true },
 { "mffp",op_mffp },
 { "mod", op_mod,68,1, false,am_reg,am_reg,am_reg|am_imm,0 },
@@ -221,6 +230,7 @@ Instruction opl[292] =
 { "mul",op_mul,18,1,false,am_reg,am_reg,am_reg|am_imm,0 },
 { "mulf",op_mulf,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "mulu", op_mulu, 10, 1, false, am_reg, am_reg, am_reg | am_imm, 0 },
+{ "mv", op_mv,1,1,false,am_reg,am_reg,0,0 },
 { "nand",op_nand,1,1,false,am_reg,am_reg,am_reg,0 },
 { "ne",op_ne },
 { "neg",op_neg, 1, 1, false,am_reg,am_reg,0,0 },
@@ -264,6 +274,8 @@ Instruction opl[292] =
 { "rts", op_rts,1,0,am_imm,0,0,0 },
 { "rtx", op_rtx,1,0,0,0,0,0 },
 { "sand",op_sand,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
+{ "sb",op_sb,4,0,true,am_reg,am_mem,0,0 },
+{ "sd",op_sd,4,0,true,am_reg,am_mem,0,0 },
 { "sei", op_sei,1,0,false,am_reg|am_ui6,0,0,0 },
 { "seq", op_seq,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "setwb", op_setwb, 1, 0 },
@@ -271,6 +283,7 @@ Instruction opl[292] =
 { "sgeu",op_sgeu,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "sgt",op_sgt,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
 { "sgtu",op_sgtu,1,1,false,am_reg,am_reg,am_reg | am_i26,0 },
+{ "sh",op_sh,4,0,true,am_reg,am_mem,0,0 },
 { "shl", op_stpl,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
 { "shlu", op_stplu,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
 { "shr", op_stpr,2,1,false,am_reg,am_reg,am_reg | am_ui6,0 },
@@ -303,6 +316,7 @@ Instruction opl[292] =
 { "sub",op_sub,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
 { "subu", op_subu,1,1 },
 { "sv", op_sv,256,0 },
+{ "sw",op_sw,4,0,true,am_reg,am_mem,0,0 },
 { "swap",op_stdap,1,1,false },
 { "swp", op_stdp, 8, false },
 { "sws", op_stds,4,0 },
@@ -375,8 +389,13 @@ char *RegMoniker(int regno)
 {
 	static char buf[4][20];
 	static int n;
+	int rg;
 
 	n = (n + 1) & 3;
+	if (rg = IsTempReg(regno)) {
+		sprintf_s(&buf[n][0], 20, "$t%d", tmpregs[rg-1]);
+	}
+	else
     if (regno==regFP)
 		sprintf_s(&buf[n][0], 20, "$fp");
     else if (regno==regGP)
@@ -420,9 +439,14 @@ char *RegMoniker2(int regno)
 {
 	static char buf[4][20];
 	static int n;
+	int rg;
 
 	n = (n + 1) & 3;
-	if (regno == regFP)
+	if (rg = IsTempReg(regno)) {
+		sprintf_s(&buf[n][0], 20, "$t%d", tmpregs[rg - 1]);
+	}
+	else
+		if (regno == regFP)
 		sprintf_s(&buf[n][0], 20, "$fp");
 	else if (regno == regGP)
 		sprintf_s(&buf[n][0], 20, "$gp");
@@ -1138,11 +1162,11 @@ void dumplits()
 
 void nl()
 {       
-	if(outcol > 0) {
+//	if(outcol > 0) {
 		ofs.printf("\n");
 		outcol = 0;
 		gentype = nogen;
-	}
+//	}
 }
 
 void align(int n)

@@ -261,12 +261,12 @@ void Statement::GenerateSwitchLo(Case* cases, Operand* ap, Operand* ap2, int lo,
 		ap3 = MakeImmediate(pwrof2(cases[lo].val));
 		GenerateTriadic(op_bbc, 0, ap, ap3, MakeCodeLabel(lab2));
 	}
-	else if (cases[lo].val >= -32 && cases[lo].val < 32) {
+	else if (!isRiscv && cases[lo].val >= -32 && cases[lo].val < 32) {
 		ap3 = MakeImmediate(cases[lo].val);
 		GenerateTriadic(op_bne, 0, ap, ap3, MakeCodeLabel(lab2));
 	}
 	else {
-		GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo].val));
+		GenerateDiadic(cpu.ldi_op, 0, ap2, MakeImmediate(cases[lo].val));
 		GenerateTriadic(op_bne, 0, ap, ap2, MakeCodeLabel(lab2));
 	}
 	if (opt_size && cases[lo].done) {
@@ -290,12 +290,12 @@ void Statement::GenerateSwitchLop1(Case* cases, Operand* ap, Operand* ap2, int l
 		ap3 = MakeImmediate(pwrof2(cases[lo + 1].val));
 		GenerateTriadic(op_bbc, 0, ap, ap3, MakeCodeLabel(cases[lo + 2].done ? (deflab > 0 ? deflab : xitlab) : lab1));
 	}
-	else if (cases[lo + 1].val >= -32 && cases[lo + 1].val < 32) {
+	else if (!isRiscv && cases[lo + 1].val >= -32 && cases[lo + 1].val < 32) {
 		ap3 = MakeImmediate(cases[lo + 1].val);
 		GenerateTriadic(op_bne, 0, ap, ap3, MakeCodeLabel(cases[lo + 2].done ? (deflab > 0 ? deflab : xitlab) : lab1));
 	}
 	else {
-		GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo + 1].val));
+		GenerateDiadic(cpu.ldi_op, 0, ap2, MakeImmediate(cases[lo + 1].val));
 		GenerateTriadic(op_bne, 0, ap, ap2, MakeCodeLabel(cases[lo + 2].done ? (deflab > 0 ? deflab : xitlab) : lab1));
 	}
 	if (opt_size && cases[lo + 1].done) {
@@ -312,7 +312,7 @@ void Statement::GenerateSwitchLop1(Case* cases, Operand* ap, Operand* ap2, int l
 void Statement::GenerateSwitchLop2(Case* cases, Operand* ap, Operand* ap2, int lo, int xitlab, int deflab, bool is_unsigned, bool one_hot)
 {
 	if (cases[lo + 2].val == cases[lo + 1].val && opt_size) {	// always false
-		GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo + 2].val));
+		GenerateDiadic(cpu.ldi_op, 0, ap2, MakeImmediate(cases[lo + 2].val));
 		GenerateTriadic(op_beq, 0, ap, ap2, MakeCodeLabel(cases[lo + 1].label));
 		GenerateMonadic(op_bra, 0, MakeCodeLabel(deflab > 0 ? deflab : xitlab));
 	}
@@ -333,11 +333,11 @@ void Statement::GenerateSwitchLop2(Case* cases, Operand* ap, Operand* ap2, int l
 				}
 			}
 			else {
-				if (cases[lo + 2].val >= -32 && cases[lo + 2].val < 32) {
+				if (!isRiscv && cases[lo + 2].val >= -32 && cases[lo + 2].val < 32) {
 					GenerateTriadic(op_beq, 0, ap, MakeImmediate(cases[lo + 2].val), MakeCodeLabel(cases[lo + 2].label));
 				}
 				else {
-					GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo + 2].val));
+					GenerateDiadic(cpu.ldi_op, 0, ap2, MakeImmediate(cases[lo + 2].val));
 					GenerateTriadic(op_beq, 0, ap, ap2, MakeCodeLabel(cases[lo + 2].label));
 				}
 				GenerateMonadic(op_bra, 0, MakeCodeLabel(deflab > 0 ? deflab : xitlab));
@@ -348,7 +348,7 @@ void Statement::GenerateSwitchLop2(Case* cases, Operand* ap, Operand* ap2, int l
 				GenerateTriadic(op_bbc, 0, ap, MakeImmediate(pwrof2(cases[lo + 2].val)), MakeCodeLabel(deflab > 0 ? deflab : xitlab));
 			}
 			else {
-				GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[lo + 2].val));
+				GenerateDiadic(cpu.ldi_op, 0, ap2, MakeImmediate(cases[lo + 2].val));
 				GenerateTriadic(op_bne, 0, ap, ap2, MakeCodeLabel(deflab > 0 ? deflab : xitlab));
 			}
 		}
@@ -388,14 +388,14 @@ void Statement::GenerateSwitchSearch(Case *cases, Operand* ap, Operand* ap2, int
 	lolab = nextlabel++;
 	mid = ((lo + hi) >> 1);
 	GenerateLabel(midlab);
-	if (cases[mid].val >= -32 && cases[mid].val < 32) {
+	if (!isRiscv && cases[mid].val >= -32 && cases[mid].val < 32) {
 		ap3 = MakeImmediate(cases[mid].val);
-		GenerateTriadic(is_unsigned ? op_bgtu : op_bgt, 0, ap, ap3, MakeCodeLabel(hilab));
+		GenerateTriadic(is_unsigned ? op_bgeu : op_bge, 0, ap, ap3, MakeCodeLabel(hilab));
 		GenerateTriadic(is_unsigned ? op_bltu : op_blt, 0, ap, ap3, MakeCodeLabel(lolab));
 	}
 	else {
 		GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[mid].val));
-		GenerateTriadic(is_unsigned ? op_bgtu : op_bgt, 0, ap, ap2, MakeCodeLabel(hilab));
+		GenerateTriadic(is_unsigned ? op_bgeu : op_bge, 0, ap, ap2, MakeCodeLabel(hilab));
 		GenerateTriadic(is_unsigned ? op_bltu : op_blt, 0, ap, ap2, MakeCodeLabel(lolab));
 	}
 	if (opt_size)
@@ -569,17 +569,18 @@ void Statement::GenerateLinearSwitch()
 							}
 							else
 							*/
-							if (bf[nn] >= -128 && bf[nn] < 127 && 0) {
-								GenerateTriadic(op_beqi, 0, ap, MakeImmediate(bf[nn]), MakeCodeLabel(curlab));
+							if (false && bf[nn] >= -128 && bf[nn] < 127) {
+								GenerateTriadic(op_beq, 0, ap, MakeImmediate(bf[nn]), MakeCodeLabel(curlab));
 							}
 							else {
 								ap2 = GetTempRegister();
-								if (bf[nn] >= -32 && bf[nn] < 32) {
+								if (!isRiscv && bf[nn] >= -32 && bf[nn] < 32) {
 									GenerateTriadic(op_beq, 0, ap, MakeImmediate(bf[nn]), MakeCodeLabel(curlab));
 								}
 								else {
-									GenerateTriadic(op_seq, 0, ap2, ap, MakeImmediate(bf[nn]));
-									GenerateDiadic(op_bne, 0, ap2, MakeCodeLabel(curlab));
+									//GenerateTriadic(op_seq, 0, ap2, ap, MakeImmediate(bf[nn]));
+									GenerateDiadic(cpu.ldi_op, 0, ap2, MakeImmediate(bf[nn]));
+									GenerateTriadic(op_beq, 0, ap, ap2, MakeCodeLabel(curlab));
 								}
 								ReleaseTempRegister(ap2);
 							}
@@ -656,14 +657,14 @@ void Statement::GenerateTabularSwitch(int64_t minv, int64_t maxv, Operand* ap, b
 	ap2 = GetTempRegister();
 	GenerateTriadic(op_sub, 0, ap, ap, MakeImmediate(minv));
 	if (maxv - minv >= 0 && maxv - minv < 64)
-		GenerateTriadic(op_bgtu, 0, ap, MakeImmediate(maxv - minv), MakeCodeLabel(HasDefcase ? deflbl : breaklab));
+		GenerateTriadic(op_bgeu, 0, ap, MakeImmediate(maxv - minv + 1), MakeCodeLabel(HasDefcase ? deflbl : breaklab));
 	else {
-		GenerateTriadic(op_sleu, 0, ap2, ap, MakeImmediate(maxv - minv));
+		GenerateTriadic(op_sltu, 0, ap2, ap, MakeImmediate(maxv - minv - 1));
 		GenerateDiadic(op_beqz, 0, ap2, MakeCodeLabel(HasDefcase ? deflbl : breaklab));
 	}
 	ReleaseTempRegister(ap2);
 	GenerateTriadic(op_sll, 0, ap, ap, MakeImmediate(4));
-	GenerateDiadic(op_ldo, 0, ap, compiler.of.MakeIndexedCodeLabel(tablabel, ap->preg));
+	GenerateDiadic(cpu.ldo_op, 0, ap, compiler.of.MakeIndexedCodeLabel(tablabel, ap->preg));
 	GenerateMonadic(op_jmp, 0, MakeIndirect(ap->preg));
 	//GenerateMonadic(op_bra, 0, MakeCodeLabel(defcase ? deflbl : breaklab));
 	ReleaseTempRegister(ap);
@@ -676,7 +677,7 @@ void Statement::GenerateNakedTabularSwitch(int64_t minv, Operand* ap, int tablab
 	if (minv != 0)
 		GenerateTriadic(op_sub, 0, ap, ap, MakeImmediate(minv));
 	GenerateTriadic(op_sll, 0, ap, ap, MakeImmediate(3));
-	GenerateDiadic(op_ldo, 0, ap, compiler.of.MakeIndexedCodeLabel(tablabel, ap->preg));
+	GenerateDiadic(cpu.ldo_op, 0, ap, compiler.of.MakeIndexedCodeLabel(tablabel, ap->preg));
 	GenerateMonadic(op_jmp, 0, MakeIndirect(ap->preg));
 	ReleaseTempRegister(ap);
 	s1->Generate();

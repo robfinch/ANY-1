@@ -1549,12 +1549,17 @@ void OCODE::store(txtoStream& ofs)
 	int predreg = pregreg;
 	char buf[8];
 	int nn;
+	bool addi = false;
 
 	nn = 0;
 	ap1 = oper1;
 	ap2 = oper2;
 	ap3 = oper3;
 	ap4 = oper4;
+	if ((ap2 && ap2->mode == am_imm) || (ap3 && ap3->mode == am_imm) || (ap4 && ap4->mode == am_imm))
+		addi = cpu.Addsi;
+	if (isRiscv && opcode == op_l)
+		addi = true;
 
 	if (bb != b) {
 		if (bb->num == 0) {
@@ -1588,8 +1593,13 @@ void OCODE::store(txtoStream& ofs)
 				if (op == op_string) {
 					ofs.printf("dc");
 				}
-				else
+				else {
 					nn = insn->store(ofs);
+					if (addi) {
+						ofs.write("i");
+						nn++;
+					}
+				}
 			}
 			if (insn2) {
 				ofs.printf(".");

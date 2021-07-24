@@ -2165,8 +2165,9 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 			if (!sp->IsTypedef())
 				nbytes = GenerateStorage(nbytes, al, ilc);
 			dfs.printf("G");
-			if ((sp->tp->type == bt_func) && sp->storage_class == sc_global)
-				sp->storage_class = sc_external;
+			// Why the follwing???
+			//if ((sp->tp->type == bt_func) && sp->storage_class == sc_global)
+			//	sp->storage_class = sc_external;
 
 			// Set the (struct member) storage offset.
 			sp->SetStorageOffset(head, nbytes, al, ilc, ztype);

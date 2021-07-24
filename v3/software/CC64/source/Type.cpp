@@ -1489,6 +1489,8 @@ bool TYP::FindPointer()
 
 bool TYP::IsSkippable()
 {
+	if (compiler.nogcskips)
+		return (false);
 	switch (type) {
 	case bt_struct:	return(true);
 	case bt_union: return(true);

@@ -148,6 +148,7 @@ int main(int argc, char **argv)
 	uctran_off = 0;
 	optimize =1;
 	exceptions=1;
+	compiler.nogcskips = true;
 	cpu.SupportsBBC = true;
 	cpu.SupportsBBS = true;
 	cpu.SupportsPop = false;
@@ -160,7 +161,22 @@ int main(int argc, char **argv)
 	cpu.SupportsPtrdif = false;
 	cpu.SupportsEnter = true;
 	cpu.SupportsLeave = true;
-
+	cpu.SupportsIndexed = true;
+	cpu.Addsi = false;
+	cpu.mov_op = op_mov;
+	cpu.lea_op = op_lea;
+	cpu.ldi_op = op_ldi;
+	cpu.ldbu_op = op_ldbu;
+	cpu.ldb_op = op_ldb;
+	cpu.ldo_op = op_ldo;
+	cpu.ldtu_op = op_ldtu;
+	cpu.ldt_op = op_ldt;
+	cpu.ldwu_op = op_ldwu;
+	cpu.ldw_op = op_ldw;
+	cpu.stb_op = op_stb;
+	cpu.sto_op = op_sto;
+	cpu.stt_op = op_stt;
+	cpu.stw_op = op_stw;
 //	printf("c64 starting...\r\n");
 	while(--argc) {
     if( **++argv == '-')
@@ -240,6 +256,49 @@ int	options(char *s)
              regXLR = 28;
              use_gp = TRUE;
         }
+				if (strcmp(&s[2], "riscv") == 0) {
+					gCpu = RISCV;
+					regLR = 1;
+					regSP = 2;
+					regFP = 8;
+					regGP = 3;
+					regZero = 0;
+					regFirstArg = 10;
+					regLastArg = 17;
+					regFirstTemp = 28;
+					regLastTemp = 31;
+					regFirstRegvar = 18;
+					regLastRegvar = 27;
+					compiler.nogcskips = true;
+					cpu.SupportsBBC = false;
+					cpu.SupportsBBS = false;
+					cpu.SupportsPop = false;
+					cpu.SupportsPush = false;
+					cpu.SupportsLink = false;
+					cpu.SupportsUnlink = false;
+					cpu.SupportsBitfield = false;
+					cpu.SupportsLDM = false;
+					cpu.SupportsSTM = false;
+					cpu.SupportsPtrdif = false;
+					cpu.SupportsEnter = false;
+					cpu.SupportsLeave = false;
+					cpu.SupportsIndexed = false;
+					cpu.Addsi = true;
+					cpu.mov_op = op_mv;
+					cpu.lea_op = op_la;
+					cpu.ldi_op = op_l;
+					cpu.ldbu_op = op_lbu;
+					cpu.ldb_op = op_lb;
+					cpu.ldo_op = op_ld;
+					cpu.ldtu_op = op_lwu;
+					cpu.ldt_op = op_lw;
+					cpu.ldwu_op = op_lhu;
+					cpu.ldw_op = op_lh;
+					cpu.stb_op = op_sb;
+					cpu.sto_op = op_sd;
+					cpu.stt_op = op_sw;
+					cpu.stw_op = op_sh;
+				}
 	}
 	else if (s[1]=='w')
 		wcharSupport = 0;

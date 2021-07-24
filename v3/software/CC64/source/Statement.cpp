@@ -1597,7 +1597,7 @@ void Statement::GenerateTry()
 //	GenerateMonadic(op_push, 0, ap);	// stack it
 	sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)throwlab);
 	GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
-	GenerateDiadic(op_sto, 0, ap, MakeIndexed(16, regFP));	// Set current handler
+	GenerateDiadic(op_sto, 0, ap, MakeIndexed(8, regFP));	// Set current handler
 	if (compiler.ipoll)
 		GenerateZeradic(op_pfi);
 	ReleaseTempRegister(ap);
@@ -1659,7 +1659,7 @@ void Statement::GenerateCatch(int opt, int oldthrow, int olderthrow)
 	ap = GetTempRegister();
 	sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)oldthrow);
 	GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
-	GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)16, regFP));	// Restore handler
+	GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)8, regFP));	// Restore handler
 	ReleaseTempRegister(ap);
 	// Branch around the catch handlers
 	if (opt == 0) {

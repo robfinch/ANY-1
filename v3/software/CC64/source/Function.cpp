@@ -73,19 +73,19 @@ Statement *Function::ParseBody()
 			lbl += *sym->mangledName;
 			if (!IsInline) {
 				ofs.printf((char*)lbl.c_str());
-				ofs.printf("\n;{+\n");
 				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst(my_strdup((char*)lbl.c_str()), codeseg));
 				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst("\n;{+",codeseg));
 				GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char *)sym->mangledName->c_str(), codeseg));
+				ofs.printf("\n");
 			}
 			lbl = "public code ";
 		}
 		else {
 			lbl = *sym->mangledName;
 			if (!IsInline) {
-				ofs.printf("\n;{+\n");
 				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst("\n;{+", codeseg));
 				GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char*)lbl.c_str(), codeseg));
+				ofs.printf("\n");
 			}
 		}
 		//		strcat(lbl,sp->name);
@@ -157,7 +157,7 @@ Statement *Function::ParseBody()
 //			ofs.printf("endpublic\r\n\r\n");
 //		}
 		if (!IsInline)
-			ofs.printf(";-}\n");
+			;
 	}
 	//if (sp->stkspace)
 	//ofs.printf("%sSTKSIZE_ EQU %d\r\n", (char *)sp->mangledName->c_str(), sp->stkspace);
@@ -432,7 +432,7 @@ void Function::SaveGPRegisterVars()
 			GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), cg.MakeImmediate(rmask->NumMember() * 8));
 			rmask->resetPtr();
 			for (nn = rmask->lastMember(); nn >= 0; nn = rmask->prevMember()) {
-				GenerateDiadic(op_sto, 0, makereg(nregs - 1 - nn), MakeIndexed(cnt, regSP));
+				GenerateDiadic(cpu.sto_op, 0, makereg(nregs - 1 - nn), MakeIndexed(cnt, regSP));
 				cnt += sizeOfWord;
 			}
 		}
@@ -589,7 +589,7 @@ int Function::RestoreGPRegisterVars()
 			cnt = 0;
 			save_mask->resetPtr();
 			for (nn = save_mask->nextMember(); nn >= 0; nn = save_mask->nextMember()) {
-				GenerateDiadic(op_ldo, 0, makereg(nn), MakeIndexed(cnt, regSP));
+				GenerateDiadic(cpu.ldo_op, 0, makereg(nn), MakeIndexed(cnt, regSP));
 				cnt += sizeOfWord;
 			}
 		}
@@ -690,14 +690,14 @@ void Function::UnlinkStack(int64_t amt)
 	}
 	else if (!IsLeaf && doesJAL) {
 		if (alstk)
-			GenerateDiadic(op_ldo, 0, makereg(regLR), MakeIndexed(sizeOfWord + stkspace, regSP));
+			GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndexed(sizeOfWord + stkspace, regSP));
 	}
 	cg.GenerateUnlink(amt);
 	if (cpu.SupportsLeave) {
 	}
 	else if (!IsLeaf && doesJAL) {
 		if (!alstk)
-			GenerateDiadic(op_ldo, 0, makereg(regLR), MakeIndexed(sizeOfWord, regSP));
+			GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndexed(sizeOfWord, regSP));
 	}
 	//	GenerateTriadic(op_add,0,makereg(regSP),makereg(regSP),MakeImmediate(3*sizeOfWord));
 	if (!cpu.SupportsLeave)
@@ -775,8 +775,8 @@ void Function::SetupReturnBlock()
 	}
 	else {
 		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(Compiler::GetReturnBlockSize()));
-		GenerateDiadic(op_sto, 0, makereg(regFP), MakeIndirect(regSP));
-		GenerateDiadic(op_mov, 0, makereg(regFP), makereg(regSP));
+		GenerateDiadic(cpu.sto_op, 0, makereg(regFP), MakeIndirect(regSP));
+		GenerateDiadic(cpu.mov_op, 0, makereg(regFP), makereg(regSP));
 		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(stkspace));
 		alstk = true;
 	}
@@ -795,7 +795,7 @@ void Function::SetupReturnBlock()
 		else
 		*/
 			if (!cpu.SupportsEnter)
-				GenerateDiadic(op_sto, 0, makereg(regLR), MakeIndexed(1 * sizeOfWord + stkspace, regSP));
+				GenerateDiadic(cpu.sto_op, 0, makereg(regLR), MakeIndexed(1 * sizeOfWord + stkspace, regSP));
 	}
 	/*
 	switch (n) {
@@ -817,10 +817,13 @@ void Function::SetupReturnBlock()
 	// Store the catch handler address at 16[$FP]
 	if (exceptions) {
 		ap = GetTempRegister();
-		sprintf_s(buf, sizeof(buf), "#.C%05lld", defCatchLabel);
+		if (isRiscv)
+			sprintf_s(buf, sizeof(buf), ".C%05lld", defCatchLabel);
+		else
+			sprintf_s(buf, sizeof(buf), "#.C%05lld", defCatchLabel);
 		defCatchLabelPatchPoint = currentFn->pl.tail;
-		GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
-		GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)16, regFP));
+		GenerateDiadic(cpu.ldi_op, 0, ap, MakeStringAsNameConst(buf, codeseg));
+		GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed((int64_t)16, regFP));
 		GenerateMonadic(op_bex, 0, cg.MakeCodeLabel(currentFn->defCatchLabel));
 	}
 	tryCount = 0;
@@ -852,7 +855,7 @@ void Function::GenerateReturn(Statement* stmt)
 			ap = cg.GenerateExpression(stmt->exp, am_reg | am_imm, sizeOfWord);
 		GenerateMonadic(op_hint, 0, MakeImmediate(2));
 		if (ap->mode == am_imm)
-			GenerateDiadic(op_ldi, 0, makereg(regFirstArg), ap);
+			GenerateDiadic(cpu.ldi_op, 0, makereg(regFirstArg), ap);
 		else if (ap->mode == am_reg) {
 			if (sym->tp->btpp && (sym->tp->btpp->type == bt_struct || sym->tp->btpp->type == bt_union || sym->tp->btpp->type == bt_class)) {
 				if ((sz = sym->tp->btpp->size) > sizeOfWord) {
@@ -861,9 +864,9 @@ void Function::GenerateReturn(Statement* stmt)
 						if (p->IsRegister)
 							GenerateDiadic(op_mov, 0, makereg(regFirstArg), makereg(p->reg));
 						else
-							GenerateDiadic(op_ldo, 0, makereg(regFirstArg), MakeIndexed(p->value.i, regFP));
+							GenerateDiadic(cpu.ldo_op, 0, makereg(regFirstArg), MakeIndexed(p->value.i, regFP));
 						ap2 = GetTempRegister();
-						GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(sym->tp->btpp->size));
+						GenerateDiadic(cpu.ldi_op, 0, ap2, MakeImmediate(sym->tp->btpp->size));
 						if (cpu.SupportsPush) {
 							GenerateMonadic(op_push, 0, ap2);
 							GenerateMonadic(op_push, 0, ap);
@@ -871,9 +874,9 @@ void Function::GenerateReturn(Statement* stmt)
 						}
 						else {
 							GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(sizeOfWord * 3));
-							GenerateDiadic(op_sto, 0, makereg(1), MakeIndirect(regSP));
-							GenerateDiadic(op_sto, 0, ap, MakeIndexed(sizeOfWord, regSP));
-							GenerateDiadic(op_sto, 0, ap2, MakeIndexed(sizeOfWord * 2, regSP));
+							GenerateDiadic(cpu.sto_op, 0, makereg(1), MakeIndirect(regSP));
+							GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed(sizeOfWord, regSP));
+							GenerateDiadic(cpu.sto_op, 0, ap2, MakeIndexed(sizeOfWord * 2, regSP));
 						}
 						ReleaseTempReg(ap2);
 						GenerateMonadic(op_call, 0, MakeStringAsNameConst("__aacpy", codeseg));
@@ -963,7 +966,7 @@ void Function::GenerateReturn(Statement* stmt)
 
 	// Unlock any semaphores that may have been set
 	for (nn = lastsph - 1; nn >= 0; nn--)
-		GenerateDiadic(op_stb, 0, makereg(0), MakeStringAsNameConst(semaphores[nn], dataseg));
+		GenerateDiadic(cpu.stb_op, 0, makereg(0), MakeStringAsNameConst(semaphores[nn], dataseg));
 
 	// Restore fp registers used as register variables.
 	//if (fpsave_mask->NumMember()) {
@@ -1071,8 +1074,8 @@ void Function::GenerateReturn(Statement* stmt)
 				UnlinkStack(toAdd);
 			else {
 				GenerateDiadic(op_mov, 0, makereg(regSP), makereg(regFP));
-				GenerateDiadic(op_ldo, 0, makereg(regFP), MakeIndexed(-sizeOfWord, regSP));
-				GenerateDiadic(op_ldo, 0, makereg(regLR), MakeIndirect(regSP));
+				GenerateDiadic(cpu.ldo_op, 0, makereg(regFP), MakeIndexed(-sizeOfWord, regSP));
+				GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndirect(regSP));
 				GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));
 			}
 		}
@@ -1133,7 +1136,7 @@ void Function::Generate()
 		if (DoesContextSave)
 			GenerateMonadic(op_asm, 0, MakeStringAsNameConst("\n  mSaveContext", codeseg));
 		if (sp_init) {
-			GenerateDiadic(op_ldi, 0, makereg(regSP), MakeImmediate(sp_init));
+			GenerateDiadic(cpu.ldi_op, 0, makereg(regSP), MakeImmediate(sp_init));
 		}
 		/*
 		if (stkname) {
@@ -1148,9 +1151,9 @@ void Function::Generate()
 		SetupReturnBlock();
 	stmt->CheckReferences(&sp, &bp, &gp, &gp1);
 	if (gp != 0)
-		GenerateDiadic(op_lea, 0, makereg(regGP), MakeStringAsNameConst("__data_start", dataseg));
+		GenerateDiadic(cpu.lea_op, 0, makereg(regGP), MakeStringAsNameConst("__data_start", dataseg));
 	if (gp1 != 0)
-		GenerateDiadic(op_lea, 0, makereg(regGP1), MakeStringAsNameConst("__rodata_start",dataseg));
+		GenerateDiadic(cpu.lea_op, 0, makereg(regGP1), MakeStringAsNameConst("__rodata_start",dataseg));
 	if (!IsInline)
 		GenerateMonadic(op_hint, 0, MakeImmediate(start_funcbody));
 
@@ -1219,9 +1222,9 @@ void Function::GenerateDefaultCatch()
 		ap = GetTempRegister();
 		if (!hasDefaultCatch)
 			GenerateLabel(defCatchLabel);
-		GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)8, regFP));				// Get previous frame pointer
-		GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16, ap->preg));		// Get previous handler address
-		GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)0, regFP));				// move it to return address loc
+		GenerateDiadic(cpu.ldo_op, 0, ap, MakeIndexed((int64_t)16, regFP));				// Get previous frame pointer
+		GenerateDiadic(cpu.ldo_op, 0, ap, MakeIndexed((int64_t)8, ap->preg));		// Get previous handler address
+		GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed((int64_t)0, regFP));				// move it to return address loc
 		ReleaseTempRegister(ap);
 		GenerateMonadic(op_bra, 0, MakeCodeLabel(retlab));										// And execute return code
 	}

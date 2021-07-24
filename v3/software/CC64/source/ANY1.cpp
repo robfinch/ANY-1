@@ -45,7 +45,7 @@ void ANY1CodeGenerator::SignExtendBitfield(Operand* ap3, uint64_t mask)
 
 	umask = 0x8000000000000000LL | ~(mask >> 1);
 	ap2 = GetTempRegister();
-	GenerateDiadic(op_ldi, 0, ap2, cg.MakeImmediate((int64_t)umask));
+	GenerateDiadic(cpu.ldi_op, 0, ap2, cg.MakeImmediate((int64_t)umask));
 	GenerateTriadic(op_add, 0, ap3, ap3, ap2);
 	GenerateTriadic(op_xor, 0, ap3, ap3, ap2);
 	ReleaseTempRegister(ap2);
@@ -61,7 +61,12 @@ Operand* ANY1CodeGenerator::MakeBoolean(Operand* ap)
 	ip = currentFn->pl.tail;
 	if (ip->opcode & 0x8000)
 		return (ap1);
-	GenerateTriadic(op_sne, 0, ap1, ap, makereg(regZero));
+	if (isRiscv) {
+		GenerateTriadic(op_slt, 0, ap1, ap, MakeImmediate(1LL));
+		GenerateTriadic(op_xor, 0, ap1, ap1, MakeImmediate(1LL));
+	}
+	else
+		GenerateTriadic(op_sne, 0, ap1, ap, makereg(regZero));
 	ap1->isBool = true;
 	return (ap1);
 }
@@ -70,10 +75,10 @@ void ANY1CodeGenerator::GenerateLea(Operand* ap1, Operand* ap2)
 {
 	switch (ap2->mode) {
 	case am_reg:
-		GenerateDiadic(op_mov, 0, ap1, ap2);
+		GenerateDiadic(cpu.mov_op, 0, ap1, ap2);
 		break;
 	default:
-		GenerateDiadic(op_lea, 0, ap1, ap2);
+		GenerateDiadic(cpu.lea_op, 0, ap1, ap2);
 	}
 }
 
@@ -274,7 +279,12 @@ Operand* ANY1CodeGenerator::GenerateEq(ENODE *node)
 	ap3 = GetTempRegister();
 	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
 	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize());
-	GenerateTriadic(op_seq, 0, ap3, ap1, ap2);
+	if (isRiscv) {
+		GenerateTriadic(op_xor, 0, ap3, ap1, ap2);
+		GenerateTriadic(op_slt, 0, ap3, ap3, MakeImmediate(1LL));
+	}
+	else
+		GenerateTriadic(op_seq, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
 	return (ap3);
@@ -289,7 +299,13 @@ Operand* ANY1CodeGenerator::GenerateNe(ENODE* node)
 	ap3 = GetTempRegister();
 	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
 	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize());
-	GenerateTriadic(op_sne, 0, ap3, ap1, ap2);
+	if (isRiscv) {
+		GenerateTriadic(op_xor, 0, ap3, ap1, ap2);
+		GenerateTriadic(op_slt, 0, ap3, ap3, MakeImmediate(1LL));
+		GenerateTriadic(op_xor, 0, ap3, ap3, MakeImmediate(1LL));
+	}
+	else
+		GenerateTriadic(op_sne, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
 	return (ap3);
@@ -705,13 +721,19 @@ void ANY1CodeGenerator::GenerateBeq(Operand* ap1, Operand* ap2, int label)
 {
 	Operand* ap3;
 
-	if (ap2->mode == am_imm && ap2->offset->i >= -128 && ap2->offset->i < 128)
+	if (false && ap2->mode == am_imm && ap2->offset->i >= -128 && ap2->offset->i < 128)
 		GenerateTriadic(op_beqi, 0, ap1, ap2, MakeCodeLabel(label));
-	else if (((ap2->mode == am_imm && ap2->offset->i == 0) || (ap2->mode == am_reg && ap2->preg == regZero)) && ap1->preg >= regFirstArg && ap1->preg < regFirstArg + 4)
+	else if (false && ((ap2->mode == am_imm && ap2->offset->i == 0) || (ap2->mode == am_reg && ap2->preg == regZero)) && ap1->preg >= regFirstArg && ap1->preg < regFirstArg + 4)
 		GenerateDiadic(op_beqz, 0, ap1, MakeCodeLabel(label));
 	else {
-		if (ap2->mode == am_reg && ap1->mode == am_reg)
-			GenerateTriadic(op_beq, 0, ap1, ap2, MakeCodeLabel(label));
+		if (ap2->mode == am_reg && ap1->mode == am_reg) {
+			if (ap2->preg == 0)
+				GenerateDiadic(op_beqz, 0, ap1, MakeCodeLabel(label));
+			else if (ap1->preg == 0)
+				GenerateDiadic(op_beqz, 0, ap2, MakeCodeLabel(label));
+			else
+				GenerateTriadic(op_beq, 0, ap1, ap2, MakeCodeLabel(label));
+		}
 		else {
 			if (ap2->mode == am_imm && ap2->offset->i < 32 && ap2->offset->i >= -32)
 				GenerateTriadic(op_beq, 0, ap1, ap2, MakeCodeLabel(label));
@@ -729,12 +751,18 @@ void ANY1CodeGenerator::GenerateBne(Operand* ap1, Operand* ap2, int label)
 {
 	Operand* ap3;
 
-	if (((ap2->mode == am_imm && ap2->offset->i == 0) || (ap2->mode == am_reg && ap2->preg == regZero)) && ap1->preg >= regFirstArg && ap1->preg < regFirstArg + 4) {
+	if (false && ((ap2->mode == am_imm && ap2->offset->i == 0) || (ap2->mode == am_reg && ap2->preg == regZero)) && ap1->preg >= regFirstArg && ap1->preg < regFirstArg + 4) {
 		GenerateDiadic(op_bnez, 0, ap1, MakeCodeLabel(label));
 	}
 	else {
-		if (ap2->mode == am_reg && ap1->mode == am_reg)
-			GenerateTriadic(op_bne, 0, ap1, ap2, MakeCodeLabel(label));
+		if (ap2->mode == am_reg && ap1->mode == am_reg) {
+			if (ap2->preg == 0)
+				GenerateDiadic(op_bnez, 0, ap1, MakeCodeLabel(label));
+			else if (ap1->preg == 0)
+				GenerateDiadic(op_bnez, 0, ap2, MakeCodeLabel(label));
+			else
+				GenerateTriadic(op_bne, 0, ap1, ap2, MakeCodeLabel(label));
+		}
 		else {
 			if (ap2->mode == am_imm && ap2->offset->i < 32 && ap2->offset->i >= -32)
 				GenerateTriadic(op_bne, 0, ap1, ap2, MakeCodeLabel(label));
@@ -953,7 +981,7 @@ bool ANY1CodeGenerator::GenerateBranch(ENODE *node, int op, int label, int predr
   }
   else {
 		ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
-		ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size);
+		ap2 = cg.GenerateExpression(node->p[1], isRiscv ? am_reg : am_reg | am_imm, size);
   }
 	if (limit && currentFn->pl.Count(ip) > 10) {
 		currentFn->pl.tail = ip;
@@ -1101,7 +1129,7 @@ static void SaveRegisterSet(SYM *sym)
 		GenerateTriadic(op_sub,0,makereg(regSP),makereg(regSP),cg.MakeImmediate(mm*sizeOfWord));
 		mm = 0;
 		for (nn = 1 + (sym->tp->btpp->type!=bt_void ? 1 : 0); nn < 31; nn++) {
-			GenerateDiadic(op_sto,0,makereg(nn),cg.MakeIndexed(mm,regSP));
+			GenerateDiadic(cpu.sto_op,0,makereg(nn),cg.MakeIndexed(mm,regSP));
 			mm += sizeOfWord;
 		}
 	}
@@ -1117,7 +1145,7 @@ static void RestoreRegisterSet(SYM * sym)
 	if (!cpu.SupportsPop || true) {
 		mm = 0;
 		for (nn = 1 + (sym->tp->btpp->type!=bt_void ? 1 : 0); nn < 31; nn++) {
-			GenerateDiadic(op_ldo,0,makereg(nn),cg.MakeIndexed(mm,regSP));
+			GenerateDiadic(cpu.ldo_op,0,makereg(nn),cg.MakeIndexed(mm,regSP));
 			mm += sizeOfWord;
 		}
 		mm = sym->tp->btpp->type!=bt_void ? 29 : 30;
@@ -1158,7 +1186,7 @@ void SaveRegisterVars(CSet *rmask)
 				// nn = nregs - 1 - regno
 				// regno = -(nn - nregs + 1);
 				// regno = nregs - 1 - nn
-				GenerateDiadic(op_sto, 0, makereg(nregs - 1 - nn), cg.MakeIndexed(cnt, regSP));
+				GenerateDiadic(cpu.sto_op, 0, makereg(nregs - 1 - nn), cg.MakeIndexed(cnt, regSP));
 				cnt += sizeOfWord;
 			}
 		}
@@ -1217,7 +1245,7 @@ static void RestoreRegisterVars()
 			cnt = 0;
 			save_mask->resetPtr();
 			for (nn = save_mask->nextMember(); nn >= 0; nn = save_mask->nextMember()) {
-				GenerateDiadic(op_ldo, 0, makereg(nn), cg.MakeIndexed(cnt, regSP));
+				GenerateDiadic(cpu.ldo_op, 0, makereg(nn), cg.MakeIndexed(cnt, regSP));
 				cnt += sizeOfWord;
 			}
 			GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), cg.MakeImmediate(cnt2));
@@ -1313,7 +1341,7 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 			if (regno) {
 				GenerateMonadic(op_hint,0,MakeImmediate(1));
 				if (ap->mode==am_imm) {
-					GenerateDiadic(op_ldi,0,makereg(regno & 0x7fff), ap);
+					GenerateDiadic(cpu.ldi_op,0,makereg(regno & 0x7fff), ap);
 					if (regno & 0x8000) {
 						GenerateTriadic(op_sub,0,makereg(regSP),makereg(regSP),MakeImmediate(sizeOfWord));
 						nn = 1;
@@ -1321,7 +1349,7 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 				}
 				else if (ap->mode==am_fpreg) {
 					*isFloat = true;
-					GenerateDiadic(op_mov,0,makefpreg(regno & 0x7fff), ap);
+					GenerateDiadic(cpu.mov_op,0,makefpreg(regno & 0x7fff), ap);
 					if (regno & 0x8000) {
 						GenerateTriadic(op_sub,0,makereg(regSP),makereg(regSP),MakeImmediate(sz));
 						nn = sz/sizeOfWord;
@@ -1329,7 +1357,7 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 				}
 				else {
 					//ap->preg = regno & 0x7fff;
-					GenerateDiadic(op_mov,0,makereg(regno & 0x7fff), ap);
+					GenerateDiadic(cpu.mov_op,0,makereg(regno & 0x7fff), ap);
 					if (regno & 0x8000) {
 						GenerateTriadic(op_sub,0,makereg(regSP),makereg(regSP),MakeImmediate(sizeOfWord));
 						nn = 1;
@@ -1374,27 +1402,27 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 							ap3 = GetTempRegister();
 							regs[ap3->preg].IsArg = true;
 							GenerateLoadConst(ap, ap3);
-	         		GenerateDiadic(op_sto,0,ap3,MakeIndexed(stkoffs,regSP));
+	         		GenerateDiadic(cpu.sto_op,0,ap3,MakeIndexed(stkoffs,regSP));
 							ReleaseTempReg(ap3);
 						}
 						else {
-							GenerateDiadic(op_sto, 0, makereg(0), MakeIndexed(stkoffs, regSP));
+							GenerateDiadic(cpu.sto_op, 0, makereg(0), MakeIndexed(stkoffs, regSP));
 						}
 						nn = 1;
 					}
 					else {
 						if (ap->typep==&stddouble || ap->mode==am_reg) {
 							*isFloat = true;
-							GenerateDiadic(op_sto,0,ap,MakeIndexed(stkoffs,regSP));
+							GenerateDiadic(cpu.sto_op,0,ap,MakeIndexed(stkoffs,regSP));
 							nn = sz/sizeOfWord;
 						}
 						else if (ap->typep == &stdposit || ap->mode == am_reg) {
-							GenerateDiadic(op_sto, 0, ap, MakeIndexed(stkoffs, regSP));
+							GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed(stkoffs, regSP));
 							nn = 1;
 						}
 						else {
 							regs[ap->preg].IsArg = true;
-							GenerateDiadic(op_sto,0,ap,MakeIndexed(stkoffs,regSP));
+							GenerateDiadic(cpu.sto_op,0,ap,MakeIndexed(stkoffs,regSP));
 							nn = 1;
 						}
 					}
@@ -1605,11 +1633,18 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 		}
 		else {
 			if (sym && sym->IsLeaf) {
-				GenerateDiadic(op_bal, 0, makereg(regLR), MakeDirect(node->p[0]));
+				if (isRiscv)
+					GenerateMonadic(op_call, 0, MakeDirect(node->p[0]));
+				else
+					GenerateDiadic(op_bal, 0, makereg(regLR), MakeDirect(node->p[0]));
 				currentFn->doesJAL = true;
 			}
-			else
-				GenerateDiadic(op_bal, 0, makereg(regLR), MakeDirect(node->p[0]));
+			else {
+				if (isRiscv)
+					GenerateMonadic(op_call, 0, MakeDirect(node->p[0]));
+				else
+					GenerateDiadic(op_bal, 0, makereg(regLR), MakeDirect(node->p[0]));
+			}
 			GenerateMonadic(op_bex,0,MakeDataLabel(throwlab,regZero));
 			LinkAutonew(node);
 		}
@@ -1791,7 +1826,7 @@ void ANY1CodeGenerator::GenerateUnlink(int64_t amt)
 		GenerateZeradic(op_unlk);
 	else
 	{
-		GenerateDiadic(op_mov, 0, makereg(regSP), makereg(regFP));
-		GenerateDiadic(op_ldo, 0, makereg(regFP), MakeIndirect(regSP));
+		GenerateDiadic(cpu.mov_op, 0, makereg(regSP), makereg(regFP));
+		GenerateDiadic(cpu.ldo_op, 0, makereg(regFP), MakeIndirect(regSP));
 	}
 }

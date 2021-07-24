@@ -6,6 +6,7 @@ TYP *forcefit(ENODE **srcnode, TYP *srctp, ENODE **dstnode, TYP *dsttp, bool pro
 // Register.cpp
 bool IsArgumentReg(int regno);
 bool IsCalleeSave(int regno);
+int IsTempReg(int rg);
 
 extern TYP* expression(ENODE** node, SYM* symi);
 

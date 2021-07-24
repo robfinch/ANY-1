@@ -162,20 +162,20 @@ void CodeGenerator::GenerateLoad(Operand *ap3, Operand *ap1, int ssize, int size
 	else if (ap3->isUnsigned) {
 		// If size is zero, probably a pointer to void being processed.
 			switch (size) {
-			case 0: GenerateDiadic(op_ldo, 0, ap3, ap1); break;
-			case 1:	GenerateDiadic(op_ldbu, 0, ap3, ap1); break;
-			case 2:	GenerateDiadic(op_ldwu, 0, ap3, ap1); break;
-			case 4:	GenerateDiadic(op_ldtu, 0, ap3, ap1); break;
-			case 8: GenerateDiadic(op_ldo, 0, ap3, ap1); break;
+			case 0: GenerateDiadic(cpu.ldo_op, 0, ap3, ap1); break;
+			case 1:	GenerateDiadic(cpu.ldbu_op, 0, ap3, ap1); break;
+			case 2:	GenerateDiadic(cpu.ldwu_op, 0, ap3, ap1); break;
+			case 4:	GenerateDiadic(cpu.ldtu_op, 0, ap3, ap1); break;
+			case 8: GenerateDiadic(cpu.ldo_op, 0, ap3, ap1); break;
 			}
     }
     else {
 			switch (size) {
-			case 0: GenerateDiadic(op_ldo, 0, ap3, ap1); break;
-			case 1:	GenerateDiadic(op_ldb, 0, ap3, ap1); break;
-			case 2:	GenerateDiadic(op_ldw, 0, ap3, ap1); break;
-			case 4:	GenerateDiadic(op_ldt, 0, ap3, ap1); break;
-			case 8:	GenerateDiadic(op_ldo, 0, ap3, ap1); break;
+			case 0: GenerateDiadic(cpu.ldo_op, 0, ap3, ap1); break;
+			case 1:	GenerateDiadic(cpu.ldb_op, 0, ap3, ap1); break;
+			case 2:	GenerateDiadic(cpu.ldw_op, 0, ap3, ap1); break;
+			case 4:	GenerateDiadic(cpu.ldt_op, 0, ap3, ap1); break;
+			case 8:	GenerateDiadic(cpu.ldo_op, 0, ap3, ap1); break;
 			}
     }
 	ap3->memref = true;
@@ -224,10 +224,10 @@ void CodeGenerator::GenerateStore(Operand *ap1, Operand *ap3, int size)
 	//	GenerateDiadic(op_fsto,0,ap1,ap3);
 	else {
 		switch (size) {
-		case 1: GenerateDiadic(op_stb, 0, ap1, ap3); break;
-		case 2: GenerateDiadic(op_stw, 0, ap1, ap3); break;
-		case 4: GenerateDiadic(op_stt, 0, ap1, ap3); break;
-		case 8: GenerateDiadic(op_sto, 0, ap1, ap3); break;
+		case 1: GenerateDiadic(cpu.stb_op, 0, ap1, ap3); break;
+		case 2: GenerateDiadic(cpu.stw_op, 0, ap1, ap3); break;
+		case 4: GenerateDiadic(cpu.stt_op, 0, ap1, ap3); break;
+		case 8: GenerateDiadic(cpu.sto_op, 0, ap1, ap3); break;
 		default:
 			;
 		}
@@ -1216,7 +1216,7 @@ void CodeGenerator::GenerateLoadConst(Operand *ap1, Operand *ap2)
 	if (ap1->isPtr) {
 		ap3 = ap1->Clone();
 		ap3->mode = am_direct;
-		GenerateDiadic(op_lea, 0, ap2, ap3);
+		GenerateDiadic(cpu.lea_op, 0, ap2, ap3);
 	}
 	else {
 		//if (ap2->mode == am_fpreg) {
@@ -1231,7 +1231,7 @@ void CodeGenerator::GenerateLoadConst(Operand *ap1, Operand *ap2)
 		//	ReleaseTempRegister(ap3);
 		//}
 		//else
-			GenerateDiadic(op_ldi, 0, ap2, ap1);
+			GenerateDiadic(cpu.ldi_op, 0, ap2, ap1);
 	}
 	// ap2 inherits type from ap1
 //	ap2->tp = ap1->tp;
@@ -1315,7 +1315,10 @@ Operand *CodeGenerator::GenerateAggregateAssign(ENODE *node1, ENODE *node2)
 	GenerateDiadic(op_mov, 0, makereg(regFirstArg+1), base2);
 	GenerateDiadic(op_ldi, 0, makereg(regFirstArg+2), MakeImmediate(node2->esize));
 //	GenerateDiadic(op_ldi, 0, makereg(regFirstArg + 2), MakeImmediate(node1->esize));
-	GenerateDiadic(op_bal, 0, makereg(regLR), MakeStringAsNameConst("__aacpy",codeseg));
+	if (isRiscv)
+		GenerateMonadic(op_call, 0, MakeStringAsNameConst("__aacpy", codeseg));
+	else
+		GenerateDiadic(op_bal, 0, makereg(regLR), MakeStringAsNameConst("__aacpy",codeseg));
 	ReleaseTempReg(base2);
 	currentFn->IsLeaf = false;
 	return (base);
@@ -1355,21 +1358,24 @@ Operand* CodeGenerator::GenerateBigAssign(Operand* ap1, Operand* ap2, int size, 
 	else {
 		GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(3 * sizeOfWord));
 		ap3 = GetTempRegister();
-		GenerateDiadic(op_ldi, 0, ap3, MakeImmediate(size));
-		GenerateDiadic(op_sto, 0, ap3, MakeIndexed(2 * sizeOfWord, regSP));
+		GenerateDiadic(cpu.ldi_op, 0, ap3, MakeImmediate(size));
+		GenerateDiadic(cpu.sto_op, 0, ap3, MakeIndexed(2 * sizeOfWord, regSP));
 		if (ap2->mode != am_reg) {
 			GenerateLoad(ap3, ap2, ssize, ssize);
-			GenerateDiadic(op_sto, 0, ap3, MakeIndexed(1 * sizeOfWord, regSP));
+			GenerateDiadic(cpu.sto_op, 0, ap3, MakeIndexed(1 * sizeOfWord, regSP));
 		}
 		else
-			GenerateDiadic(op_sto, 0, ap2, MakeIndexed(1 * sizeOfWord, regSP));
+			GenerateDiadic(cpu.sto_op, 0, ap2, MakeIndexed(1 * sizeOfWord, regSP));
 		if (ap1->mode != am_reg) {
 			GenerateLoad(ap3, ap1, ssize, ssize);
-			GenerateDiadic(op_sto, 0, ap3, MakeIndirect(regSP));
+			GenerateDiadic(cpu.sto_op, 0, ap3, MakeIndirect(regSP));
 		}
 		else
-			GenerateDiadic(op_sto, 0, ap1, MakeIndirect(regSP));
-		GenerateDiadic(op_bal, 0, makereg(regLR), MakeStringAsNameConst("_aacpy", codeseg));
+			GenerateDiadic(cpu.sto_op, 0, ap1, MakeIndirect(regSP));
+		if (isRiscv)
+			GenerateMonadic(op_call, 0, MakeStringAsNameConst("_aacpy", codeseg));
+		else
+			GenerateDiadic(op_bal, 0, makereg(regLR), MakeStringAsNameConst("_aacpy", codeseg));
 	}
 	return (ap1);
 }
@@ -1382,7 +1388,7 @@ Operand* CodeGenerator::GenerateImmToMemAssign(Operand* ap1, Operand* ap2, int s
 		GenerateStore(makereg(regZero), ap1, ssize);
 	}
 	else {
-		if (ap2->offset->nodetype == en_icon && ap2->offset->i >= -32 && ap2->offset->i < 32) {
+		if (!isRiscv && ap2->offset->nodetype == en_icon && ap2->offset->i >= -32 && ap2->offset->i < 32) {
 			GenerateStore(ap2, ap1, ssize);
 		}
 		else {
@@ -1645,7 +1651,7 @@ Operand *CodeGenerator::GenAutocon(ENODE *node, int flags, int64_t size, TYP* ty
 //	ap1->type = &stdint;
 	ap1->typep = typ;
 	ap1->tp = node->tp;
-	GenerateDiadic(op_lea,0,ap1,ap2);
+	GenerateDiadic(cpu.lea_op,0,ap1,ap2);
 	ap1->MakeLegal(flags,size);
 	return (ap1);             /* return reg */
 }
@@ -1718,7 +1724,7 @@ Operand* CodeGenerator::GenLabelcon(ENODE* node, int flags, int64_t size)
 		default:	ap2->preg = regPP;
 		}
 		ap2->offset = node;     // use as constant node
-		GenerateDiadic(op_lea, 0, ap1, ap2);
+		GenerateDiadic(cpu.lea_op, 0, ap1, ap2);
 		ap1->MakeLegal(flags, size);
 		return (ap1);
 	}
@@ -1812,7 +1818,7 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
       ap2->offset = node;     // use as constant node
 			if (node)
 				DataLabels[node->i] = true;
-      GenerateDiadic(op_lea,0,ap1,ap2);
+      GenerateDiadic(cpu.lea_op,0,ap1,ap2);
 			ap1->MakeLegal(flags,size);
 			Leave("GenExpression",6); 
 			goto retpt;
@@ -2322,15 +2328,15 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size)
 			case tlsseg:	ndxreg = regTP; break;
 			default:	ndxreg = regPP; break;
 			}
-			GenerateDiadic(op_lea, 0, ap1, MakeDataLabel(node->i, ndxreg));
+			GenerateDiadic(cpu.lea_op, 0, ap1, MakeDataLabel(node->i, ndxreg));
 		}
 		else
-			GenerateDiadic(op_lea, 0, ap1, MakeDataLabel(node->i, regZero));
+			GenerateDiadic(cpu.lea_op, 0, ap1, MakeDataLabel(node->i, regZero));
 		ap1->isPtr = true;
 		goto retpt;
 	case en_object_list:
 		ap1 = GetTempRegister();
-		GenerateDiadic(op_lea,0,ap1,MakeIndexed(-8,regFP));
+		GenerateDiadic(cpu.lea_op,0,ap1,MakeIndexed(-8,regFP));
 		goto retpt;
 	default:
     printf("DIAG - uncoded node (%d) in GenerateExpression.\n", node->nodetype);
@@ -2670,7 +2676,7 @@ Operand* CodeGenerator::GenerateTrinary(ENODE* node, int flags, int size, int op
 						if (ap1->isPtr && ap2->isPtr)
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
 						else if (ap2->isPtr)
-							GenerateDiadic(op_lea, 0, ap3, op == op_sub ? compiler.of.MakeNegIndexed(ap2->offset, ap1->preg) : MakeIndexed(ap2->offset, ap1->preg));
+							GenerateDiadic(cpu.lea_op, 0, ap3, op == op_sub ? compiler.of.MakeNegIndexed(ap2->offset, ap1->preg) : MakeIndexed(ap2->offset, ap1->preg));
 						else
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
 						break;
