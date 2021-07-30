@@ -481,7 +481,7 @@ void BasicBlock::ComputeSpillCosts()
 		for (ip = b->lcode; ip && !endLoop; ip = ip->back) {
 			if (ip->opcode == op_label)
 				continue;
-			if (ip->opcode == op_mov) {
+			if (ip->opcode == cpu.mov_op) {
 				r = ip->oper1->preg;
 				r = forest.map[r];
 				forest.trees[r]->copies++;
@@ -671,8 +671,8 @@ void BasicBlock::InsertMove(int reg, int rreg, int blk)
 	OCODE *cd, *ip;
 
 	cd = (OCODE *)allocx(sizeof(OCODE));
-	cd->opcode = op_mov;
-	cd->insn = GetInsn(op_mov);
+	cd->opcode = cpu.mov_op;
+	cd->insn = GetInsn(cpu.mov_op);
 	cd->oper1 = allocOperand();
 	cd->oper1->mode = am_reg;
 	cd->oper1->preg = rreg;
@@ -712,7 +712,7 @@ bool BasicBlock::Coalesce()
 				continue;
 			if (ip->insn == nullptr)
 				continue;
-			if (ip->insn->opcode == op_mov) {
+			if (ip->insn->opcode == cpu.mov_op) {
 				dst = Var::PathCompress(ip->oper1->preg, ip->bb->num, &dtree);
 				src = Var::PathCompress(ip->oper2->preg, ip->bb->num, &stree);
 				if (dst < 0 || src < 0)

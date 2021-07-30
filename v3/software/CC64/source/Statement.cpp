@@ -1596,8 +1596,8 @@ void Statement::GenerateTry()
 //	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16,regFP));	// Get current handler
 //	GenerateMonadic(op_push, 0, ap);	// stack it
 	sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)throwlab);
-	GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
-	GenerateDiadic(op_sto, 0, ap, MakeIndexed(8, regFP));	// Set current handler
+	GenerateDiadic(cpu.ldi_op, 0, ap, MakeStringAsNameConst(buf, codeseg));
+	GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed(8, regFP));	// Set current handler
 	if (compiler.ipoll)
 		GenerateZeradic(op_pfi);
 	ReleaseTempRegister(ap);
@@ -1618,11 +1618,11 @@ void Statement::GenerateThrow()
 		initstack();
 		ap = cg.GenerateExpression(exp, am_all, 8);
 		if (ap->mode == am_imm)
-			GenerateDiadic(op_ldi, 0, makereg(regFirstArg), ap);
+			GenerateDiadic(cpu.ldi_op, 0, makereg(regFirstArg), ap);
 		else if (ap->mode != am_reg)
-			GenerateDiadic(op_ldo, 0, makereg(regFirstArg), ap);
+			GenerateDiadic(cpu.ldo_op, 0, makereg(regFirstArg), ap);
 		else if (ap->preg != 1)
-			GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
+			GenerateDiadic(cpu.mov_op, 0, makereg(regFirstArg), ap);
 		ReleaseTempRegister(ap);
 		// If a system exception is desired create an appropriate BRK instruction.
 		if (num == bt_exception) {
@@ -1636,7 +1636,7 @@ void Statement::GenerateThrow()
 			}
 			return;
 		}
-		GenerateDiadic(op_ldi, 0, makereg(regFirstArg+1), MakeImmediate(num));
+		GenerateDiadic(cpu.ldi_op, 0, makereg(regFirstArg+1), MakeImmediate(num));
 	}
 	// Jump to handler address.
 	//GenerateMonadic(op_brk, 0, MakeImmediate(239));
@@ -1658,8 +1658,8 @@ void Statement::GenerateCatch(int opt, int oldthrow, int olderthrow)
 	// Restore previous handler
 	ap = GetTempRegister();
 	sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)oldthrow);
-	GenerateDiadic(op_ldi, 0, ap, MakeStringAsNameConst(buf, codeseg));
-	GenerateDiadic(op_sto, 0, ap, MakeIndexed((int64_t)8, regFP));	// Restore handler
+	GenerateDiadic(cpu.ldi_op, 0, ap, MakeStringAsNameConst(buf, codeseg));
+	GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed((int64_t)8, regFP));	// Restore handler
 	ReleaseTempRegister(ap);
 	// Branch around the catch handlers
 	if (opt == 0) {
@@ -1693,7 +1693,7 @@ void Statement::GenerateCatch(int opt, int oldthrow, int olderthrow)
 		if (node) {
 			ap2 = cg.GenerateExpression(node, am_reg | am_mem, node->GetNaturalSize());
 			if (ap2->mode == am_reg)
-				GenerateDiadic(op_mov, 0, ap2, makereg(regFirstArg));
+				GenerateDiadic(cpu.mov_op, 0, ap2, makereg(regFirstArg));
 			else
 				GenStore(makereg(regFirstArg), ap2, node->GetNaturalSize());
 			ReleaseTempRegister(ap2);

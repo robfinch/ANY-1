@@ -5,7 +5,7 @@
 .include "../fmtk/macro.r64"
 .include "../fmtk/globals.r64"
 
-TEST  equ   1
+;TEST  equ   1
 
 CTRLC				equ		$03
 CTRLT       equ   $14
@@ -16,7 +16,7 @@ XON					equ		$11
 XOFF				equ		$13
 EOF         equ   $1A
 DEL					equ		$7F
-VIA					equ		$FFFFFFFFFF910000*2
+VIA					equ		$FFFFFFFFFF910000
 VIA_PA			equ		$04
 VIA_DDRA		equ		$0C
 VIA_T1CL		equ		$10
@@ -28,7 +28,7 @@ VIA_PCR			equ		$30
 VIA_IFR			equ		$34
 VIA_IER			equ		$38
 VIA_PARAW		equ		$3C
-UART				equ		$FFFFFFFFFF930000*2
+UART				equ		$FFFFFFFFFF930000
 UART_TRB		equ		$00
 UART_STAT		equ		$04
 UART_CMD		equ		$08
@@ -36,18 +36,24 @@ UART_CMD		equ		$08
 CSR_UIE     	equ   $004
 CSR_DCAUSE		equ		$4006
 CSR_DSCRATCH	equ		$4041
+CSR_DSTUFF0		equ		$4042
+CSR_DSTUFF1		equ		$4043
+CSR_DESTEP		equ		$4046
+CSR_DEIP			equ		$4048
 FLT_WD				equ		$36
 
+SEMAPHORES	equ	$FFFFFFFFFF8D0000
 ROMBASE		equ		$FFFFFFFFFFFC0000*2
-IOBASE		equ		$FFFFFFFFFF800000*2
-TEXTSCR		equ		$FFFFFFFFFF800000*2
-KEYBD		equ		$FFFFFFFFFF8E0000*2
-LEDS		equ			$FFFFFFFFFF910000*2
-xbLEDS		equ			$FFFFFFFFFBDC0600*2
-xbBridge1 equ   $FFFFFFFFFFDCF010*2
-BUTTONS		equ		$FFFFFFFFFF910000*2
-SCRATCHPAD	equ		$FFFFFFFFFF400000*2
-SCRATCHMEM	equ		$FFFFFFFFFF400000*2
+IOBASE		equ		$FFFFFFFFFF800000
+TEXTSCR		equ		$FFFFFFFFFF800000
+KEYBD		equ		$FFFFFFFFFF8E0000
+LEDS		equ			$FFFFFFFFFF910000
+xbLEDS		equ			$FFFFFFFFFBDC0600
+xbBridge1 equ   $FFFFFFFFFFDCF010
+BUTTONS		equ		$FFFFFFFFFF910000
+SCRATCHPAD	equ		$FFFFFFFFFF400000
+SCRATCHMEM	equ		$FFFFFFFFFF400000
+OS_STACK		equ		SCRATCHPAD+$A000
 _DBGAttr  equ   SCRATCHMEM
 ;DBGATTR   equ   $0000FFFF000F0000   ; white on blue, priority $40
 DBGATTR   equ   %000000_111111111111111111111_000001100000110111111_0000000000000000
@@ -61,6 +67,8 @@ _cursorY  equ   _cursorX + 1
 ;------------------------------------------------------------------------------
 {+
 	org		ROMBASE				; user mode exception
+start:
+_rombase:
 	bra		DBGRout
 	org 	ROMBASE+$60*2				; machine mode exception
 	bra		DBGRout
@@ -94,15 +102,18 @@ MachineStart:
 ;  sto   $t1,xbBridge1
   ldi   $t0,#$AA
   ldi   $a0,#$AA
+	ldi		$sp,#SCRATCHMEM+$CDF8		  ; setup debug mode stack pointer
 	ldi		$x29,#SCRATCHMEM
-	stm		[$x29],#%111111111111111111111111111111
+	ldo		$a0,msgStart
+;	stm		[$x29],#%111111111111111111111111111111
+	stm		[$x29],#%01111
   stb   $t0,LEDS
   stb   $a0,LEDS
-	ldm		[$x29],#%111111111111111111111111111111
+	ldm		[$x29],#%01111
 
-	ldi		$sp,#SCRATCHMEM+$CDF8*2		  ; setup debug mode stack pointer
+	ldi		$sp,#SCRATCHMEM+$CDF8		  ; setup debug mode stack pointer
 	sub 	$sp,$sp,#16
-	ldi		$t0,#SCRATCHMEM+$8000*2
+	ldi		$t0,#SCRATCHMEM+$8000
 	csrrw	$x0,#CSR_DTCBPTR,$t0				; set TCB pointer
 	ldi   $a0,#10
 	ldi   $a1,#0
@@ -120,13 +131,13 @@ else
 endif
 .0001:
   sub   $t1,$t1,#1
-  sto   $a0,[$t0+$t1*16]
+  sto   $a0,[$t0+$t1*8]
   bne   $t1,$x0,.0001
 	ldi		$a1,#DBGATTR|$41
 	sto		$a1,TEXTSCR
-	sto		$a1,TEXTSCR+8*2
-	sto		$a1,TEXTSCR+16*2
-	sto		$a1,TEXTSCR+24*2
+	sto		$a1,TEXTSCR+8
+	sto		$a1,TEXTSCR+16
+	sto		$a1,TEXTSCR+24
 
 ;  ldi   $a0,#msgStart
   ;call  PutHexTetra
@@ -169,6 +180,7 @@ endif
   csrrs $x0,#CSR_PMSTACK,#16 ; enable interrupts on return
 	csrrc $x0,#CSR_TRACECTRL,#0 ; turn off tracing
 	rte                       ; switch to user mode
+..
 ;------------------------------------------------------------------------------
 ; User mode code staret here
 ; First thing to do is start a task so that the startup code may run on the
@@ -176,7 +188,7 @@ endif
 ;------------------------------------------------------------------------------
 ;  align 	code
 UserStart:
-  call  DumpTraceQueue
+  bal  	$x1,DumpTraceQueue
   wai                   ; wait for task switch
 UserStart2:
   ldi   $a0,#12         ; start app
@@ -192,7 +204,7 @@ UserStart2:
   brk   #240
 
   mov   $s1,$a1         ; s1 = app id
-	ldi		$sp,#$A0080000*2-8*2  ; setup user mode stack pointer
+	ldi		$sp,#$A0080000*2-8  ; setup user mode stack pointer
 
   ldi   $a0,#12         ; start app
   ldi   $a1,#TinyBasicASR
@@ -214,7 +226,7 @@ UserStart2:
   mov   $gp,$a1
 
 UserStart3:
-	ldi		$sp,#$A0080000*2-8*2  	; setup user mode stack pointer
+	ldi		$sp,#$A0080000*2-8  	; setup user mode stack pointer
 	ldi		$a0,#24							; RequestIOFocus
 	mov   $a1,$s1
 	brk   #240
@@ -251,7 +263,7 @@ UserStart3:
 ;		brk #240
 	bal   $x1,DumpReadyQueue
 	bra		MonEntry
-
+..
 		; Now a loop to recieve and echo back characters
 .0003:
 ;	ldi		$a0,#26							; FMTK_IO
@@ -324,7 +336,9 @@ IdleTask:
 .nxtObj:
   ldi   $a0,#E_Ok
   bra   OSExit
+..
 
+	rodata
 	align	1
 msgIdleAnnounce:
   db  "Idle task running.",CR,0
@@ -332,6 +346,7 @@ msgIdleAnnounce:
 ;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
 ;  align 	code
+	code
 	align		16
 _Delay2s:
 ifdef TEST
@@ -345,6 +360,7 @@ endif
 	sub 		$a1,$a1,#1
 	bgeu	  $a1,#1,.0001
 	ret
+..
 
 ;------------------------------------------------------------------------------
 ; Get a character from input device. Checks for a CTRL-T which indicates to
@@ -366,6 +382,7 @@ Getch:
 	ldo		$x1,[$sp]
 	add   $sp,$sp,#16
 	ret
+..
 
 ;------------------------------------------------------------------------------
 ; Parameters:
@@ -389,13 +406,14 @@ Putch:
 	ldo		$a1,16[$sp]
 	add   $sp,$sp,#24
 	ret
+..
 
 	align		16
 calcScreenPos:
   ldbu  $t0,_cursorY
   bgeu  $t3,#29,.0001
 .0002:
-  mulf  $t1,$t0,#56*2
+  mulf  $t1,$t0,#56
   ldbu  $t0,_cursorX
   bgeu  $t0,#56,.0003
 .0004:
@@ -414,6 +432,7 @@ calcScreenPos:
   ldi   $t0,#55
   stb   $t0,_cursorX
   bra   .0004
+..
 
 	align		16
 incScreenPos:
@@ -436,6 +455,7 @@ incScreenPos:
 .0001:
   stb   $t0,_cursorX
   ret
+..
   
 	align		16
 dbg_Putch:
@@ -462,6 +482,7 @@ dbg_Putch:
 .cr:
   stb   #0,_cursorX
   bra		.xit
+..
 
 	align		16
 dbg_ScrollUp:
@@ -471,36 +492,39 @@ dbg_ScrollUp:
 ifdef TEST
   ldi   $t1,#6
 else
-  ldi   $t1,#56*28*2
+  ldi   $t1,#56*28
 endif
 .0001:
-  ldo   $t2,56*8*2[$t0]
+  ldo   $t2,56*8[$t0]
   sub  	$t1,$t1,#1      ; placed here eliminates pipeline bubble
   sto   $t2,[$t0]
-  add   $t0,$t0,#16
+  add   $t0,$t0,#8
   bne   $t1,#0,.0001
   bal		$x1,dbg_BlankLastLine
   ldo		$x1,[$sp]
 	add		$sp,$sp,#8
 	ret
+..
 
 	align		16
 dbg_BlankLastLine:
-  ldi   $t0,#TEXTSCR+56*28*2
-  ldi   $t1,#55*2
+  ldi   $t0,#TEXTSCR+56*28
+  ldi   $t1,#55
   ldi   $t2,_DBGAttr
   or    $t2,$t2,#' '
 .0001:
   sto   $t2,[$t0+$t1*8]
-  sub  	$t1,$t1,#2
-  bgeu  $t1,#2,.0001
+  sub  	$t1,$t1,#1
+  bgeu  $t1,#1,.0001
   ret
+..
 
   ; align cache
 dbg_HomeCursor:
   stb   #0,_cursorX
   stb   #0,_cursorY
   ret
+..
   
 ;------------------------------------------------------------------------------
 ; fputc - put a character to an I/O device. If the task doesn't have the I/O
@@ -556,6 +580,7 @@ fputc:
 .notOwner:
   ldi   $a0,#EOF
   bra   .xit
+..
  
 ;------------------------------------------------------------------------------
 ; fgetc - get a character from an I/O device. If the task doesn't have the I/O
@@ -581,16 +606,16 @@ fgetc:
 	sto		$a2,24[$sp]
 	bal		$x1,GetUIFlag
 	beq   $a1,#0,.checkOwner
-	ldt		$a1,16[$sp]
+	ldo		$a1,16[$sp]
 	bal		$x1,WaitForIOFocus
 	bra   .0001
 .checkOwner:
-	ldt		$a1,16[$sp]
+	ldo		$a1,16[$sp]
   bal		$x1,CheckDevOwner
   bne   $a0,#0,.notOwner
 .0001:
 	ldi		$a0,#26							; FMTK_IO
-	ldt		$a1,16[$sp]
+	ldo		$a1,16[$sp]
 	ldi		$a2,#8							; getchar function
 	brk   #240
 	mov   $a0,$a1
@@ -603,10 +628,11 @@ fgetc:
 .notOwner:
   ldi   $a0,#-1
   bra   .0002
+..
 
 ;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
-  ; align cache
+  align		16
 MonEntry:
 ;		flw			$f2,fltTen
 ;		fsw			$f2,f2Save
@@ -644,32 +670,32 @@ Monitor:
 	ldi			$t0,#DEL
 	beq		  $a0,$t0,.doDelete
 	stb		  $a0,INBUF[$s1]
-	add		  $s1,$s1,#2
+	add		  $s1,$s1,#1
 	bal  		$x1,Putch
 	bra		  .0001
 .doDelete:
 	mov		  $s2,$s1
-	add		  $s2,$s2,#2
+	add		  $s2,$s2,#1
 .0002:
 	ldb		  $t0,INBUF[$s2]
-	stb		  $t0,INBUF-2[$s2]
-	add		  $s2,$s2,#2
+	stb		  $t0,INBUF-1[$s2]
+	add		  $s2,$s2,#1
 	add		  $t0,$s2,#INBUF
-	slt		  $t1,$t0,#INBUF+$7F*2
+	slt		  $t1,$t0,#INBUF+$7F
 	bne		  $t1,#0,.0002
 	stb		  #0,INBUF[$s2]
 	bra		  .0001
 .doBackspace:
 	beq		  $s1,#0,.0001    ; can't backspace anymore
 	bal   	$x1,Putch       ; show the backspace
-	sub		  $s1,$s1,#2
+	sub		  $s1,$s1,#1
 	mov		  $s2,$s1
 .0003:
-	ldb		  $t0,INBUF+2[$s2]
+	ldb		  $t0,INBUF+1[$s2]
 	stb		  $t0,INBUF[$s2]
-	add		  $s2,$s2,#2
+	add		  $s2,$s2,#1
 	add		  $t0,$s2,#INBUF
-	slt		  $t1,$t0,#INBUF+$7F*2
+	slt		  $t1,$t0,#INBUF+$7F
 	bne		  $t1,#0,.0003
 	stb		  #0,INBUF[$s2]
 	bra		  .0001
@@ -682,7 +708,7 @@ Monitor:
 	ldi			$t1,#'>'
 	bne		  $t0,$t1,.0004
 .skip2:
-	add		  $s1,$s1,#2
+	add		  $s1,$s1,#1
 	bra		  .skip
 .0004:
 	ldi			$t1,#' '
@@ -732,7 +758,7 @@ Monitor:
 .0006:
 	ldi			$t1,#'D'
 	bne		  $t0,$t1,.0007
-	ldb		  $t0,INBUF+2[$s1]
+	ldb		  $t0,INBUF+1[$s1]
 	ldi			$t1,#'T'
 	bne		  $t0,$t1,.noT
 	bal   	$x1,DumpTimeoutList
@@ -747,10 +773,10 @@ Monitor:
 	beq		  $t0,$t1,EditMem
 	ldi			$t1,#'F'
 	bne		  $t0,$t1,.0009
-	ldb     $t0,INBUF+2[$s1]
+	ldb     $t0,INBUF+1[$s1]
 	ldi			$t1,#'I'
 	bne			$t0,$t1,.notFind
-	add     $s1,$s1,#2
+	add     $s1,$s1,#1
 	bra     Find
 .notFind:
 	bra		  FillMem
@@ -778,15 +804,16 @@ Monitor:
 .0012:
 .0005:
 	bra		  Monitor
+..
 
-  ; align cache
+  align	16
 doMem:
 	sub		$sp,$sp,#8
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 	ldb		$t0,INBUF[$s1]
 	sne   $t0,#'O'
 	bt    .0001
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 .0001:
 	sto		$s1,[$sp]
 	ldi		$a0,#CR
@@ -798,7 +825,7 @@ doMem:
 	bal   $x1,GetHexNum
 	mov		$s3,$a0
 	mov   $s5,$a0
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 	bal   $x1,GetHexNum
 	add		$s4,$a0,$s3
 .loop2:
@@ -824,7 +851,7 @@ doMem:
 	ldb		$a0,[$s3]
 .0002:
 	bal   $x1,PutHexByte
-	add		$s3,$s3,#2
+	add		$s3,$s3,#1
 	sub		$s2,$s2,#1
 	bge		$s2,$x0,.loop
 	bltu  $s3,$s4,loop2
@@ -840,36 +867,38 @@ doMem:
   ldi   $a0,#'.'
   bal   $x1,Putch
 .0003:
-  add   $s3,$s3,#2
+  add   $s3,$s3,#1
   bltu  $s3,$s4,.0004
   ldi   $a0,#CR
   bal   $x1,Putch
 	bra		Monitor		
+..
 
-  ; align cache
+  align	16
 EditMem:
 ;	csrrs $x0,#CSR_UIE,#1        ; enable gc interrupt
 	bal   $x1,GetHexNum			; get address to edit
 	mov		$s3,$a0
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 	bal   $x1,GetHexNum			; get value to set
 	stb		$s3,[$a0]			; update mem
 	bra		Monitor
+..
 
 ;------------------------------------------------------------------------------
 ; >V 0
 ; Displays the virtual memory map for the specified app.
 ;------------------------------------------------------------------------------
 
-  ; align cache
+  align	16
 doVMem:
   add   $s1,$s1,#1
   bal   $x1,GetDecNum
   ldi   $t1,#0
   sll   $t0,$a0,#16
 .0001:
-  and.  $a0,$t1,#3
-  bne   .notLF
+  and  	$a0,$t1,#3
+  bne   $a0,$x0,.notLF
   bal   $x1,PutCRLF
 .notLF:
   mov   $a0,$t0
@@ -882,16 +911,17 @@ doVMem:
   bal   $x1,Putch
   add   $t0,$t0,#1
   add   $t1,$t1,#1
-  slt   $t1,#256
-  bt    .0001
+  slt   $a0,$t1,#256
+  bne   $a0,$x0,.0001
   bra   Monitor
+..
 
 ;------------------------------------------------------------------------------
 ; >P
 ; Display the PAM bits status.
 ;------------------------------------------------------------------------------
 
-  ; align cache
+  align	16
 doPStat:
   bal   $x1,PutCRLF
   ldi   $t1,#0        ; $a1 = bit number
@@ -904,32 +934,34 @@ doPStat:
   slt   $a0,$t1,#MEMSZ
   bne   $a0,#0,.0001
   bra   Monitor
+..
  
 ;------------------------------------------------------------------------------
 ;	>F 1000 800 EE
 ; Fills memory beginning at address $1000 for $800 bytes with the value $EE
 ;------------------------------------------------------------------------------
 
-  ; align cache
+  align	16
 FillMem:
 	bal   $x1,GetHexNum			; get address
 	mov		$s3,$a0
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 	bal   $x1,GetHexNum			; get length
 	mov		$s4,$a0
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 	bal   $x1,GetHexNum			; get byte to use
 .0001:
-	sub		$s4,$s4,#2
+	sub		$s4,$s4,#1
 	stb		$a0,[$s3+$s4]
-	bgeu	$s4,#2,.0001
+	bgeu	$s4,#1,.0001
 	bra		Monitor
+..
 
 ;------------------------------------------------------------------------------
 ; FI Hello
 ;------------------------------------------------------------------------------
 
-  ; align cache
+  align	16
 Find:
   bal   $x1,PutCRLF
   bal   $x1,SkipSpaces
@@ -940,7 +972,7 @@ Find:
   seq		$t2,$t0,#CR
   or		$t1,$t1,$t2
   bne		$t1,$x0,.endOfWord
-  add   $s2,$s2,#2
+  add   $s2,$s2,#1
   bra   .fwe
 .endOfWord:
   stb   $x0,INBUF[$s2]
@@ -956,12 +988,12 @@ Find:
   beq   $t1,$x0,.found
   seq   $t1,$t0,$t1
   beq   $t1,$x0,.next
-  add   $a0,$a0,#2
-  add   $s2,$s2,#2
+  add   $a0,$a0,#1
+  add   $s2,$s2,#1
   bra   .loop
 .next:
   mov   $s2,$s1         ; start over again with $s2
-  add   $a0,$a1,#2      ; start over again with $a0, but increment by one byte
+  add   $a0,$a1,#1      ; start over again with $a0, but increment by one byte
   ldi   $t2,#$80000     ; 512k
   mov   $a1,$a0         ; remember new starting pos.
   slt   $t1,$a0,$t2
@@ -974,29 +1006,31 @@ Find:
 .notFound:
   bal   $x1,PutCRLF
   bra   Monitor
+..
 
 ;------------------------------------------------------------------------------
 ; Skip over spaces and tabs in the input buffer.
 ;------------------------------------------------------------------------------
 
-  ; align cache
+  align	16
 SkipSpaces:
 .skip2:
-	ldb		  $t0,INBUF[$s1]
-	seq		  $t1,$t0,#' '  ; space or
-	seq			$t2,$t0,#'\t'	; tab
-	or			$t1,$t1,$t2
-	beq			$t1,$x0,.done
-	add 		$s1,$s1,#2
-	bra	  	.skip2
+	ldb		$t0,INBUF[$s1]
+	seq		$t1,$t0,#' '  ; space or
+	seq		$t2,$t0,#'\t'	; tab
+	or		$t1,$t1,$t2
+	beq		$t1,$x0,.done
+	add 	$s1,$s1,#1
+	bra	  .skip2
 .done
   ret
+..
 
 ;------------------------------------------------------------------------------
 ; Get a hex number from the input buffer.
 ;------------------------------------------------------------------------------
 
-  ; align cache
+  align	16
 GetHexNum:
 	sub		$sp,$sp,#8
 	sto		$x1,[$sp]
@@ -1021,26 +1055,27 @@ GetHexNum:
 	sub		$t0,$t0,#'A'
 	add		$t0,$t0,#10
 	or		$a0,$a0,$t0
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 	bra		.next
 .isHexLower:
 	sll		$a0,$a0,#4
 	sub		$t0,$t0,#'a'
 	add		$t0,$t0,#10
 	or		$a0,$a0,$t0
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 	bra		.next
 .isDigit:
 	sll		$a0,$a0,#4
 	sub		$t0,$t0,#'0'
 	or		$a0,$a0,$t0
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 	bra		.next
+..
 
 ;------------------------------------------------------------------------------
 ; Get a decimal number from the input buffer.
 ;------------------------------------------------------------------------------
-  ; align cache
+  align		16
 GetDecNum:
 	sub			$sp,$sp,#8
 	sto			$x1,[$sp]
@@ -1061,8 +1096,9 @@ GetDecNum:
 	add   $a0,$a0,$t2   ; + *2
 	sub		$t0,$t0,#'0'
 	add		$a0,$a0,$t0
-	add		$s1,$s1,#2
+	add		$s1,$s1,#1
 	bra		.next
+..
 
 ;------------------------------------------------------------------------------
 ; Output an octabyte as a hex string.
@@ -1074,15 +1110,16 @@ GetDecNum:
 ; Returns:
 ;   none
 ;------------------------------------------------------------------------------
-  ; align cache
+
+  align	16
 PutHexOcta:
-	sub		$sp,$sp,#8
-	sto		$x1,[$sp]
+	enter	#32
 	ror		$a0,$a0,#32
 	bal		$x1,PutHexTetra
 	rol   $a0,$a0,#32
-	ldo		$x1,[$sp]
-	add		$sp,$sp,#8
+	bal		$x1,PutHexTetra
+	leave	#32
+..
 
 ;------------------------------------------------------------------------------
 ; Output a word as a hex string.
@@ -1095,43 +1132,43 @@ PutHexOcta:
 ;   none
 ;------------------------------------------------------------------------------
 
-  ; align cache
+  align	16
 PutHexTetra:
-	sub		$sp,$sp,#8
-	sto		$x1,[$sp]
+	enter	#32
 	ror		$a0,$a0,#16
 	bal		$x1,PutHexWyde
 	rol		$a0,$a0,#16
-	ldo		$x1,[$sp]
-	add		$sp,$sp,#8
+	bal		$x1,PutHexWyde
+	leave	#32
+..
 
 ;------------------------------------------------------------------------------
 ; Output a half-word (16 bits) as a hex string.
 ;------------------------------------------------------------------------------
 
-  ; align cache
+	align	16
 PutHexWyde:
-	sub		$sp,$sp,#8
-	sto		$x1,[$sp]
+	enter	#32
 	ror		$a0,$a0,#8
 	bal		$x1,PutHexByte
 	rol		$a0,$a0,#8
-	ldo		$x1,[$sp]
-	add		$sp,$sp,#8
+	bal		$x1,PutHexByte
+	leave	#32
+..
 
 ;------------------------------------------------------------------------------
 ; Output a byte as a hex string.
 ;------------------------------------------------------------------------------
 
-  ; align cache
+	align	16
 PutHexByte:
-	sub		$sp,$sp,#8
-	sto		$x1,[$sp]
+	enter	#32
 	ror		$a0,$a0,#4		; put the high order nybble first
 	bal		$x1,PutHexNybble
 	rol		$a0,$a0,#4		; restore a0
-	ldo		$x1,[$sp]
-	add		$sp,$sp,#8
+	bal		$x1,PutHexNybble
+	leave	#32
+..
 
 ;------------------------------------------------------------------------------
 ; Output a nybble as a hex string.
@@ -1144,12 +1181,11 @@ PutHexByte:
 ;   none
 ;------------------------------------------------------------------------------
 
-  ; align cache
+  align	16
 PutHexNybble:
-	sub		$sp,$sp,#24
+	enter	#48
 	sto		$a0,0[$sp]
 	sto   $t0,8[$sp]
-	sto		$x1,16[$sp]
 	and		$a0,$a0,#15		; strip off high order bits
 	blt		$a0,#10,.lt10
 	sub		$a0,$a0,#10
@@ -1160,16 +1196,15 @@ PutHexNybble:
 .0001:
 	ldo		$a0,0[$sp]
 	ldo   $t0,8[$sp]
-	ldo		$x1,16[$sp]
-	add   $sp,$sp,#24
-	ret
+	leave	#32
+..
 
 ;------------------------------------------------------------------------------
 ; PutInlineString
 ;   Put a string of characters to output device. The string parameter is
 ; located as an inline parameter.
 ;------------------------------------------------------------------------------
-
+	align	16
 PutInlineStringCA:				; chunk addressing
   ldo   $t1,[$sp]         ; pop return address
   sub		$sp,$sp,#16				; make room for save area
@@ -1197,11 +1232,12 @@ PutInlineStringCA:				; chunk addressing
 	add   $sp,$sp,#24				; pop save area and return address
   jmp   [$t1]
 
+	align	16
 PutInlineString:
   ldo   $t1,[$sp]         ; pop return address
-  sub		$sp,$sp,#8				; make room for save area
+  sub		$sp,$sp,#16				; make room for save area
 	sto		$a0,[$sp]				  ; save a0
-	sto		$s1,8[$sp]				; and s1
+	sto		$s1,16[$sp]				; and s1
 	mov		$s1,$t1						; s1 = pointer to string
 .0001:
 	ldb		$a0,[$s1]
@@ -1212,23 +1248,22 @@ PutInlineString:
 .done:
 	mov		$t1,$s1						; $t1 = return address
 	ldo		$a0,[$sp]				  ; restore a0
-	ldo		$s1,8[$sp]				; restore $s1
-	add   $sp,$sp,#16				; pop save area and return address
+	ldo		$s1,16[$sp]				; restore $s1
+	add   $sp,$sp,#32				; pop save area and return address
   jmp   [$t1]
 
 ;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
 
+	align	16
 PutCRLF:
-	sub		$sp,$sp,#8
-	sto		$x1,[$sp]
+	enter	#32
 	ldi		$a0,#CR
 	bal		$x1,Putch
 	ldi		$a0,#LNFD
 	bal		$x1,Putch
-	ldo		$x1,[$sp]
-	add		$sp,$sp,#8
-	ret
+	leave	#32
+..
 
 ;------------------------------------------------------------------------------
 ; PutString
@@ -1243,30 +1278,27 @@ PutCRLF:
 ; Stack Space:
 ;		2 words
 ;------------------------------------------------------------------------------
-  ; align cache
+  align	16
 PutString:
-	sub		$sp,$sp,#24
+	enter	#48
 	sto		$a0,[$sp]				  ; save argument
 	sto   $s1,8[$sp]        ; and reg var
-	sto		$x1,16[$sp]
 	mov		$s1,$a0						; t1 = pointer to string
 .0001:
 	ldb		$a0,[$s1]
-	add		$s1,$s1,#2				; advance pointer to next byte
+	add		$s1,$s1,#1				; advance pointer to next byte
 	beq 	$a0,#0,.done     	; branch if done
-	bal		$x1,Putch							; output character
+	bal		$x1,Putch					; output character
 	bra		.0001
 .done:
 	ldo		$a0,[$sp]				  ; restore argument
 	ldo   $s1,8[$sp]
-	ldo		$x1,16[$sp]
-	add   $sp,$sp,#24
-	ret
+	leave	#32
+..
 
 ;------------------------------------------------------------------------------
 ;------------------------------------------------------------------------------
-
-  ; align cache
+	align		16
 DumpTraceQueue:
 	ldi     $a6,#'X'        ; bypass='B' in fputc routine
 .dmpTrace:
@@ -1285,6 +1317,7 @@ DumpTraceQueue:
 .inf:
   bra     .inf
   ret
+..
 
 ;------------------------------------------------------------------------------
 ; Exception processing code staret here.
@@ -1295,6 +1328,7 @@ DumpTraceQueue:
 ; On incoming the register file has been set to the interrupt register file
 ; or the machine mode register file.
 ;------------------------------------------------------------------------------
+	rodata
   align 16
 ; Top of stack for different register sets
 StackTbl:
@@ -1421,7 +1455,7 @@ ERETx2:
 	nop
   nop
 
-  ; align cache
+  align	16
 DBGRout:
 	csrrw	$x0,#CSR_DSCRATCH,$x30		; save x30 inscratch
 	csrrd	$x30,#CSR_DTCBPTR					; get pointer to TCB
@@ -1583,15 +1617,16 @@ flt20:
 	dw	0x00000000,0x00000000,0x00000000,0x40034000
 flt10:
 	dw	0x00000000,0x00000000,0x00000000,0x40024000
+	end _rombase
 
 ;.include "fltToString.r64"
-;.include "bios-mem.r64"
+.include "bios-mem.r64"
 .include "bios-pam.r64"
 ;.include "bios-tlb.r64"
 ;.include "ramtest.r64"
 
-;.include "../fmtk/msg.r64"
-;.include "../fmtk/tcb.r64"
+.include "../fmtk/msg.r64"
+.include "../fmtk/tcb.r64"
 ;.include "../fmtk/task.r64"
 ;.include "../fmtk/io.r64"
 ;.include "../fmtk/iofocus.r64"
@@ -1605,10 +1640,10 @@ flt10:
 ;.include "../fmtk/source/kernel/SetupDevices.r64"
 ;.include "../fmtk/source/kernel/pic.r64"
 ;.include "../fmtk/source/kernel/DBGConsole.r64"
-;.include "../fmtk/source/fmtk.l64"
+.include "../fmtk/source/fmtk.l64"
 ;.include "../fmtk/finalizer.r64"
 ;.include "../fmtk/gcIncremental.r64"
-;.include "TinyBasic.r64"
-;.include "../cc64libc/source/rtf64/io.r64"
-;.include "../cc64libc/source/cc64libc.l64"
-;.include "../c_standard_lib-master/c_standard_lib-master/c_standard_lib.l64"
+.include "TinyBasic.r64"
+;.include "../cc64libc/source/ANY1/io.r64"
+.include "../cc64libc/source/cc64libc.l64"
+.include "../c_standard_lib-master/c_standard_lib-master/c_standard_lib.l64"

@@ -41,19 +41,18 @@
 ;   $cr0 = N set if not enough memory
 ;------------------------------------------------------------------------------
   align 16
-PAMFindRun:
-  sub 	$sp,$sp,#80
-  sto		$ra,[$sp]
-  sto   $s1,16[$sp]
-  sto   $s2,32[$sp]
-  sto   $s3,48[$sp]
-  sto   $s4,64[$sp]
+_PAMFindRun:
+	enter	#64
+  sto   $s1,0[$sp]
+  sto   $s2,8[$sp]
+  sto   $s3,16[$sp]
+  sto   $s4,24[$sp]
   mov   $s1,$a0             ; save argument value
   stt   $a0,$4010
   ldi   $a0,#OSPAGES
 .nextPage:
   mov   $s4,$a0
-  bal   $x1,PAMGetbitPair
+  bal   $x1,_PAMGetbitPair
   bne   $x0,$a0,.notAvailable
   mov   $s3,$s4             ; remember start of run
   mov   $s2,$s1             ; $s2 = run length
@@ -65,7 +64,7 @@ PAMFindRun:
   beq   $x0,$x2,.outOfMem
   mov   $s4,$a0             ; remember $a0
   stt   $s4,$4020
-  bal		$x1,PAMGetbitPair
+  bal		$x1,_PAMGetbitPair
   beq   $x0,$a0,.runInc
   add   $a0,$s3,#1          ; increment run start pos
   bra   .nextPage
@@ -79,13 +78,11 @@ PAMFindRun:
 .foundRun:
   mov  	$a0,$s3
 .xit
-	ldo		$ra,[$sp]
-  ldo   $s1,16[$sp]
-  ldo   $s2,32[$sp]
-  ldo   $s3,48[$sp]
-  ldo   $s4,64[$sp]
-  add   $sp,$sp,#80
-  ret
+  ldo   $s1,0[$sp]
+  ldo   $s2,8[$sp]
+  ldo   $s3,16[$sp]
+  ldo   $s4,24[$sp]
+  leave	#32
 
 ;------------------------------------------------------------------------------
 ; Find a run of pages and mark them all allocated.
@@ -98,11 +95,10 @@ PAMFindRun:
 ;------------------------------------------------------------------------------
   align 16
 _PAMAlloc:
-  sub 	$sp,$sp,#64
-  sto		$ra,[$sp]
-  sto   $s1,16[$sp]
-  sto   $s4,32[$sp]
-  sto   $s5,48[$sp]
+	enter	#64
+  sto   $s1,[$sp]
+  sto   $s4,8[$sp]
+  sto   $s5,16[$sp]
   beq   $a0,$x0,.outOfMem           ; request sensible?
   add   $t0,$a0,#PAGESZ-1   ; round allocation up
   srl   $a0,$t0,#LOG_PGSZ   ; convert size to pages
@@ -111,7 +107,7 @@ _PAMAlloc:
   sub  	$t0,$t0,$a0
   blt		$t0,$x0,.outOfMem
   stt   $t0,NPAGES          ; update the number of available pages
-  bal   $x1,PAMFindRun
+  bal   $x1,_PAMFindRun
   blt		$a0,$x0,.xit
   mov   $s1,$a0
   mov   $a3,$a0
@@ -120,19 +116,17 @@ _PAMAlloc:
   mov   $a0,$a3
   slt   $a1,$s4,#2          ; if $s4 <= 1
   xor   $a1,$a1,#3          ; $a1 = 3, 2 if end of run
-  bal  	$x1,PAMSetbitPair
+  bal  	$x1,_PAMSetbitPair
   add   $a3,$a3,#1          ; increment page number
   sub   $s4,$s4,#1          ; decrement length
   bgt		$s4,$x0,.markNext
   mov   $a0,$s5             ; $a0 = start of run
   sll  	$a0,$a0,#LOG_PGSZ   ; $a0 = physical address of page
 .xit:
-	ldo		$ra,[$sp]
-  ldo   $s1,16[$sp]
-  ldo   $s4,32[$sp]
-  ldo   $s5,48[$sp]
-  add   $sp,$sp,#64
-  ret
+  ldo   $s1,[$sp]
+  ldo   $s4,8[$sp]
+  ldo   $s5,16[$sp]
+  leave	#32
 .outOfMem:
   ldi  	$a0,#-1
   jmp   .xit
@@ -149,9 +143,8 @@ _PAMAlloc:
 ;------------------------------------------------------------------------------
   align 16
 _PAMFree:
-  sub   	$sp,$sp,#32
-  sto			$ra,[$sp]
-  sto     $s1,16[$sp]
+	enter		#40
+  sto     $s1,[$sp]
   mov     $s1,$a0
   and    	$a0,$a0,#$F8007FFE  ; check page 16kB aligned
   bne			$a0,$x0,.xit
@@ -159,30 +152,28 @@ _PAMFree:
   ldi     $t4,#1
 .nextPage:
   mov     $s1,$a0
-  bal    	$x1,PAMGetbitPair
+  bal    	$x1,_PAMGetbitPair
   beq			$a0,$x0,.endOfRun
   slt     $t0,$a0,#3
   bne			$t0,$x0,.lastPage
   mov     $a0,$s1
   ldi     $a1,#0
-  bal    	$x1,PAMSetbitPair
+  bal    	$x1,_PAMSetbitPair
   add     $s1,$a0,#1
   add     $t4,$t4,#1
   bra     .nextPage  
 .lastPage:
   mov     $a0,$s1
   ldi     $a1,#0
-  bal     $x1,PAMSetbitPair
+  bal     $x1,_PAMSetbitPair
   add     $t4,$t4,#1
 .endOfRun:
   ldt     $a1,NPAGES
   add     $a1,$a1,$t4
   stt     $a1,NPAGES
 .xit:
-	ldo			$ra,[$sp]
-  ldo     $s1,16[$sp]
-  add     $sp,$sp,#32
-  ret
+  ldo     $s1,[$sp]
+  leave		#32
 
 ;------------------------------------------------------------------------------
 ; Allocate a single page of memory. Available memory is indicated by a bitmmap
@@ -196,14 +187,13 @@ _PAMFree:
 ;------------------------------------------------------------------------------
   align 16
 _PAMMarkPage:
-	sub		$sp,$sp,#32
-	sto		$ra,[$sp]
-	sto   $s1,16[$sp]
+	enter	#40
+	sto   $s1,[$sp]
 	ldi   $a0,#OSPAGES
   mov   $s1,$a0
 .0001:
   mov   $a0,$s1
-	bal   $x1,PAMGetbitPair
+	bal   $x1,_PAMGetbitPair
 	beq   $a0,$x0,.gotFree
 	add   $s1,$s1,#1
 	slt   $t0,$s1,#MEMSZ
@@ -213,12 +203,10 @@ _PAMMarkPage:
 .gotFree:
   mov  	$a0,$s1
   ldi   $a1,#2          ; end of run bits
-  bal  	$x1,PAMSetbitPair
+  bal  	$x1,_PAMSetbitPair
 .xit:
-	ldo		$ra,[$sp]
-	ldo   $s1,16[$sp]
-	add   $sp,$sp,#32
-  ret
+	ldo   $s1,[$sp]
+	leave	#32
 
 ;------------------------------------------------------------------------------
 ; Parameters:
@@ -227,13 +215,17 @@ _PAMMarkPage:
 ;		$a1,$t0,$t1,$t2,$t3
 ;------------------------------------------------------------------------------
   align   16
-PAMUnmarkPage:
-	sgeu    $t0,$a0,#MEMSZ-1   ; last page is permanently allocated to system stack
+_PAMUnmarkPage:
+	enter		#32
+	sgeu    $t0,$a0,#MEMSZ-1	; last page is permanently allocated to system stack
 	sltu 		$t1,$a0,#OSPAGES
 	or			$t0,$t0,$t1
-	bne	    $t0,$x0,PAMxit			    ; first 64 pages (64kB) allocated permanently to system
+	bne	    $t0,$x0,.0001	    ; first 64 pages (64kB) allocated permanently to system
 	ldi     $a1,#0
-; Tail recursion here
+	bal			$x1,_PAMSetbitPair
+.0001:
+	leave		#32
+
 ;------------------------------------------------------------------------------
 ; Parameters:
 ;		$a0 = bit number to set
@@ -244,10 +236,10 @@ PAMUnmarkPage:
 ;		$t0,$t1,$t2,$t3
 ;------------------------------------------------------------------------------
 
-;  align   4                 ; Minimum alignment for target address of a call
-PAMSetbitPair:
-  srl   $t2,$a0,#5          ; t2 = word
-  sll   $t2,$t2,#4          ; t2 = word index
+	align	16                 	; Minimum alignment for target address of a call
+_PAMSetbitPair:
+  srl   $t2,$a0,#5          ; t2 = word, 32 pairs per word
+  sll   $t2,$t2,#3          ; t2 = word index, 8 bytes per word
   and   $t3,$a0,#31         ; t3 = bit pair no
   sll   $t3,$t3,#1          ; t3 = bit pair index
 	ldo		$t1,PAM[$t2]        ; get word
@@ -259,7 +251,6 @@ PAMSetbitPair:
 	;dep   $t1,$a1,$t3,#1
 	sto		$t1,PAM[$t2]        ; store word
 	srl		$a1,$a1,$t3					; restore $a1
-PAMxit:
 	ret
 
 ;------------------------------------------------------------------------------
@@ -272,9 +263,9 @@ PAMxit:
 ;   $cr0 = Z flag set if bit = 0
 ;------------------------------------------------------------------------------
   align 16
-PAMGetbitPair:
+_PAMGetbitPair:
   srl   $t2,$a0,#5          ; $t2 = word
-  sll   $t2,$t2,#4          ; $t2 = word index
+  sll   $t2,$t2,#3          ; $t2 = word index
   and   $t3,$a0,#31         ; $t3 = bit pair no
   sll   $t3,$t3,#1          ; $t3 = bit pair index
 	ldo		$t0,PAM[$t2]        ; get word
@@ -287,8 +278,7 @@ PAMGetbitPair:
 ;------------------------------------------------------------------------------
   align 16
 _PAMInit:
-	sub		$sp,$sp,#16
-	sto		$ra,[$sp]
+	enter	#32
   ; First zero out the entire PAM using word stores
   ldi   $a0,#0
 .0002:
@@ -301,32 +291,30 @@ _PAMInit:
   ldi   $a0,#OSPAGES-1  ; OS pages
   ldi   $a1,#3
 .0001:
-  bal  	$x1,PAMSetbitPair
+  bal  	$x1,_PAMSetbitPair
   sub   $a0,$a0,#1
   bge		$a0,$x0,.0001
   ldi   $a0,#OSPAGES-1  ; Last OS page
   ldi   $a1,#2          ; set mark end of run
-  bal  	$x1,PAMSetbitPair
+  bal  	$x1,_PAMSetbitPair
   ldi   $a1,#2          ; end of run
   ldi   $a0,#MEMSZ-1    ; OS stack page
-  bal  	$x1,PAMSetbitPair
+  bal  	$x1,_PAMSetbitPair
   ldi   $a0,#MEMSZ-2    ; OS stack page
   ldi   $a1,#3          ; mid run
-  bal  	$x1,PAMSetbitPair
+  bal  	$x1,_PAMSetbitPair
   ldi   $a0,#MEMSZ-3    ; OS stack page
-  bal  	$x1,PAMSetbitPair
+  bal  	$x1,_PAMSetbitPair
   ldi   $a0,#MEMSZ-4    ; OS stack page
-  bal  	$x1,PAMSetbitPair
-  ldo		$ra,[$sp]
-  add		$sp,$sp,#16
-  ret
+  bal  	$x1,_PAMSetbitPair
+  leave	#32
 
   align 16
 GetPamBit:
 	sub		$sp,$sp,#16
 	sto		$ra,[$sp]
   mov   $a0,$a1
-  bal  	$x1,PAMGetbitPair
+  bal  	$x1,_PAMGetbitPair
   mov   $a1,$a0
   ldi   $a0,#E_Ok
   ldo		$ra,[$sp]

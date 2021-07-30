@@ -149,6 +149,10 @@ int main(int argc, char **argv)
 	optimize =1;
 	exceptions=1;
 	compiler.nogcskips = true;
+	compiler.os_code = false;
+	cpu.fileExt = ".r64";
+	cpu.SupportsBand = false;
+	cpu.SupportsBor = false;
 	cpu.SupportsBBC = true;
 	cpu.SupportsBBS = true;
 	cpu.SupportsPop = false;
@@ -241,6 +245,9 @@ int	options(char *s)
 			if (cnt > 0)
 				compiler.pollCount = cnt;
 		}
+		if (strncmp(&s[2], "os_code", 7) == 0) {
+			compiler.os_code = true;
+		}
 	}
 	else if (s[1]=='a') {
         address_bits = atoi(&s[2]);
@@ -270,6 +277,9 @@ int	options(char *s)
 					regFirstRegvar = 18;
 					regLastRegvar = 27;
 					compiler.nogcskips = true;
+					cpu.fileExt = ".r5a";
+					cpu.SupportsBand = false;
+					cpu.SupportsBor = false;
 					cpu.SupportsBBC = false;
 					cpu.SupportsBBS = false;
 					cpu.SupportsPop = false;
@@ -354,7 +364,7 @@ int openfiles(char *s)
 		makename(irfile, ".hir");
 		makename(infile,".fpp");
         makename(listfile,".lis");
-        makename(outfile,".r64");
+        makename(outfile,(char *)cpu.fileExt.c_str());
     dbgfile += ".xml";
 		ifs = new std::ifstream();
 		ifs->open(infile,std::ios::in);

@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2014-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2014-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -42,6 +42,7 @@ typedef struct {
 	Macro *macro;
   int bits;
   int referenced;
+  int64_t size;
 } SYM;
 
 SYM *find_symbol(char *name);

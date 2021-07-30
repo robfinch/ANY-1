@@ -827,12 +827,12 @@ int Declaration::ParseSpecifier(TABLE* table, SYM** sym, e_sc sc)
 				break;
 
 			case ellipsis:
-				head = (TYP *)TYP::Make(bt_ellipsis,4);
+				head = (TYP *)TYP::Make(bt_ellipsis,sizeOfWord);
 				tail = head;
 				head->isVolatile = isVolatile;
 				head->isIO = isIO;
 				NextToken();
-				bit_max = 32;
+				bit_max = sizeOfWord/8;
 				goto lxit;
 
 			case id:	sp = ParseId();	goto lxit;
@@ -1392,6 +1392,7 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 	int isd;
 	int nump = 0;
 	int numa = 0;
+	int ellipos = -1;
 	Function* cf;
 	SYM* sym;
 	ParameterDeclaration pd;
@@ -1426,12 +1427,16 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 		cf = currentFn;
 		currentFn = sp;
 		nump = sp->NumParms;
-		sp->BuildParameterList(&nump, &numa);
+		sp->BuildParameterList(&nump, &numa, &ellipos);
 		currentFn = cf;
 		needParseFunction = 0;
 		dfs.printf("Set false\n");
 		//				sp->parms = sym;
 		sp->NumParms = nump;
+		if (ellipos >= 0)
+			sp->NumFixedAutoParms = ellipos + 1;
+		else
+			sp->NumFixedAutoParms = nump;
 //		if (cf != nullptr)
 //			sp->params.AddTo(&cf->params);
 		isStructDecl = isd;
@@ -1445,6 +1450,8 @@ Function* Declaration::ParseFunctionJ2(Function* sp)
 			return (sp);
 		}
 		needpunc(closepa, 23);
+		while (lastst == kw_attribute)
+			ParseFunctionAttribute(sp);
 		if (lastst == assign)
 			return (sp);
 
@@ -1918,11 +1925,15 @@ int Declaration::ParseFunction(TABLE* table, SYM* sp, e_sc al)
 			return(0);
 			NextToken();
 			if (lastst == openpa) {
-				int np, na;
+				int np, na, ellipos;
 				SYM* sp = (SYM*)allocSYM();
 				NextToken();
 				Function* fn = compiler.ff.MakeFunction(sp->number, sp, false);
-				fn->BuildParameterList(&np, &na);
+				fn->BuildParameterList(&np, &na, &ellipos);
+				if (ellipos >= 0)
+					fn->NumFixedAutoParms = ellipos + 1;
+				else
+					fn->NumFixedAutoParms = np;
 				if (lastst == closepa) {
 					NextToken();
 					while (lastst == kw_attribute)
@@ -2188,6 +2199,7 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 			else
 				if (ParseFunction(table, sp, al)) {
 					sp->storage_endpos = ofs.tellp();
+					decl_level--;
 					return (nbytes);
 				}
 			//			}
@@ -2472,6 +2484,7 @@ ENODE *AutoDeclaration::Parse(SYM *parent, TABLE *ssyms)
 				if (sp)
 				   dfs.printf("Found in tagtable");
 				if (sp == nullptr) {
+					//sp = gsearch2(lastid, (__int16)bt_long, nullptr, false);
 					sp = gsyms[0].Find(lastid, false);
 					if (TABLE::matchno > 1) {
 						for (nn = 0; nn < TABLE::matchno; nn++) {
@@ -2542,6 +2555,7 @@ int ParameterDeclaration::Parse(int fd, bool throw_away)
 	int ofd;
   int opascal;
 	int oisInline;
+	bool fellip = false;
 
 	dfs.puts("<ParseParmDecls>\n");
 	ofd = funcdecl;
@@ -2551,6 +2565,8 @@ int ParameterDeclaration::Parse(int fd, bool throw_away)
 	funcdecl = fd;
 	parsingParameterList++;
 	nparms = 0;
+	number = -1;
+	ellip = -1;
 	for(;;) {
 		worstAlignment = 0;
 		isFuncPtr = false;
@@ -2558,6 +2574,7 @@ int ParameterDeclaration::Parse(int fd, bool throw_away)
 		isRegister = false;
 		isInline = false;
 		missingArgumentName = FALSE;
+		fellip = false;
 		dfs.printf("A(%d)",lastst);
 j1:
 		switch(lastst) {
@@ -2579,10 +2596,13 @@ j1:
 dfs.printf("B");
       error(ERR_ILLCLASS);
       declare(NULL,throw_away ? &scrap_table : &currentFn->params,sc_auto,0,bt_struct,nullptr);
+			number++;
 			isAuto = false;
 			break;
-		case kw_const:
+		// Must be first case as it falls through
 		case ellipsis:
+			fellip = true;
+		case kw_const:
 		case kw_inline:
 		case kw_volatile:
         case kw_exception:
@@ -2594,10 +2614,14 @@ dfs.printf("B");
 		case kw_vector: case kw_vector_mask:
 dfs.printf("C");
 			declare(NULL, throw_away ? &scrap_table : &currentFn->params,sc_auto,0,bt_struct,nullptr);
+			number++;
+			if (fellip)
+				ellip = number;
 			isAuto = false;
 	    break;
 		case id:
 			declare(NULL, throw_away ? &scrap_table : &currentFn->params, sc_auto, 0, bt_struct,nullptr);
+			number++;
 			isAuto = false;
 			break;
 		case kw_thread:

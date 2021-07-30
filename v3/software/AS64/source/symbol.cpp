@@ -27,6 +27,7 @@
 
 extern FILE *ofp;
 extern int pass;
+extern bool keepUnreferenced;
 int numsym = 0;
 char nametext[1000000];
 SYM* current_symbol;
@@ -215,6 +216,7 @@ SYM *new_symbol(char *name)
 	ts.isMacro = false;
 	ts.phaserr = ' ';
 	ts.bits = 32;
+  ts.size = 0;
   ts.referenced = 0;
   p = insert_symbol(&ts);
   numsym++;
@@ -246,7 +248,8 @@ void DumpSymbols()
 
    // Pack any 'holes' in the table
    ii = PackSymbols(HashInfo.size);
-   RemoveUnreferenced(ii);
+   if (!keepUnreferenced)
+    RemoveUnreferenced(ii);
    ii = PackSymbols(ii);
 
    // Sort the table
@@ -254,15 +257,15 @@ void DumpSymbols()
 
     
     fprintf(ofp, "%d symbols\n", numsym);
-    fprintf(ofp, "  Symbol Name                              seg     address bits references\n"); 
+    fprintf(ofp, "  Symbol Name                              seg     address size bits references\n"); 
     for (nn = 0; nn < ii; nn++) {
 //        qq = symorder[nn];
         dp = &pt[nn];
         if (dp->name && !dp->isMacro) {
           if (gCpu==ANY1V3)
-            fprintf(ofp, "%c %-40s %6s  %06I64x.%1x %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low >> 1, dp->value.low & 1, dp->bits, dp->referenced);
+            fprintf(ofp, "%c %-40s %6s  %06I64x.%1x %4llu %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low >> 1, (int)dp->value.low & 1, dp->size, dp->bits, dp->referenced);
           else
-            fprintf(ofp, "%c %-40s %6s  %06I64x %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low, dp->bits, dp->referenced);
+            fprintf(ofp, "%c %-40s %6s  %06I64x %4llu %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), (int)dp->value.low, dp->size, dp->bits, dp->referenced);
         }
     }
 		fprintf(ofp, "\nUndefined Symbols\n");

@@ -269,7 +269,7 @@ void IGraph::Fill()
 		for (ip = b->lcode; ip && !eol; ip = ip->back) {
 			if (ip->opcode != op_label) {
 				// examine instruction ip and update graph and live
-				if (ip->opcode == op_mov) {
+				if (ip->opcode == cpu.mov_op) {
 					v = FindTreeno(ip->oper1->preg, ip->bb->num);
 					if (v >= 0 && frst->trees[v]->color == K) {
 						b->live->remove(v);

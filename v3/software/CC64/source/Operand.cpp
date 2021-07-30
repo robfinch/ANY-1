@@ -282,7 +282,7 @@ void Operand::MakeLegal(int flags, int size)
 			//GenerateDiadic(op_ldi, 0, ap2, this);
 			break;
 		case am_reg:
-			GenerateDiadic(op_mov, 0, ap2, this);
+			GenerateDiadic(cpu.mov_op, 0, ap2, this);
 			break;
 		case am_preg:
 			GenerateDiadic(op_ptoi, 0, ap2, this);
@@ -328,8 +328,8 @@ void Operand::MakeLegal(int flags, int size)
 			break;
 		case am_imm:
 			ap1 = GetTempRegister();
-			GenerateDiadic(op_ldi, 0, ap1, this);
-			GenerateDiadic(op_mov, 0, ap2, ap1);
+			GenerateDiadic(cpu.ldi_op, 0, ap1, this);
+			GenerateDiadic(cpu.mov_op, 0, ap2, ap1);
 			ReleaseTempReg(ap1);
 			break;
 		case am_reg:
@@ -368,13 +368,13 @@ void Operand::MakeLegal(int flags, int size)
 			break;
 		case am_imm:
 			ap1 = GetTempRegister();
-			GenerateDiadic(op_ldi, 0, ap1, this);
-			GenerateDiadic(op_mov, 0, ap2, ap1);
+			GenerateDiadic(cpu.ldi_op, 0, ap1, this);
+			GenerateDiadic(cpu.mov_op, 0, ap2, ap1);
 			ReleaseTempReg(ap1);
 			break;
 		case am_reg:
 			if (regs[preg].ContainsPositConst())
-				GenerateDiadic(op_mov, 0, ap2, this);
+				GenerateDiadic(cpu.mov_op, 0, ap2, this);
 			else
 				GenerateDiadic(op_itop, 0, ap2, this);
 			break;
@@ -403,7 +403,7 @@ void Operand::MakeLegal(int flags, int size)
 			ap2 = GetTempRegister();
 			cg.GenerateLoad(ap2, this, size, size);
 			ap1 = cg.MakeBoolean(ap2);
-			GenerateDiadic(op_mov, 0, this, ap1);
+			GenerateDiadic(cpu.mov_op, 0, this, ap1);
 			ReleaseTempReg(ap1);
 			ReleaseTempReg(ap2);
 			return;
@@ -412,7 +412,7 @@ void Operand::MakeLegal(int flags, int size)
 			return;
 		case am_reg:
 			ap1 = cg.MakeBoolean(this);
-			GenerateDiadic(op_mov, 0, this, ap1);
+			GenerateDiadic(cpu.mov_op, 0, this, ap1);
 			ReleaseTempReg(ap1);
 			return;
 		}
@@ -424,7 +424,7 @@ void Operand::MakeLegal(int flags, int size)
 	{
 		ReleaseTempRegister(this);
 		ap2 = GetTempRegister();
-		GenerateDiadic(op_mov, 0, ap2, this);
+		GenerateDiadic(cpu.mov_op, 0, ap2, this);
 		if (isUnsigned)
 			GenerateTriadic(op_and, 0, ap2, ap2, cg.MakeImmediate(255));
 		else {
@@ -447,7 +447,7 @@ void Operand::MakeLegal(int flags, int size)
 		//GenerateDiadic(op_ldi, 0, ap2, this);
 		break;
 	case am_reg:
-		GenerateDiadic(op_mov, 0, ap2, this);
+		GenerateDiadic(cpu.mov_op, 0, ap2, this);
 		break;
 	default:
 		cg.GenerateLoad(ap2, this, size, size);

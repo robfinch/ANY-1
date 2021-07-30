@@ -35,6 +35,7 @@ Function::Function()
 	rmask = CSet::MakeNew();
 	fprmask = CSet::MakeNew();
 	prmask = CSet::MakeNew();
+	NumFixedAutoParms = 0;
 }
 
 Statement *Function::ParseBody()
@@ -63,7 +64,9 @@ Statement *Function::ParseBody()
 		lbl += *sym->mangledName;
 		if (sym->tp->type == bt_pointer)
 			lbl += "_func";
-//			gen_strlab((char *)lbl.c_str());
+		else
+			lbl += "\n\t.align 16\n";
+		//			gen_strlab((char *)lbl.c_str());
 		GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char *)lbl.c_str(), codeseg));
 	}
 	//	put_label((unsigned int) sp->value.i);
@@ -71,7 +74,12 @@ Statement *Function::ParseBody()
 		if (sym->storage_class == sc_global) {
 			lbl = "\n\t.global ";
 			lbl += *sym->mangledName;
+			lbl += "\n\t.align 16\n";
 			if (!IsInline) {
+				ofs.printf((char*)lbl.c_str());
+				lbl = "\n;.func ";
+				lbl += *sym->mangledName;
+				lbl += "\n";
 				ofs.printf((char*)lbl.c_str());
 				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst(my_strdup((char*)lbl.c_str()), codeseg));
 				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst("\n;{+",codeseg));
@@ -83,6 +91,14 @@ Statement *Function::ParseBody()
 		else {
 			lbl = *sym->mangledName;
 			if (!IsInline) {
+				lbl = "\n\t.local ";
+				lbl += *sym->mangledName;
+				ofs.printf((char*)lbl.c_str());
+				lbl = "\n\t.align 16\n;.func ";
+				lbl += *sym->mangledName;
+				lbl += "\n";
+				ofs.printf((char*)lbl.c_str());
+				lbl = *sym->mangledName;
 				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst("\n;{+", codeseg));
 				GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char*)lbl.c_str(), codeseg));
 				ofs.printf("\n");
@@ -153,6 +169,10 @@ Statement *Function::ParseBody()
 
 		PeepOpt();
 		FlushPeep();
+		lbl = ".. ";
+		//lbl += *sym->mangledName;
+		ofs.printf(lbl.c_str());
+		ofs.printf("\n");
 //		if (sym->storage_class == sc_global) {
 //			ofs.printf("endpublic\r\n\r\n");
 //		}
@@ -233,7 +253,7 @@ void Function::DoFuncptrAssign(Function *sp)
 int Function::Parse()
 {
 	Function *osp, *sp;
-	int nump, numar;
+	int nump, numar, ellipos;
 	std::string nme;
 
 	currentFn = this;
@@ -269,7 +289,11 @@ int Function::Parse()
 	// function body.
 	//if (NumParms == -1)
 		nump = sp->NumParms;
-		sp->BuildParameterList(&nump, &numar);
+		sp->BuildParameterList(&nump, &numar, &ellipos);
+		if (ellipos >= 0)
+			sp->NumFixedAutoParms = ellipos + 1;
+		else
+			sp->NumFixedAutoParms = nump;
 	dfs.printf("B");
 	sym->mangledName = BuildSignature(1);  // build against parameters
 
@@ -318,7 +342,11 @@ int Function::Parse()
 			int np, na;
 			SYM* sp = (SYM*)allocSYM();
 			Function* fn = compiler.ff.MakeFunction(sym->number, sp, false);
-			fn->BuildParameterList(&np, &na);
+			fn->BuildParameterList(&np, &na, &ellipos);
+			if (ellipos >= 0)
+				fn->NumFixedAutoParms = ellipos + 1;
+			else
+				fn->NumFixedAutoParms = np;
 			if (lastst == closepa) {
 				NextToken();
 				while (lastst == kw_attribute)
@@ -364,7 +392,11 @@ j2:
 		//			NextToken();
 		//			ParameterDeclaration::Parse(2);
 		nump = sp->NumParms;
-		sp->BuildParameterList(&nump, &numar);
+		sp->BuildParameterList(&nump, &numar, &ellipos);
+		if (ellipos >= 0)
+			sp->NumFixedAutoParms = ellipos + 1;
+		else
+			sp->NumFixedAutoParms = nump;
 		// for old-style parameter list
 		//needpunc(closepa);
 		if (lastst == semicolon) {
@@ -862,7 +894,7 @@ void Function::GenerateReturn(Statement* stmt)
 					p = params.Find("_pHiddenStructPtr", false);
 					if (p) {
 						if (p->IsRegister)
-							GenerateDiadic(op_mov, 0, makereg(regFirstArg), makereg(p->reg));
+							GenerateDiadic(cpu.mov_op, 0, makereg(regFirstArg), makereg(p->reg));
 						else
 							GenerateDiadic(cpu.ldo_op, 0, makereg(regFirstArg), MakeIndexed(p->value.i, regFP));
 						ap2 = GetTempRegister();
@@ -900,35 +932,35 @@ void Function::GenerateReturn(Statement* stmt)
 							GenLoad(makereg(regFirstArg), MakeIndirect(ap->preg), 1, 1);
 					}
 					else
-						GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
+						GenerateDiadic(cpu.mov_op, 0, makereg(regFirstArg), ap);
 				}
 			}
 			else {
 				if (sym->tp->btpp->IsFloatType() || sym->tp->btpp->IsPositType())
-					GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
+					GenerateDiadic(cpu.mov_op, 0, makereg(regFirstArg), ap);
 				else if (sym->tp->btpp->IsVectorType())
-					GenerateDiadic(op_mov, 0, makevreg(regFirstArg), ap);
+					GenerateDiadic(cpu.mov_op, 0, makevreg(regFirstArg), ap);
 				else
-					GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
+					GenerateDiadic(cpu.mov_op, 0, makereg(regFirstArg), ap);
 			}
 		}
 		else if (ap->mode == am_reg) {
 			if (isFloat)
-				GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
+				GenerateDiadic(cpu.mov_op, 0, makereg(regFirstArg), ap);
 			else
-				GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
+				GenerateDiadic(cpu.mov_op, 0, makereg(regFirstArg), ap);
 		}
 		else if (ap->mode == am_reg) {
 			if (isPosit)
-				GenerateDiadic(op_mov, 0, compiler.of.makepreg(regFirstArg), ap);
+				GenerateDiadic(cpu.mov_op, 0, compiler.of.makepreg(regFirstArg), ap);
 			else
-				GenerateDiadic(op_mov, 0, makereg(regFirstArg), ap);
+				GenerateDiadic(cpu.mov_op, 0, makereg(regFirstArg), ap);
 		}
 		else if (ap->typep == &stddouble) {
 			if (isFloat)
 				GenerateDiadic(op_ldf, 'd', makereg(regFirstArg), ap);
 			else
-				GenerateDiadic(op_ldo, 0, makereg(regFirstArg), ap);
+				GenerateDiadic(cpu.ldo_op, 0, makereg(regFirstArg), ap);
 		}
 		else {
 			if (sym->tp->btpp->IsVectorType())
@@ -1019,6 +1051,7 @@ void Function::GenerateReturn(Statement* stmt)
 	// If Pascal calling convention remove parameters from stack by adding to stack pointer
 	// based on the number of parameters. However if a non-auto register parameter is
 	// present, then don't add to the stack pointer for it. (Remove the previous add effect).
+	// Also, do not add to the stack pointer for the ellipsis parameter.
 	if (IsPascal) {
 		TypeArray *ta;
 		int nn;
@@ -1050,6 +1083,8 @@ void Function::GenerateReturn(Statement* stmt)
 				else
 					toAdd += sizeOfPosit;
 				break;
+			case bt_ellipsis:
+				break;
 			default:
 				if (ta->preg[nn] && (ta->preg[nn] & 0x8000) == 0)
 					;
@@ -1073,7 +1108,7 @@ void Function::GenerateReturn(Statement* stmt)
 			if (toAdd < 32760)
 				UnlinkStack(toAdd);
 			else {
-				GenerateDiadic(op_mov, 0, makereg(regSP), makereg(regFP));
+				GenerateDiadic(cpu.mov_op, 0, makereg(regSP), makereg(regFP));
 				GenerateDiadic(cpu.ldo_op, 0, makereg(regFP), MakeIndexed(-sizeOfWord, regSP));
 				GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndirect(regSP));
 				GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));
@@ -1152,8 +1187,11 @@ void Function::Generate()
 	stmt->CheckReferences(&sp, &bp, &gp, &gp1);
 	if (gp != 0)
 		GenerateDiadic(cpu.lea_op, 0, makereg(regGP), MakeStringAsNameConst("__data_start", dataseg));
-	if (gp1 != 0)
-		GenerateDiadic(cpu.lea_op, 0, makereg(regGP1), MakeStringAsNameConst("__rodata_start",dataseg));
+	if (gp1 != 0) {
+		GenerateDiadic(cpu.lea_op, 0, makereg(regGP1), MakeStringAsNameConst("__rodata_start", dataseg));
+		if (!compiler.os_code)
+			GenerateTriadic(op_base, 0, makereg(regGP1), makereg(regGP1), MakeImmediate(12));
+	}
 	if (!IsInline)
 		GenerateMonadic(op_hint, 0, MakeImmediate(start_funcbody));
 
@@ -1465,7 +1503,7 @@ Function *Function::FindExactMatch(int mm, std::string name, int rettype, TypeAr
 	return (nullptr);
 }
 
-void Function::BuildParameterList(int *num, int *numa)
+void Function::BuildParameterList(int *num, int *numa, int* ellipos)
 {
 	int64_t poffset;
 	int i, reg, fpreg, preg;
@@ -1503,6 +1541,8 @@ void Function::BuildParameterList(int *num, int *numa)
 	np = pd.ParameterDeclaration::Parse(1, false);
 	*num += np;
 	*numa = 0;
+	if (pd.ellip >= 0)
+		*ellipos = pd.ellip;
 	dfs.printf("B");
 	nparms = onp;
 	this->NumParms = *num;

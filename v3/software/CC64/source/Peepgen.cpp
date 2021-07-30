@@ -318,7 +318,7 @@ void Function::PeepOpt()
 		forest.Renumber();
 		BasicBlock::ComputeSpillCosts();
 		RemoveCode();
-		iGraph.workingMoveop = op_mov;
+		iGraph.workingMoveop = (e_op)cpu.mov_op;
 		iGraph.workingRegclass = am_reg;
 		iGraph.frst = &forest;
 		iGraph.BuildAndCoalesce();

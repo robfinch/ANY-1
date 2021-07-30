@@ -110,6 +110,9 @@ typedef struct _tagInsnStats {
 	int csrs;
 	int bitfields;
 	int beqz;
+	int prefixes;
+	int enters;
+	int leaves;
 	int total;
 } InsnStats;
 

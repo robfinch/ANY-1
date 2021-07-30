@@ -13,6 +13,7 @@ void process_dcd();
 void process_dct();
 void process_dcw();
 void process_dco();
+void process_end();
 // tokenizer
 void getnum();
 int my_isspace(char ch);

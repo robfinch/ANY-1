@@ -355,7 +355,7 @@ void CSETable::InitializeTempRegs()
 						}
 					}
 					else if (ap->mode == am_reg) {
-						GenerateDiadic(op_mov, 0, ap2, ap);
+						GenerateDiadic(cpu.mov_op, 0, ap2, ap);
 					}
 					else {
 						size = exptr->GetNaturalSize();

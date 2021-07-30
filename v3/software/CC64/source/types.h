@@ -324,6 +324,7 @@ public:
 	unsigned int hasDefaultCatch : 1;	// programmer coded a default catch
 	uint8_t NumRegisterVars;
 	__int8 NumParms;
+	__int8 NumFixedAutoParms;
 	__int8 numa;			// number of stack parameters (autos)
 	int stkspace;					// stack space used by function
 	int64_t sp_init;					// initial SP for interrupt functions
@@ -372,7 +373,7 @@ public:
 	bool ProtoTypesMatch(TypeArray *typearray);
 	bool ParameterTypesMatch(Function *sym);
 	bool ParameterTypesMatch(TypeArray *typearray);
-	void BuildParameterList(int *num, int*numa);
+	void BuildParameterList(int *num, int*numa, int* ellipos);
 	void AddParameters(SYM *list);
 	void AddProto(SYM *list);
 	void AddProto(TypeArray *);
@@ -1870,6 +1871,9 @@ public:
 class ParameterDeclaration : public Declaration
 {
 public:
+	int number;
+	int ellip;	// parameter number of the ellipsis if present
+public:
 	int Parse(int, bool throw_away);
 };
 
@@ -1896,6 +1900,7 @@ public:
 	short int pass;
 	bool ipoll;
 	bool nogcskips;
+	bool os_code;
 	int pollCount;
 public:
 	Compiler() { typenum = 0; ipoll = false; pollCount = 33; };
@@ -1915,7 +1920,10 @@ public:
 class CPU
 {
 public:
+	std::string fileExt;
 	int nregs;
+	bool SupportsBand;
+	bool SupportsBor;
 	bool SupportsBBS;
 	bool SupportsBBC;
 	bool SupportsPush;

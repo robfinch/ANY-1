@@ -340,11 +340,11 @@ void getString()
 
 static char *pseudos[] = {
     "align", "code", "data", "tls", "rodata", "file",
-		"fill", "org", "byte", "message",(char *)NULL
+		"fill", "org", "byte", "message", "global", "end", (char *)NULL
 };
 static int pseudoTokens[] = {
     tk_align, tk_code, tk_data, tk_tls, tk_rodata, tk_file,
-    tk_fill, tk_org, tk_db, tk_message, tk_none
+    tk_fill, tk_org, tk_db, tk_message, tk_global, tk_end, tk_none
 };
 
 int isPseudoOp()
@@ -362,7 +362,7 @@ int isPseudoOp()
     nn++;
   }
   buf[nn] = '\0';
-  for (nn = 0; nn < 9; nn++) {
+  for (nn = 0; nn < 12; nn++) {
     if (strcmp(buf, pseudos[nn])==0) {
       //inptr = p;
       //token = pseudoTokens[nn];

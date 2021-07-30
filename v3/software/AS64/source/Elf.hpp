@@ -236,6 +236,14 @@ public:
         address = 0;
         memset(bytes,0,sizeof(bytes));
     };
+    void ResetForGet() {
+      index = 0;
+      bt_ndx = 0;
+      address = start;
+    };
+    bool IsEos() {
+      return (address >= end);
+    };
     void AddBitPair(int64_t bp) {
       if (index > 64000000)
         return;
@@ -276,6 +284,25 @@ public:
       if (address > end)
         end = address;
     };
+    int64_t GetNybble() {
+      int64_t rv;
+
+      if (index == 0)
+        address = start;
+      if (index > 64000000)
+        return (-1);
+      if (bt_ndx == 0)
+        rv = bytes[index] & 15LL;
+      else
+        rv = (bytes[index] >> bt_ndx) & 15LL;
+      bt_ndx += 4;
+      if (bt_ndx == 8) {
+        bt_ndx = 0;
+        index++;
+      }
+      address++;
+      return (rv);
+    }
     void AddByte(int64_t byt) {
       if (index > 64000000)
         return;
@@ -319,6 +346,22 @@ public:
     void Read(FILE *fp) {
         fread((void *)bytes,1,(size_t)hdr.sh_size,fp);
     };
+    void AddAny1Insn(int64_t insn) {
+      int nn;
+
+      if ((insn & 0x70) == 0x70) {
+        for (nn = 0; nn < 5; nn++) {
+          AddNybble(insn);
+          insn >>= 4;
+        }
+      }
+      else {
+        for (nn = 0; nn < 9; nn++) {
+          AddNybble(insn);
+          insn >>= 4;
+        }
+      }
+    };
 };
 
 class clsElf64File
@@ -327,9 +370,17 @@ public:
     clsElf64Header hdr;
     clsElf64Section *sections[256];
 
-    void AddSection(clsElf64Section *sect) {
+    virtual void AddSection(clsElf64Section *sect) {
         sections[hdr.e_shnum] = sect;
         hdr.e_shnum++;
+    };
+
+    void ReadSectionHeaderTable(FILE* fp) {
+      int nn;
+
+      for (nn = 0; nn < hdr.e_shnum; nn++) {
+        sections[nn]->hdr.Read(fp);
+      }
     };
 
     void WriteSectionHeaderTable(FILE *fp) {
@@ -352,6 +403,21 @@ public:
         fseek(fp, (size_t)hdr.e_shoff, SEEK_SET);
         WriteSectionHeaderTable(fp);
     };
+
+    void Read(FILE* fp) {
+      int nn;
+
+      hdr.Read(fp);
+      fseek(fp, 512, SEEK_SET);
+      fseek(fp, (size_t)hdr.e_shoff, SEEK_SET);
+      for (nn = 0; nn < hdr.e_shnum; nn++)
+        sections[nn] = new clsElf64Section();
+      ReadSectionHeaderTable(fp);
+      for (nn = 0; nn < hdr.e_shnum; nn++) {
+        fseek(fp, (size_t)sections[nn]->hdr.sh_offset, SEEK_SET);
+        sections[nn]->Read(fp);
+      }
+    }
 };
 
 

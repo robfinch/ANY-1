@@ -291,7 +291,9 @@ void DumpInsnStats()
 	fprintf(ofp, "  BLcc:		%6d (%3.6f%%)\n", insnStats.logbr, ((double)insnStats.logbr / (double)insnStats.total) * 100.0f);
 	fprintf(ofp, "Calls:		%6d (%3.6f%%)\n", insnStats.calls, ((double)insnStats.calls / (double)insnStats.total) * 100.0f);
 	fprintf(ofp, "Returns:	%6d (%3.6f%%)\n", insnStats.rets, ((double)insnStats.rets / (double)insnStats.total) * 100.0f);
-	fprintf(ofp, "Adds:	    %6d (%3.6f%%)\n", insnStats.adds, ((double)insnStats.adds / (double)insnStats.total) * 100.0f);
+  fprintf(ofp, "Enter:	  %6d (%3.6f%%)\n", insnStats.enters, ((double)insnStats.enters / (double)insnStats.total) * 100.0f);
+  fprintf(ofp, "Leave:	  %6d (%3.6f%%)\n", insnStats.leaves, ((double)insnStats.leaves / (double)insnStats.total) * 100.0f);
+  fprintf(ofp, "Adds:	    %6d (%3.6f%%)\n", insnStats.adds, ((double)insnStats.adds / (double)insnStats.total) * 100.0f);
   fprintf(ofp, "Subs:	    %6d (%3.6f%%)\n", insnStats.subs, ((double)insnStats.subs / (double)insnStats.total) * 100.0f);
   fprintf(ofp, "Ands:	    %6d (%3.6f%%)\n", insnStats.ands, ((double)insnStats.ands / (double)insnStats.total) * 100.0f);
 	fprintf(ofp, "Ors:	    %6d (%3.6f%%)\n", insnStats.ors, ((double)insnStats.ors / (double)insnStats.total) * 100.0f);
@@ -309,7 +311,8 @@ void DumpInsnStats()
   fprintf(ofp, "Bitfield: %6d (%3.6f%%)\n", insnStats.bitfields, ((double)insnStats.bitfields / (double)insnStats.total) * 100.0f);
   fprintf(ofp, "Csr:		  %6d (%3.6f%%)\n", insnStats.csrs, ((double)insnStats.csrs / (double)insnStats.total) * 100.0f);
 	fprintf(ofp, "Floatops: %6d (%3.6f%%)\n", insnStats.floatops, ((double)insnStats.floatops / (double)insnStats.total) * 100.0f);
-	tot = insnStats.loads
+  fprintf(ofp, "Prefixes: %6d (%3.6f%%)\n", insnStats.prefixes, ((double)insnStats.prefixes / (double)insnStats.total) * 100.0f);
+  tot = insnStats.loads
 		+ insnStats.stores
 		+ insnStats.pushes
 		+ insnStats.branches
@@ -328,7 +331,10 @@ void DumpInsnStats()
 		+ insnStats.cmoves
 		+ insnStats.sets
 		+ insnStats.ptrdif
+    + insnStats.prefixes
 		+ insnStats.floatops
+    + insnStats.enters
+    + insnStats.leaves
 		;
 	rem = insnStats.total - tot;
 	fprintf(ofp, "others:   %6d (%3.6f%%)\n", rem, ((double)rem / (double)insnStats.total) * 100.0f);
@@ -491,10 +497,16 @@ int processOptions(int argc, char **argv)
               if (argv[nn][2] == 'y') {
                 gCpu = ANY1V3;
                 vebits = 128;
-                if (argv[nn][3] == 'c')
-                  gCanCompress = 1;
-                else
-                  gCanCompress = 0;
+                mm = 3;
+                keepUnreferenced = false;
+                gCanCompress = false;
+                while (argv[nn][mm]) {
+                  if (argv[nn][mm] == 'k')
+                    keepUnreferenced = true;
+                  if (argv[nn][mm] == 'c')
+                    gCanCompress = true;
+                  mm++;
+                }
               }
            }
            nn++;
@@ -878,7 +890,7 @@ void process_public()
         p3 = p1;
         do {
           NextToken();
-        } while (token != tk_endpublic);
+        } while (token != tk_end && token != tk_dotdot);
         p2 = inptr;
         for (; *p2; p1++, p2++)
           *p1 = *p2;
@@ -909,7 +921,7 @@ void process_public()
       if (!sym->referenced && !keepUnreferenced) {
         do {
           NextToken();
-        } while (token != tk_endpublic);
+        } while (token != tk_endpublic && token != tk_clip_end);
       }
     }
     if (sym->value.low != ca) {
@@ -930,8 +942,74 @@ xit1:
   current_symbol = sym;
 xit2:
   ScanToEOL();
-  inptr++;
+  //inptr++;
 }
+
+// ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+
+void process_end()
+{
+  int64_t ca;
+  char nm[300];
+  SYM* sym;
+  int shft = 0;
+  int tk;
+
+  NextToken();
+  tk = token;
+  if (token != tk_id)
+    strcpy_s(nm, sizeof(nm), current_label);
+  else {
+    strcpy_s(nm, sizeof(nm), lastid);
+    NextToken();
+  }
+
+  if (gCpu == 7 || gCpu == GAMBIT || gCpu == GAMBIT_V5)
+    shft = 1;
+
+  //    printf("<process_end>");
+  // Bump up the address to align it with a valid code address if needed.
+  bump_address();
+  if (pass < 4)
+    goto xit;
+  switch (segment) {
+  case codeseg:
+    ca = code_address >> shft;
+    ca = sections[0].address >> shft;
+    break;
+  case rodataseg:
+    ca = sections[1].address >> shft;
+    break;
+  case dataseg:
+    ca = sections[2].address >> shft;
+    break;
+  case bssseg:
+    ca = sections[3].address >> shft;
+    break;
+  case tlsseg:
+    ca = sections[4].address >> shft;
+    break;
+  default:
+    ca = code_address >> shft;
+    ca = sections[0].address >> shft;
+    break;
+  }
+  // No calc for local labels, size = 0
+  if (tk == tk_id && lastid[0] == '.')
+    goto xit;
+  sym = find_symbol(nm);
+  if (sym) {
+    sym->size = ca - sym->value.low;
+    //if (gCpu == ANY1V3) {
+    //  sym->size++;
+    //  sym->size >>= 1;
+    //}
+  }
+xit:
+  ScanToEOL();
+}
+
 
 // ----------------------------------------------------------------------------
 // extern somefn
@@ -1889,6 +1967,7 @@ void process_label()
 			strcpy_s(current_label, sizeof(current_label), lastid);
 	if (strcmp("end_init_data", nm)==0)
     isInitializationData = 0;
+  // Skip over ':' or begin
   NextToken();
 //    SkipSpaces();
   if (token==tk_equ || token==tk_eq) {
@@ -3234,8 +3313,8 @@ int main(int argc, char *argv[])
 							binfile[kk+7], binfile[kk+6], binfile[kk+5], binfile[kk+4], 
 							binfile[kk+3], binfile[kk+2], binfile[kk+1], binfile[kk]);
 					}
-					fprintf(vfp, "\trommem[10238] = 128'h00000000000000000000000000000000;\n");
-					fprintf(vfp, "\trommem[10239] = 128'h%08X%08X0000000000000000;\n", binlen, checksum);
+					fprintf(vfp, "\trommem[12286] = 128'h00000000000000000000000000000000;\n");
+					fprintf(vfp, "\trommem[12287] = 128'h%08X%08X0000000000000000;\n", binlen, checksum);
 				}
 				else if (vebits==64) {
 					for (kk = 0; kk < binndx; kk+=8) {

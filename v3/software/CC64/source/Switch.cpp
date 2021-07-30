@@ -394,7 +394,7 @@ void Statement::GenerateSwitchSearch(Case *cases, Operand* ap, Operand* ap2, int
 		GenerateTriadic(is_unsigned ? op_bltu : op_blt, 0, ap, ap3, MakeCodeLabel(lolab));
 	}
 	else {
-		GenerateDiadic(op_ldi, 0, ap2, MakeImmediate(cases[mid].val));
+		GenerateDiadic(cpu.ldi_op, 0, ap2, MakeImmediate(cases[mid].val));
 		GenerateTriadic(is_unsigned ? op_bgeu : op_bge, 0, ap, ap2, MakeCodeLabel(hilab));
 		GenerateTriadic(is_unsigned ? op_bltu : op_blt, 0, ap, ap2, MakeCodeLabel(lolab));
 	}

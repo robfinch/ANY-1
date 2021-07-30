@@ -103,8 +103,20 @@ int any1_NextToken()
 			}
       SkipSpaces();                      // skip over leading spaces
       if (*inptr==';') {                 // comment ?
-          ScanToEOL();
-          continue;
+				if (inptr[1] == '{' && inptr[2] == '+') {
+					tokenBuffer[tbndx] = tk_clip_begin;
+					tbndx++;
+					ScanToEOL();
+					return (token = tk_clip_begin);
+				}
+				if (inptr[1] == '-' && inptr[2] == '}') {
+					tokenBuffer[tbndx] = tk_clip_end;
+					tbndx++;
+					ScanToEOL();
+					return (token = tk_clip_end);
+				}
+				ScanToEOL();
+        continue;
       }
 			ch = *inptr & 0x7f;
       if (isdigit(ch)) {
@@ -137,6 +149,12 @@ int any1_NextToken()
 					return (token = tk_strconst);
         case '.':
 					if (isPseudoOp()) { inptr++; continue; }
+					else if (inptr[1] == '.') {
+						inptr += 2;
+						tokenBuffer[tbndx] = tk_dotdot;
+						tbndx++;
+						return (token = tk_dotdot);
+					}
           else if (getIdentifier()) { 
 						tokenBuffer[tbndx] = tk_id;
 						tbndx++;
@@ -528,7 +546,7 @@ int any1_NextToken()
             }
             break;
 
-        // band beq bor bne bit
+        // band begin beq bor bne bit
         case 'b':
         case 'B':
 					if ((inptr[1] == 'e' || inptr[1] == 'E') &&
@@ -803,7 +821,43 @@ int any1_NextToken()
 								tbndx++;
 								return token = tk_bgtu;
             }
-            if ((inptr[1]=='s' || inptr[1]=='S') && 
+						if ((inptr[1] == 'e' || inptr[1] == 'E') &&
+							(inptr[2] == 'g' || inptr[2] == 'G') &&
+							(inptr[3] == 'i' || inptr[3] == 'I') &&
+							(inptr[4] == 'n' || inptr[4] == 'N') &&
+							isspaceOrDot(inptr[5])) {
+							inptr += 5;
+							tokenBuffer[tbndx] = tk_begin;
+							tbndx++;
+							return token = tk_begin;
+						}
+						if ((inptr[1] == 'a' || inptr[1] == 'A') &&
+							(inptr[2] == 'n' || inptr[2] == 'N') &&
+							(inptr[3] == 'd' || inptr[2] == 'D') &&
+							isspaceOrDot(inptr[4])) {
+							inptr += 4;
+							tokenBuffer[tbndx] = tk_band;
+							tbndx++;
+							return token = tk_band;
+						}
+						if ((inptr[1] == 'a' || inptr[1] == 'A') &&
+							(inptr[2] == 's' || inptr[2] == 'S') &&
+							(inptr[3] == 'e' || inptr[2] == 'E') &&
+							isspaceOrDot(inptr[4])) {
+							inptr += 4;
+							tokenBuffer[tbndx] = tk_base;
+							tbndx++;
+							return token = tk_base;
+						}
+						if ((inptr[1] == 'o' || inptr[1] == 'O') &&
+							(inptr[2] == 'r' || inptr[2] == 'R') &&
+							isspaceOrDot(inptr[3])) {
+							inptr += 3;
+							tokenBuffer[tbndx] = tk_bor;
+							tbndx++;
+							return token = tk_bor;
+						}
+						if ((inptr[1]=='s' || inptr[1]=='S') &&
                 (inptr[2]=='r' || inptr[2]=='R') &&
                  isspaceOrDot(inptr[3])) {
                 inptr += 3;
@@ -1145,6 +1199,17 @@ int any1_NextToken()
 								 tbndx++;
 								 return token = tk_cmovenz;
 							 }
+							 if ((inptr[1] == 'm' || inptr[1] == 'M') &&
+								 (inptr[2] == 'o' || inptr[2] == 'O') &&
+								 (inptr[3] == 'v' || inptr[3] == 'V') &&
+								 (inptr[4] == 'n' || inptr[4] == 'N') &&
+								 (inptr[5] == 'z' || inptr[5] == 'Z') &&
+								 isspaceOrDot(inptr[6])) {
+								 inptr += 6;
+								 tokenBuffer[tbndx] = tk_cmovenz;
+								 tbndx++;
+								 return token = tk_cmovenz;
+							 }
 							 if ((inptr[1] == 's' || inptr[1] == 'S') &&
 								 (inptr[2] == 'a' || inptr[2] == 'A') &&
 								 (inptr[3] == 'v' || inptr[3] == 'V') &&
@@ -1345,7 +1410,7 @@ int any1_NextToken()
 							}
 						 break;
 
-        // end eor eori endif endpublic ext extern extu equ eret es
+        // end eor eori endif endpublic enter ext extern extu equ eret es
         case 'e': case 'E':
              if ((inptr[1]=='q' || inptr[1]=='Q') &&
                  (inptr[2]=='u' || inptr[2]=='U') &&
@@ -1355,7 +1420,17 @@ int any1_NextToken()
 								 tbndx++;
 								 return token = tk_equ;
              }
-             if ((inptr[1]=='o' || inptr[1]=='O') &&
+						 if ((inptr[1] == 'n' || inptr[1] == 'N') &&
+							 (inptr[2] == 't' || inptr[2] == 'T') &&
+							 (inptr[3] == 'e' || inptr[3] == 'E') &&
+							 (inptr[4] == 'r' || inptr[4] == 'R') &&
+							 isspaceOrDot(inptr[5])) {
+							 inptr += 5;
+							 tokenBuffer[tbndx] = tk_enter;
+							 tbndx++;
+							 return token = tk_enter;
+						 }
+						 if ((inptr[1]=='o' || inptr[1]=='O') &&
                  (inptr[2]=='r' || inptr[2]=='R') &&
                  (inptr[3]=='i' || inptr[3]=='I') &&
                  isspaceOrDot(inptr[4])) {
@@ -1378,7 +1453,7 @@ int any1_NextToken()
                  inptr += 3;
 								 tokenBuffer[tbndx] = tk_end;
 								 tbndx++;
-								 return token = tk_end;
+								 return (token = tk_end);
              }
              if ((inptr[1]=='n' || inptr[1]=='O') &&
                  (inptr[2]=='d' || inptr[2]=='R') &&
@@ -1848,8 +1923,19 @@ int any1_NextToken()
 				}
 				break;
 
-        // gran
+        // global gran
         case 'g': case 'G':
+					if ((inptr[1] == 'l' || inptr[1] == 'L') &&
+						(inptr[2] == 'o' || inptr[2] == 'O') &&
+						(inptr[3] == 'b' || inptr[3] == 'B') &&
+						(inptr[4] == 'a' || inptr[4] == 'A') &&
+						(inptr[5] == 'l' || inptr[5] == 'L') &&
+						isspaceOrDot(inptr[6])) {
+						inptr += 6;
+						tokenBuffer[tbndx] = tk_global;
+						tbndx++;
+						return token = tk_global;
+					}
 					if ((inptr[1] == 'c' || inptr[1] == 'C') &&
 						(inptr[2] == 's' || inptr[2] == 'S') &&
 						(inptr[3] == 'u' || inptr[3] == 'U') &&
@@ -2056,7 +2142,7 @@ int any1_NextToken()
 				}
 				break;
 
-      // lb lbu lc lcu lf lh lhu lw ld ldi ldis lea lsr lsri lwar lfd lvb lws lvh lvw ltcb link
+      // lb lbu lc lcu lf lh lhu lw ld ldi ldis lea leave lsr lsri lwar lfd lvb lws lvh lvw ltcb link
       case 'l':
       case 'L':
 				if ((inptr[1]=='d' || inptr[1]=='D') &&
@@ -2236,13 +2322,23 @@ int any1_NextToken()
 								tbndx++;
 								return token = tk_ldi;
             }
-            if ((inptr[1]=='e' || inptr[1]=='E') && (inptr[2]=='a' || inptr[2]=='A') && isspaceOrDot(inptr[3])) {
+						if ((inptr[1] == 'e' || inptr[1] == 'E') &&
+							(inptr[2] == 'a' || inptr[2] == 'A') &&
+							(inptr[3] == 'v' || inptr[3] == 'V') &&
+							(inptr[4] == 'e' || inptr[4] == 'E') &&
+							isspaceOrDot(inptr[5])) {
+							inptr += 5;
+							tokenBuffer[tbndx] = tk_leave;
+							tbndx++;
+							return token = tk_leave;
+						}
+						if ((inptr[1]=='e' || inptr[1]=='E') && (inptr[2]=='a' || inptr[2]=='A') && isspaceOrDot(inptr[3])) {
                 inptr += 3;
 								tokenBuffer[tbndx] = tk_lea;
 								tbndx++;
 								return token = tk_lea;
             }
-            if ((inptr[1]=='m' || inptr[1]=='M') && (inptr[2]=='r' || inptr[2]=='R') && isspaceOrDot(inptr[3])) {
+						if ((inptr[1]=='m' || inptr[1]=='M') && (inptr[2]=='r' || inptr[2]=='R') && isspaceOrDot(inptr[3])) {
                 inptr += 3;
 								tokenBuffer[tbndx] = tk_lmr;
 								tbndx++;
@@ -2413,7 +2509,15 @@ int any1_NextToken()
 								tbndx++;
 								return token = tk_modui;
             }
-            if ((inptr[1]=='e' || inptr[1]=='E') &&
+						if ((inptr[1] == 'u' || inptr[1] == 'U') &&
+							(inptr[2] == 'x' || inptr[2] == 'X') &&
+							isspaceOrDot(inptr[3])) {
+							inptr += 3;
+							tokenBuffer[tbndx] = tk_mux;
+							tbndx++;
+							return token = tk_mux;
+						}
+						if ((inptr[1]=='e' || inptr[1]=='E') &&
                 (inptr[2]=='s' || inptr[2]=='S') &&
                 (inptr[3]=='s' || inptr[3]=='S') &&
                 (inptr[4]=='a' || inptr[4]=='A') &&

@@ -84,6 +84,9 @@ extern int64_t round8(int64_t);
 extern int countLeadingBits(int64_t val);
 extern int countLeadingZeros(int64_t val);
 
+// Symbol.cpp
+extern SYM* gsearch2(std::string na, __int16 rettype, TypeArray* typearray, bool exact);
+
 extern Posit64 GetPositExpression(ENODE** pnode, SYM* symi);
 extern void GeneratePosit(Posit64 val);
 

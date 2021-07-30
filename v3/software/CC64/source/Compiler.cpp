@@ -26,6 +26,7 @@
 #include "stdafx.h"
 
 extern int lstackptr;
+extern char* lptr;
 extern int options(char *);
 extern int openfiles(char *);
 extern void summary();

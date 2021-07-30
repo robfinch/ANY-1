@@ -1305,7 +1305,7 @@ j1:
 			case am_reg:
 				switch (ap2->mode) {
 				case am_reg:
-					GenerateDiadic(op_mov, 0, ap1, ap2);
+					GenerateDiadic(cpu.mov_op, 0, ap1, ap2);
 					break;
 				case am_imm:
 					cg.GenerateLoadConst(ap2, ap1);
@@ -1320,12 +1320,12 @@ j1:
 			case am_fpreg:
 				switch (ap2->mode) {
 				case am_fpreg:
-					GenerateDiadic(op_mov, 0, ap1, ap2);
+					GenerateDiadic(cpu.mov_op, 0, ap1, ap2);
 					break;
 				case am_imm:
 					ap4 = GetTempRegister();
-					GenerateDiadic(op_ldi, 0, ap4, ap2);
-					GenerateDiadic(op_mov, 0, ap1, ap4);
+					GenerateDiadic(cpu.ldi_op, 0, ap4, ap2);
+					GenerateDiadic(cpu.mov_op, 0, ap1, ap4);
 					if (ap2->isPtr)
 						ap1->isPtr = true;
 					break;
@@ -1359,7 +1359,7 @@ j1:
 		case am_reg:
 			switch (ap2->mode) {
 			case am_reg:
-				GenerateDiadic(op_mov, 0, ap1, ap2);
+				GenerateDiadic(cpu.mov_op, 0, ap1, ap2);
 				break;
 			case am_imm:
 				cg.GenerateLoadConst(ap2, ap1);
@@ -1374,12 +1374,12 @@ j1:
 		case am_fpreg:
 			switch (ap2->mode) {
 			case am_fpreg:
-				GenerateDiadic(op_mov, 0, ap1, ap2);
+				GenerateDiadic(cpu.mov_op, 0, ap1, ap2);
 				break;
 			case am_imm:
 				ap4 = GetTempRegister();
-				GenerateDiadic(op_ldi, 0, ap4, ap2);
-				GenerateDiadic(op_mov, 0, ap1, ap4);
+				GenerateDiadic(cpu.ldi_op, 0, ap4, ap2);
+				GenerateDiadic(cpu.mov_op, 0, ap1, ap4);
 				if (ap2->isPtr)
 					ap1->isPtr = true;
 				break;
@@ -1748,7 +1748,7 @@ Operand *ENODE::GenerateBinary(int flags, int size, int op)
 		if (ENODE::IsEqual(p[0], p[1]) && !opt_nocgo) {
 			// Duh, subtract operand from itself, result would be zero.
 			if (op == op_sub || op == op_ptrdif || op == op_eor)
-				GenerateDiadic(op_mov, 0, ap3, makereg(0));
+				GenerateDiadic(cpu.mov_op, 0, ap3, makereg(0));
 			else {
 				ap1 = cg.GenerateExpression(p[0], am_reg, size);
 				GenerateTriadic(op, 0, ap3, ap1, ap1);
@@ -1776,8 +1776,15 @@ Operand *ENODE::GenerateBinary(int flags, int size, int op)
 					case op_sub:
 						if (ap1->isPtr && ap2->isPtr)
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
-						else if (ap2->isPtr)
-							GenerateDiadic(cpu.lea_op, 0, ap3, op==op_sub ? compiler.of.MakeNegIndexed(ap2->offset, ap1->preg) : MakeIndexed(ap2->offset, ap1->preg));
+						else if (ap2->isPtr) {
+							GenerateDiadic(cpu.lea_op, 0, ap3, op == op_sub ? compiler.of.MakeNegIndexed(ap2->offset, ap1->preg) : MakeIndexed(ap2->offset, ap1->preg));
+							if (!compiler.os_code) {
+								switch (ap3->segment) {
+								case tlsseg:		GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(8));	break;
+								case rodataseg:	GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(12));	break;
+								}
+							}
+						}
 						else {
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
 						}

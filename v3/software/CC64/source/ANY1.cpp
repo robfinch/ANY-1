@@ -79,6 +79,12 @@ void ANY1CodeGenerator::GenerateLea(Operand* ap1, Operand* ap2)
 		break;
 	default:
 		GenerateDiadic(cpu.lea_op, 0, ap1, ap2);
+		if (!compiler.os_code) {
+			switch (ap1->segment) {
+			case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
+			case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
+			}
+		}
 	}
 }
 
@@ -642,10 +648,10 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 		//ReleaseTempReg(ap2);
 		GenerateFalseJump(node,lab0,0);
 		ap1 = GetTempRegister();
-		GenerateDiadic(op_ldi|op_dot,0,ap1,MakeImmediate(1));
+		GenerateDiadic(cpu.ldi_op|op_dot,0,ap1,MakeImmediate(1));
 		GenerateMonadic(op_bra,0,MakeDataLabel(lab1,regZero));
 		GenerateLabel(lab0);
-		GenerateDiadic(op_ldi|op_dot,0,ap1,MakeImmediate(0));
+		GenerateDiadic(cpu.ldi_op|op_dot,0,ap1,MakeImmediate(0));
 		GenerateLabel(lab1);
 		ap1->isBool = true;
 		return (ap1);
@@ -929,20 +935,28 @@ void ANY1CodeGenerator::GenerateBand(Operand* ap1, Operand* ap2, int label)
 {
 	Operand* ap3;
 
-	ap3 = GetTempRegister();
-	GenerateTriadic(op_and, 0, ap3, ap1, ap2);
-	GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
-	ReleaseTempReg(ap3);
+	if (cpu.SupportsBand)
+		GenerateTriadic(op_band, 0, ap1, ap2, MakeCodeLabel(label));
+	else {
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_and, 0, ap3, ap1, ap2);
+		GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+	}
 }
 
 void ANY1CodeGenerator::GenerateBor(Operand* ap1, Operand* ap2, int label)
 {
 	Operand* ap3;
 
-	ap3 = GetTempRegister();
-	GenerateTriadic(op_or, 0, ap3, ap1, ap2);
-	GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
-	ReleaseTempReg(ap3);
+	if (cpu.SupportsBor)
+		GenerateTriadic(op_bor, 0, ap1, ap2, MakeCodeLabel(label));
+	else {
+		ap3 = GetTempRegister();
+		GenerateTriadic(op_or, 0, ap3, ap1, ap2);
+		GenerateDiadic(op_bnez, 0, ap3, MakeCodeLabel(label));
+		ReleaseTempReg(ap3);
+	}
 }
 
 void ANY1CodeGenerator::GenerateBnand(Operand* ap1, Operand* ap2, int label)
@@ -1537,6 +1551,8 @@ void ANY1CodeGenerator::PopArguments(Function *fnc, int howMany, bool isPascal)
 		if (fnc) {
 			if (!fnc->IsPascal)
 				GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(howMany * sizeOfWord));
+			else if (howMany - fnc->NumFixedAutoParms > 0)
+				GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate((howMany - fnc->NumFixedAutoParms) * sizeOfWord));
 		}
 		else {
 			if (!isPascal)
@@ -1767,7 +1783,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 		if (!(flags & am_novalue)) {
 			if (sym->sym->tp->btpp->type != bt_void) {
 				ap = GetTempRegister();
-				GenerateDiadic(op_mov, 0, ap, makereg(regFirstArg));
+				GenerateDiadic(cpu.mov_op, 0, ap, makereg(regFirstArg));
 				regs[1].modified = true;
 			}
 			else
@@ -1782,7 +1798,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 	else {
 		if (!(flags & am_novalue)) {
 			ap = GetTempRegister();
-			GenerateDiadic(op_mov, 0, ap, makereg(regFirstArg));
+			GenerateDiadic(cpu.mov_op, 0, ap, makereg(regFirstArg));
 			regs[regFirstArg].modified = true;
 		}
 		else {

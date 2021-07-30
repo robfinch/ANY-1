@@ -208,8 +208,8 @@ void OCODE::OptRedor()
 		return;
 	if (back->insn->IsSetInsn()) {
 		if (back->oper1->preg == oper2->preg) {
-			opcode = op_mov;
-			insn = GetInsn(op_mov);
+			opcode = cpu.mov_op;
+			insn = GetInsn(cpu.mov_op);
 			optimized++;
 		}
 	}
@@ -415,7 +415,7 @@ void OCODE::OptLoad()
 	// This optimization is also caught by the code generator.
 	if (oper2->tp && oper2->tp->IsPositType()) {
 		if (oper2->offset->posit.val == 0) {
-			opcode = op_mov;
+			opcode = cpu.mov_op;
 			oper2->mode = am_preg;
 			oper2->preg = 0;
 			optimized++;
@@ -424,7 +424,7 @@ void OCODE::OptLoad()
 	}
 	else if (oper2->tp && oper2->tp->IsFloatType()) {
 		if (oper2->offset->f128.IsZero()) {
-			opcode = op_mov;
+			opcode = cpu.mov_op;
 			oper2->mode = am_reg;
 			oper2->preg = 0;
 			optimized++;
@@ -432,7 +432,7 @@ void OCODE::OptLoad()
 		}
 	}
 	else if (oper2->offset->i == 0) {
-		opcode = op_mov;
+		opcode = cpu.mov_op;
 		oper2->mode = am_reg;
 		oper2->preg = 0;
 		optimized++;
@@ -616,7 +616,7 @@ void OCODE::OptStore()
 void OCODE::OptBeq()
 {
 	if (back && back->opcode == op_cmp && back->oper3->preg == regZero) {
-		if (back->back && back->back->opcode & 0x7fff == op_ldi) {
+		if (back->back && back->back->opcode & 0x7fff == cpu.ldi_op) {
 			if (back->back->oper1->preg == back->oper2->preg) {
 				if (back->back->oper2->offset->i != 0) {
 					back->MarkRemove();
@@ -631,7 +631,7 @@ void OCODE::OptBeq()
 void OCODE::OptBne()
 {
 	if (back && back->opcode == op_cmp && back->oper3->preg == regZero) {
-		if (back->back && back->back->opcode & 0x7fff == op_ldi) {
+		if (back->back && back->back->opcode & 0x7fff == cpu.ldi_op) {
 			if (back->back->oper1->preg == back->oper2->preg) {
 				if (back->back->oper2->offset->i != 0) {
 					back->MarkRemove();
@@ -1122,7 +1122,7 @@ void OCODE::OptHint()
 		//    MOV r18,#constant
 	case 1:
 
-		if (fwd && fwd->opcode != op_mov) {
+		if (fwd && fwd->opcode != cpu.mov_op) {
 			Remove();	// remove the hint
 			optimized++;
 			return;
@@ -1138,7 +1138,7 @@ void OCODE::OptHint()
 			}
 		}
 
-		if (back && back->opcode != op_mov) {
+		if (back && back->opcode != cpu.mov_op) {
 			MarkRemove();
 			optimized++;
 			return;
@@ -1177,14 +1177,14 @@ void OCODE::OptHint()
 		if (fwd == nullptr || back == nullptr)
 			break;
 //		if (back->opcode != op_mov || fwd->opcode != op_mov) {
-		if (fwd->opcode != op_mov) {
+		if (fwd->opcode != cpu.mov_op) {
 			break;
 		}
 		if (IsEqualOperand(fwd->oper2, back->oper1)) {
 			if (back->HasTargetReg()) {
 				int rg1, rg2;
 				back->GetTargetReg(&rg1, &rg2);
-				if (!(fwd->oper1->mode == am_reg && back->opcode & 0x7fff == op_ldi)) {
+				if (!(fwd->oper1->mode == am_reg && back->opcode & 0x7fff == cpu.ldi_op)) {
 					// Search forward to see if the target register is used anywhere.
 					for (frwd = fwd->fwd; frwd; frwd = frwd->fwd) {
 						// If the register has been targeted again, it is okay to opt.
@@ -1335,7 +1335,7 @@ void OCODE::OptLdi()
 		if (ip->HasTargetReg()) {
 			int rg1, rg2;
 			ip->GetTargetReg(&rg1, &rg2);
-			if (ip->opcode & 0x7fff == op_ldi) {
+			if (ip->opcode & 0x7fff == cpu.ldi_op) {
 				if (rg1 == oper1->preg || rg2 == oper1->preg) {
 					if (ip->oper2->offset->i == oper2->offset->i) {
 						ip->MarkRemove();
@@ -1360,7 +1360,7 @@ void OCODE::OptLea()
 	// Remove a move following a LEA
 	ip = fwd;
 	if (ip) {
-		if (ip->opcode == op_mov) {
+		if (ip->opcode == cpu.mov_op) {
 			if (ip->oper2->preg == oper1->preg) {
 				for (ip2 = ip->fwd; ip2; ip2 = ip2->fwd)
 				{
@@ -1387,7 +1387,7 @@ void OCODE::OptLea()
 		if (ip->HasTargetReg()) {
 			int rg1, rg2;
 			ip->GetTargetReg(&rg1, &rg2);
-			if (ip->opcode & 0x7fff == op_ldi) {
+			if (ip->opcode & 0x7fff == cpu.ldi_op) {
 				if (rg1 == oper1->preg || rg2 == oper1->preg) {
 					if (ip->oper2->offset->i == oper2->offset->i) {
 						ip->MarkRemove();

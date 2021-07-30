@@ -306,7 +306,7 @@ int PeepList::CountSPReferences()
 				if (ip->insn->opcode == op_push || ip->insn->opcode == op_pop) {
 					refSP++;
 				}
-				else if (ip->insn->opcode != op_add && ip->insn->opcode != op_sub && ip->insn->opcode != op_gcsub && ip->insn->opcode != op_mov) {
+				else if (ip->insn->opcode != op_add && ip->insn->opcode != op_sub && ip->insn->opcode != op_gcsub && ip->insn->opcode != cpu.mov_op) {
 					if (ip->oper1) {
 						if (ip->oper1->preg == regSP || ip->oper1->sreg == regSP)
 							refSP++;
@@ -654,7 +654,7 @@ void PeepList::RemoveMoves()
 	for (ip = head; ip; ip = ip->fwd) {
 		if (ip->bb->isRetBlock)
 			continue;
-		if (ip->opcode == op_mov) {
+		if (ip->opcode == cpu.mov_op) {
 			foundMove = true;
 			if (ip->oper1 && ip->oper2) {
 				reg1 = ip->oper1->preg;
@@ -694,6 +694,7 @@ void PeepList::OptInstructions()
 			case op_l:		ip->OptLdi(); break;
 			case op_lea:	ip->OptLea();	break;
 			case op_la:		ip->OptLea(); break;
+			case op_mv:
 			case op_mov:	ip->OptMove();	break;
 			case op_add:	ip->OptAdd(); break;
 			case op_sub:	ip->OptSubtract(); break;
