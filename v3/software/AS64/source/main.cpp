@@ -865,7 +865,9 @@ void process_public()
     if (sym) {
 			if (sym->defined) {
 				printf("Symbol (%s) already defined.\r\n", lastid);
-				goto xit1;
+        sym->segment = segment;
+        sym->scope = 'P';
+        goto xit1;
 			}
     }
     else {
@@ -1968,7 +1970,18 @@ void process_label()
 	if (strcmp("end_init_data", nm)==0)
     isInitializationData = 0;
   // Skip over ':' or begin
-  NextToken();
+  if (token == '(') {
+    SkipSpaces();
+    NextToken();
+    if (token == ')') {
+      sym->isFunc = true;
+      NextToken();
+      if (token == ':' || token == tk_begin)
+        NextToken();
+    }
+  }
+  else
+    NextToken();
 //    SkipSpaces();
   if (token==tk_equ || token==tk_eq) {
     NextToken();
@@ -2824,11 +2837,11 @@ void WriteELFFile(FILE *fp)
 //        if (syms[nn].segment < 5) {
           if (syms[nn].name) {
             elfsym.st_name = syms[nn].name;
-            elfsym.st_info = syms[nn].scope == 'P' ? STB_GLOBAL << 4 : 0;
+            elfsym.st_info = (syms[nn].scope == 'P' ? (STB_GLOBAL << 4) : 0) | (syms[nn].isFunc ? STT_FUNC : 0);
             elfsym.st_other = 0;
             elfsym.st_shndx = syms[nn].segment;
             elfsym.st_value = syms[nn].value.low;
-            elfsym.st_size = 8;
+            elfsym.st_size = syms[nn].size;
             sections[6].Add(&elfsym);
 //        }
         }
@@ -3313,8 +3326,8 @@ int main(int argc, char *argv[])
 							binfile[kk+7], binfile[kk+6], binfile[kk+5], binfile[kk+4], 
 							binfile[kk+3], binfile[kk+2], binfile[kk+1], binfile[kk]);
 					}
-					fprintf(vfp, "\trommem[12286] = 128'h00000000000000000000000000000000;\n");
-					fprintf(vfp, "\trommem[12287] = 128'h%08X%08X0000000000000000;\n", binlen, checksum);
+					fprintf(vfp, "\trommem[13310] = 128'h00000000000000000000000000000000;\n");
+					fprintf(vfp, "\trommem[13311] = 128'h%08X%08X0000000000000000;\n", binlen, checksum);
 				}
 				else if (vebits==64) {
 					for (kk = 0; kk < binndx; kk+=8) {

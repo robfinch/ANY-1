@@ -39,6 +39,7 @@ typedef struct {
   char phaserr;
   char scope;     // P = public
 	bool isMacro;
+  bool isFunc;
 	Macro *macro;
   int bits;
   int referenced;

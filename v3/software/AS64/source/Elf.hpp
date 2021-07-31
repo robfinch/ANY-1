@@ -170,7 +170,8 @@ public:
     };
 };
 
-#define STB_GLOBAL     1
+#define STB_GLOBAL  1
+#define STT_FUNC    2
 
 typedef struct {
     int32_t st_name;
@@ -273,7 +274,7 @@ public:
         else
           bytes[index] = bytes[index] | ((bp & 15LL) << bt_ndx);
       }
-      if (index == 0)
+      if (index == 0 && bt_ndx == 0)
         start = address;
       bt_ndx += 4;
       if (bt_ndx == 8) {
@@ -329,12 +330,26 @@ public:
         AddHalf((wd >> 32) & 0xFFFFFFFFLL);
     };
     void Add(Elf64Symbol *sym) {
-        AddHalf(sym->st_name);
-        AddByte(sym->st_info);        
-        AddByte(sym->st_other);
-        AddChar(sym->st_shndx);
-        AddWord(sym->st_value);
-        AddWord(sym->st_size);
+      if (index > 64000000)
+        return;
+      if (storebyte) {
+        memcpy(&bytes[index], sym, sizeof(Elf64Symbol));
+      }
+      if (index == 0)
+        start = address;
+      bt_ndx = 0;
+      index += sizeof(Elf64Symbol);
+      address++;
+      if (address > end)
+        end = address;
+      /*
+      AddHalf(sym->st_name);
+      AddByte(sym->st_info);        
+      AddByte(sym->st_other);
+      AddChar(sym->st_shndx);
+      AddWord(sym->st_value);
+      AddWord(sym->st_size);
+      */
     };
     void AddRel(int64_t addr, int64_t info) {
         AddWord(addr);

@@ -14,12 +14,24 @@
 #include "any1elf.hpp"
 #include "NameTable.hpp"
 
+enum {
+  codeseg = 0,
+  rodataseg = 1,
+  dataseg = 2,
+  bssseg = 3,
+  tlsseg = 4,
+  stackseg = 5,
+  constseg = 6,
+};
+
 #define I_EXI0	0x50
 #define I_EXI1	0x51
 #define I_EXI2	0x52
 
 #define ZeroMemory(a,b) memset((a),0,(b))
 
+uint64_t baseaddr;
+uint64_t entry_pt;
 bool opt_nologo = false;
 bool rel_out = false;
 
@@ -38,6 +50,13 @@ typedef struct
   int64_t insn;
   bool rec;
 } InsnRec;
+
+uint64_t Round512(uint64_t n)
+{
+  n += 511;
+  n &= 0xfffffffffffffe00LL;
+  return (n);
+}
 
 void searchenv(char* filename, char* envname, char** pathname)
 {
@@ -225,6 +244,9 @@ void ParseOption(char* option)
   if (strncmp(option, "ENTRY:", 6) == 0) {
     strcpy_s(entry_sym, sizeof(entry_sym), &option[6]);
   }
+  if (strncmp(option, "BASE:", 5) == 0) {
+    baseaddr = strtoull(&option[5], nullptr, 16);
+  }
 }
 
 // Find Symbol structure.
@@ -364,15 +386,15 @@ void CopyToOutput(FS efes)
   }
   if (textsec < 0)
     return;
-  et = elf_fileo.sections[0]->hdr.sh_size;
+  et = elf_fileo.sections[codeseg]->hdr.sh_size;
   sec = elf_files[efes.fileno]->sections[textsec];
   memcpy(
-    &elf_fileo.sections[0]->bytes[et],
+    &elf_fileo.sections[codeseg]->bytes[et],
     &sec->bytes[0],
-    elf_files[efes.fileno]->sections[0]->hdr.sh_size
+    elf_files[efes.fileno]->sections[textsec]->hdr.sh_size
   );
-  et += elf_files[efes.fileno]->sections[0]->hdr.sh_size;
-  elf_fileo.sections[0]->hdr.sh_size = et;
+  et += elf_files[efes.fileno]->sections[textsec]->hdr.sh_size;
+  elf_fileo.sections[textsec]->hdr.sh_size = et;
   /*
   fes = FindLowsetAddressSymbol();
   printf("Lowest address: %s %08I64x\r\n", fes.name, fes.sym->st_value);
@@ -414,7 +436,6 @@ uint64_t GetInsn(clsElf64Section* sec, uint64_t offset)
 void PutInsn(uint64_t insn, clsElf64Section* sec, uint64_t offset)
 {
   uint64_t n;
-  int64_t insn;
 
   if (offset & 1LL) {
     n = (sec->bytes[(uint64_t)(offset) >> 1LL]) & 15; // Get low nybble
@@ -437,7 +458,7 @@ void CompactCodeSection(clsElf64Section* sec)
 {
 }
 
-void CopyToCodeSection(clsElf64Section* dst, clsElf64Section* src, uint64_t offset, uint64_t size);
+void CopyToCodeSection(clsElf64Section* dst, clsElf64Section* src, uint64_t offset, uint64_t size)
 {
   int nn, kk;
   uint64_t insn;
@@ -457,16 +478,297 @@ void CopyToCodeSection(clsElf64Section* dst, clsElf64Section* src, uint64_t offs
   dst->hdr.sh_size &= 0xffffffffffffffe0LL;
 }
 
-int symcmp(void* a, void* b)
+int symvalcmp(const void* a, const void* b)
 {
   Elf64Symbol* aa = (Elf64Symbol*)a;
   Elf64Symbol* bb = (Elf64Symbol*)b;
+  uint64_t va = aa->st_value;
+  uint64_t vb = bb->st_value;
 
-  if ((uint64_t)aa->st_value < (uint64_t)bb->st_value)
+  if (va < vb)
     return (-1);
-  if (aa->st_value == bb->st_value)
+  if (va == vb)
     return (0);
   return (1);
+}
+
+// All the symbol names were copied to a global table by AccumulateSymbols()
+// and the name indexes reset to point into that table.
+
+char* GetName(Elf64Symbol* a, int opt)
+{
+  int secs;
+  char* p;
+  static int last_file = -1;
+  static clsElf64Section* last_sec;
+
+  if (opt) {
+    p = &nametext[a->st_name];
+    return (p);
+  }
+
+  // Do fast lookup if within same file
+  if (last_file == a->st_other) {
+    p = (char*)&last_sec->bytes[a->st_name];
+    return (p);
+  }
+  // Do slow lookup
+  if ((unsigned)a->st_other >= file_count)
+    return ((char *)"<bad fileno>");
+  last_file = a->st_other;
+  for (secs = 0; secs < elf_files[a->st_other]->hdr.e_shnum; secs++) {
+    if (elf_files[a->st_other]->sections[secs]->hdr.sh_type == clsElf64Shdr::SHT_STRTAB) {
+      last_sec = elf_files[a->st_other]->sections[secs];
+      p = (char *)&last_sec->bytes[a->st_name];
+      return (p);
+    }
+  }
+  last_file = -1;
+}
+
+int symcmp(const void* a, const void* b)
+{
+  Elf64Symbol* aa = (Elf64Symbol*)a;
+  Elf64Symbol* bb = (Elf64Symbol*)b;
+  if (aa->st_info < bb->st_info)
+    return (-1);
+  if (aa->st_info > bb->st_info)
+    return (1);
+  return (strcmp(GetName(aa,1), GetName(bb,1)));
+}
+
+int symnamecmp(const void* a, const void* b)
+{
+  Elf64Symbol* aa = (Elf64Symbol*)a;
+  Elf64Symbol* bb = (Elf64Symbol*)b;
+  return (strcmp(GetName(aa,1), GetName(bb,1)));
+}
+
+void DumpSymbols(clsElf64Section* sec, int opt)
+{
+  int nn;
+  Elf64Symbol* sym;
+
+  printf("\r\n\r\n");
+  printf("Name             Info File Section   Value   Size\r\n");
+  for (nn = 0; nn < sec->hdr.sh_size; nn += sec->hdr.sh_entsize) {
+    sym = (Elf64Symbol*)&sec->bytes[nn];
+    if (opt)
+      printf("%8d  %02x  %2d   %2d    %08llx %lld\r\n",
+        sym->st_name, sym->st_info, sym->st_other, sym->st_shndx,
+        sym->st_value, sym->st_size
+      );
+    else
+      printf("%-32.32s  %02x  %2d   %2d    %08llx %lld\r\n",
+        GetName(sym,1), sym->st_info, sym->st_other, sym->st_shndx,
+        sym->st_value, sym->st_size
+      );
+  }
+  printf("%d symbols\r\n", sec->hdr.sh_size / sec->hdr.sh_entsize);
+}
+
+bool IsGlobalFunc(Elf64Symbol* s)
+{
+  return ((s->st_info >> 4) == STB_GLOBAL && (s->st_info & 15) == STT_FUNC);
+}
+
+bool IsFunc(Elf64Symbol* s)
+{
+  return ((s->st_info & 15) == STT_FUNC);
+}
+
+// Get all the symbols, remove duplicate references.
+
+void AccumulateSymbols()
+{
+  int secs;
+  int symtabsec = -1;
+  clsElf64Section* sec, * newsec;
+  Elf64Symbol* sym, * a, * b;
+  int nn, kk, fc;
+
+  // Allocate section to hold symbols
+  newsec = new clsElf64Section;
+  newsec->Clear();
+  ZeroMemory(newsec->bytes, sizeof(newsec->bytes));
+
+  // Iterate across all files
+  for (fc = 0; fc < file_count; fc++) {
+    for (secs = 0; secs < elf_files[fc]->hdr.e_shnum; secs++) {
+      if (elf_files[fc]->sections[secs]->hdr.sh_type == clsElf64Shdr::SHT_SYMTAB) {
+        sec = elf_files[fc]->sections[secs];
+        for (nn = 0; nn < sec->hdr.sh_size; nn += sec->hdr.sh_entsize) {
+          sym = (Elf64Symbol*)&sec->bytes[nn];
+          if (sym->st_name) {
+            sym->st_other = fc;
+            sym->st_name = nmTable.AddName(GetName(sym,0));
+            newsec->Add(sym);
+          }
+        }
+      }
+    }
+  }
+  ZeroMemory(&newsec->hdr, sizeof(newsec->hdr));
+  newsec->hdr.sh_name = nmTable.AddName((char*)".symtab");
+  newsec->hdr.sh_addr = 0;
+  newsec->hdr.sh_type = clsElf64Shdr::SHT_SYMTAB;
+  newsec->hdr.sh_entsize = sizeof(Elf64Symbol);
+  newsec->hdr.sh_size = newsec->index;
+  newsec->hdr.sh_offset = Round512(512 + elf_fileo.sections[0]->index + elf_fileo.sections[1]->index + elf_fileo.sections[2]->index) + nmTable.length; // offset in file
+  newsec->hdr.sh_link = 5;
+  newsec->hdr.sh_addralign = 1;
+  DumpSymbols(newsec, 1);
+
+  // Remove duplicate symbols which may be caused by extern declarations.
+  qsort(&newsec->bytes[0], newsec->hdr.sh_size / newsec->hdr.sh_entsize, newsec->hdr.sh_entsize, symcmp);
+  for (nn = 0; nn < newsec->hdr.sh_size; nn += newsec->hdr.sh_entsize) {
+    a = (Elf64Symbol*)&newsec->bytes[nn];
+    for (kk = newsec->hdr.sh_entsize; 1; kk += newsec->hdr.sh_entsize) {
+      b = (Elf64Symbol*)&newsec->bytes[nn + kk];
+      if (strcmp(GetName(a,1), GetName(b,1)) == 0) {
+        if (IsGlobalFunc(a) && IsGlobalFunc(b)) {
+          if (b->st_size <= 0) {
+            b->st_info = 255; // mark for deletion
+          }
+        }
+      }
+      else
+        break;
+    }
+  }
+  for (kk = nn = 0; nn < newsec->hdr.sh_size; nn += newsec->hdr.sh_entsize) {
+    a = (Elf64Symbol*)&newsec->bytes[nn];
+    b = (Elf64Symbol*)&newsec->bytes[kk];
+    memcpy(b, a, newsec->hdr.sh_entsize);
+    if (a->st_info != 255)
+      kk += newsec->hdr.sh_entsize;
+  }
+  newsec->hdr.sh_size = kk;
+  elf_fileo.AddSection(newsec);
+  DumpSymbols(newsec, 0);
+}
+
+// Copy a function from one of the input files to the output file.
+// The function address may change.
+
+void CopyFuncToOutput(Elf64Symbol* sym)
+{
+  int secs;
+  int textsec = -1;
+  clsElf64Section* sec;
+  int byt;
+  uint64_t offs, nn;
+  uint64_t newval;
+  char* nm;
+
+  // Find the text section
+  for (secs = 0; secs < elf_fileo.hdr.e_shnum; secs++) {
+    if (elf_fileo.sections[secs]->hdr.sh_type == clsElf64Shdr::SHT_PROGBITS) {
+      textsec = secs;
+      break;
+    }
+  }
+  if (textsec < 0)
+    return;
+  sec = elf_fileo.sections[textsec];
+  sec->index = sec->hdr.sh_size;
+  // 16 byte align
+  while ((sec->index & 31LL) != 0)
+    sec->AddNybble(0LL);
+  newval = sec->hdr.sh_addr + (sec->index << 1LL);
+  // Should be in text section
+  if (sym->st_shndx != 0)
+    return;
+  nm = GetName(sym, 0);
+  if ((uint64_t)sym->st_value < (uint64_t)elf_files[sym->st_other]->sections[sym->st_shndx]->hdr.sh_addr)
+    return;
+  offs = (sym->st_value - elf_files[sym->st_other]->sections[sym->st_shndx]->hdr.sh_addr) >> 1LL;
+  for (nn = 0; nn < (sym->st_size + 1) >> 1LL; nn++) {
+    byt = elf_files[sym->st_other]->sections[sym->st_shndx]->bytes[offs+nn];
+    sec->AddByte(byt);
+  }
+  sym->st_value = newval;
+  sym->st_info &= 0x0f; // mark as local so it does not get copied again
+  sec->hdr.sh_size = sec->index;
+}
+
+Elf64Symbol* FindSymbol(Elf64Symbol* s)
+{
+  clsElf64Section* sec;
+  Elf64Symbol* sym, *a;
+  int nn;
+
+  sec = elf_fileo.sections[6];
+  for (nn = 0; nn < sec->hdr.sh_size; nn += sec->hdr.sh_entsize) {
+    sym = (Elf64Symbol*)&sec->bytes[nn];
+    if (symcmp(s, sym) == 0)
+      return (sym);
+  }
+  //sym = (Elf64Symbol*)bsearch(s, &sec->bytes[0], sec->hdr.sh_size / sec->hdr.sh_entsize, sec->hdr.sh_entsize, symcmp);
+  //return (sym);
+}
+
+void CopySymsToOutput(FS fs)
+{
+  int symtabsec = -1;
+  int secs;
+  clsElf64Section* sec;
+  Elf64Symbol* symtab, * sym, *s;
+  int nn;
+  FS fss;
+
+  // Find the symbol table
+  for (secs = 0; secs < elf_files[fs.fileno]->hdr.e_shnum; secs++) {
+    if (elf_files[fs.fileno]->sections[secs]->hdr.sh_type == clsElf64Shdr::SHT_SYMTAB) {
+      symtabsec = secs;
+      break;
+    }
+  }
+  if (symtabsec < 0)
+    return;
+  sec = elf_files[fs.fileno]->sections[symtabsec];
+  symtab = (Elf64Symbol*)&sec->bytes[0];
+  DumpSymbols(sec, 0);
+
+  // Sort the symbols by value so they end up in the same order in the output
+  // file as was specified in the input files.
+  qsort(
+    symtab,
+    sec->hdr.sh_size / sec->hdr.sh_entsize,
+    sec->hdr.sh_entsize,
+    symvalcmp
+  );
+  DumpSymbols(sec, 0);
+
+  // Grab each symbol in the input file and find the corresponding symbol in
+  // the output file. Copy functions from input to output.
+  for (nn = 0; nn < sec->hdr.sh_size; nn += sec->hdr.sh_entsize) {
+    s = (Elf64Symbol*)&sec->bytes[nn];
+    // Find symbol in output file symbol table.
+    sym = FindSymbol(s);
+    if (sym != nullptr) {
+      if (IsFunc(sym)) {
+        CopyFuncToOutput(s);
+        sym->st_value = s->st_value;
+        sym->st_info = s->st_info;
+      }
+    }
+  }
+  // Now copy all the symbols symbols to output
+  /*
+  for (nn = 0; nn < sec->hdr.sh_size; nn += sec->hdr.sh_entsize) {
+    s = (Elf64Symbol*)&sec->bytes[nn];
+    // Find symbol in output file symbols table.
+    sym = FindSymbol(s);
+    if (sym != nullptr) {
+      fss.fileno = sym->st_other;
+      fss.name = GetName(sym);
+      fss.sym = sym;
+      fss.symnum = 0;
+      CopySymsToOutput(fss);
+    }
+  }
+  */
 }
 
 void FixupSymbols(FS fs, uint64_t baseaddr)
@@ -644,7 +946,7 @@ void FixupSymbols(FS fs, uint64_t baseaddr)
     symtab,
     elf_files[fs.fileno]->sections[symtabsec]->hdr.sh_size / elf_files[fs.fileno]->sections[symtabsec]->hdr.sh_entsize,
     elf_files[fs.fileno]->sections[symtabsec]->hdr.sh_entsize,
-    symcmp
+    symvalcmp
   );
   for (nn = 0; nn < elf_files[fs.fileno]->sections[symtabsec]->hdr.sh_size; nn += elf_files[fs.fileno]->sections[symtabsec]->hdr.sh_entsize) {
     sym = (Elf64Symbol *)&elf_files[fs.fileno]->sections[symtabsec]->bytes[nn];
@@ -662,10 +964,11 @@ void AddTextsec()
   clsElf64Section* textsec;
 
   textsec = new clsAny1elfSection();
+  textsec->Clear();
   textsec->hdr.sh_name = nmTable.AddName((char *)".text");
   textsec->hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
   textsec->hdr.sh_flags = clsElf64Shdr::SHF_ALLOC | clsElf64Shdr::SHF_EXECINSTR;
-  textsec->hdr.sh_addr = rel_out ? 0 : textsec->start;
+  textsec->hdr.sh_addr = rel_out ? 0 : baseaddr;// textsec->start;
   textsec->hdr.sh_offset = 512;  // offset in file
   textsec->hdr.sh_size = textsec->index;
   textsec->hdr.sh_link = 0;
@@ -673,6 +976,165 @@ void AddTextsec()
   textsec->hdr.sh_addralign = 16;
   textsec->hdr.sh_entsize = 0;
   elf_fileo.AddSection(textsec);
+}
+
+void AddRodatasec()
+{
+  clsElf64Section* rodatasec;
+
+  rodatasec = new clsAny1elfSection();
+  rodatasec->hdr.sh_name = nmTable.AddName((char *)".rodata");
+  rodatasec->hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
+  rodatasec->hdr.sh_flags = clsElf64Shdr::SHF_ALLOC;
+  rodatasec->hdr.sh_addr = elf_fileo.sections[0]->hdr.sh_addr + elf_fileo.sections[0]->index;
+  rodatasec->hdr.sh_offset = elf_fileo.sections[0]->hdr.sh_offset + elf_fileo.sections[0]->index; // offset in file
+  rodatasec->hdr.sh_size = rodatasec->index;
+  rodatasec->hdr.sh_link = 0;
+  rodatasec->hdr.sh_info = 0;
+  rodatasec->hdr.sh_addralign = 8;
+  rodatasec->hdr.sh_entsize = 0;
+  elf_fileo.AddSection(rodatasec);
+}
+
+void AddDatasec()
+{
+  clsElf64Section* datasec;
+
+  datasec = new clsAny1elfSection();
+  datasec->hdr.sh_name = nmTable.AddName((char*)".data");
+  datasec->hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
+  datasec->hdr.sh_flags = clsElf64Shdr::SHF_ALLOC | clsElf64Shdr::SHF_WRITE;
+  datasec->hdr.sh_addr = elf_fileo.sections[1]->hdr.sh_addr + elf_fileo.sections[1]->index;
+  datasec->hdr.sh_offset = elf_fileo.sections[1]->hdr.sh_offset + elf_fileo.sections[1]->index; // offset in file
+  datasec->hdr.sh_size = datasec->index;
+  datasec->hdr.sh_link = 0;
+  datasec->hdr.sh_info = 0;
+  datasec->hdr.sh_addralign = 8;
+  datasec->hdr.sh_entsize = 0;
+  elf_fileo.AddSection(datasec);
+}
+
+void AddBsssec()
+{
+  clsElf64Section* bsssec;
+
+  bsssec = new clsAny1elfSection();
+  bsssec->hdr.sh_name = nmTable.AddName((char *)".bss");
+  bsssec->hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
+  bsssec->hdr.sh_flags = clsElf64Shdr::SHF_ALLOC | clsElf64Shdr::SHF_WRITE;
+  bsssec->hdr.sh_addr = elf_fileo.sections[2]->hdr.sh_addr + elf_fileo.sections[2]->index;
+  bsssec->hdr.sh_offset = elf_fileo.sections[2]->hdr.sh_offset + elf_fileo.sections[2]->index; // offset in file
+  bsssec->hdr.sh_size = 0;
+  bsssec->hdr.sh_link = 0;
+  bsssec->hdr.sh_info = 0;
+  bsssec->hdr.sh_addralign = 8;
+  bsssec->hdr.sh_entsize = 0;
+  elf_fileo.AddSection(bsssec);
+}
+
+void AddTlssec()
+{
+  clsElf64Section* tlssec;
+
+  tlssec = new clsAny1elfSection();
+  tlssec->hdr.sh_name = nmTable.AddName((char *)".tls");
+  tlssec->hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
+  tlssec->hdr.sh_flags = clsElf64Shdr::SHF_ALLOC | clsElf64Shdr::SHF_WRITE;
+  tlssec->hdr.sh_addr = elf_fileo.sections[3]->hdr.sh_addr + elf_fileo.sections[3]->index;;
+  tlssec->hdr.sh_offset = elf_fileo.sections[2]->hdr.sh_offset + elf_fileo.sections[2]->index; // offset in file
+  tlssec->hdr.sh_size = 0;
+  tlssec->hdr.sh_link = 0;
+  tlssec->hdr.sh_info = 0;
+  tlssec->hdr.sh_addralign = 8;
+  tlssec->hdr.sh_entsize = 0;
+  elf_fileo.AddSection(tlssec);
+}
+
+void AddStrtabsec()
+{
+  clsElf64Section* strsec, *sec;
+
+  strsec = new clsAny1elfSection();
+  elf_fileo.AddSection(strsec);
+  AccumulateSymbols();
+  sec = new clsAny1elfSection();
+  sec->hdr.sh_name = nmTable.AddName((char *)".reltext"); // section 7
+  elf_fileo.AddSection(sec);
+  sec = new clsAny1elfSection();
+  sec->hdr.sh_name = nmTable.AddName((char*)".relrodata");
+  elf_fileo.AddSection(sec);
+  sec = new clsAny1elfSection();
+  sec->hdr.sh_name = nmTable.AddName((char*)".reldata");
+  elf_fileo.AddSection(sec);
+  sec = new clsAny1elfSection();
+  sec->hdr.sh_name = nmTable.AddName((char*)".relbss");
+  elf_fileo.AddSection(sec);
+  sec = new clsAny1elfSection();
+  sec->hdr.sh_name = nmTable.AddName((char*)".reltls");
+  elf_fileo.AddSection(sec);
+  strsec->hdr.sh_name = nmTable.AddName((char*)".strtab");
+  strsec->hdr.sh_type = clsElf64Shdr::SHT_STRTAB;
+  strsec->hdr.sh_flags = 0;
+  strsec->hdr.sh_addr = 0;
+  strsec->hdr.sh_offset = 512 + elf_fileo.sections[0]->index + elf_fileo.sections[1]->index + elf_fileo.sections[2]->index; // offset in file
+  strsec->hdr.sh_size = nmTable.length;
+  strsec->hdr.sh_link = 0;
+  strsec->hdr.sh_info = 0;
+  strsec->hdr.sh_addralign = 1;
+  strsec->hdr.sh_entsize = 0;
+  memcpy(elf_fileo.sections[5]->bytes, nametext, nmTable.length);
+}
+
+void InitRelsec()
+{
+  int nn;
+
+  for (nn = 7; nn < 12; nn++) {
+    elf_fileo.sections[nn]->hdr.sh_type = clsElf64Shdr::SHT_REL;
+    elf_fileo.sections[nn]->hdr.sh_flags = 0;
+    elf_fileo.sections[nn]->hdr.sh_addr = 0;
+    elf_fileo.sections[nn]->hdr.sh_offset = elf_fileo.sections[nn - 1]->hdr.sh_offset + elf_fileo.sections[nn - 1]->hdr.sh_size; // offset in file
+    elf_fileo.sections[nn]->hdr.sh_size = elf_fileo.sections[nn]->index;
+    elf_fileo.sections[nn]->hdr.sh_link = 6;
+    elf_fileo.sections[nn]->hdr.sh_info = 0;
+    elf_fileo.sections[nn]->hdr.sh_addralign = 1;
+    elf_fileo.sections[nn]->hdr.sh_entsize = 16;
+  }
+}
+
+
+void SetHdr()
+{
+  uint64_t start;
+
+  elf_fileo.hdr.e_ident[0] = 127;
+  elf_fileo.hdr.e_ident[1] = 'E';
+  elf_fileo.hdr.e_ident[2] = 'L';
+  elf_fileo.hdr.e_ident[3] = 'F';
+  elf_fileo.hdr.e_ident[4] = clsElf64Header::ELFCLASS64;   // 64 bit file format
+  elf_fileo.hdr.e_ident[5] = clsElf64Header::ELFDATA2LSB;  // little endian
+  elf_fileo.hdr.e_ident[6] = 1;        // header version always 1
+  elf_fileo.hdr.e_ident[7] = 255;      // OS/ABI indentification, 255 = standalone
+  elf_fileo.hdr.e_ident[8] = 255;      // ABI version
+  elf_fileo.hdr.e_ident[9] = 0;
+  elf_fileo.hdr.e_ident[10] = 0;
+  elf_fileo.hdr.e_ident[11] = 0;
+  elf_fileo.hdr.e_ident[12] = 0;
+  elf_fileo.hdr.e_ident[13] = 0;
+  elf_fileo.hdr.e_ident[14] = 0;
+  elf_fileo.hdr.e_ident[15] = 0;
+  elf_fileo.hdr.e_type = rel_out ? 1 : 2;
+  elf_fileo.hdr.e_machine = 888;         // machine architecture
+  elf_fileo.hdr.e_version = 1;
+  elf_fileo.hdr.e_entry = entry_pt;
+  elf_fileo.hdr.e_phoff = 0;
+  elf_fileo.hdr.e_shoff = elf_fileo.sections[11]->hdr.sh_offset + elf_fileo.sections[11]->index;
+  elf_fileo.hdr.e_flags = 0;
+  elf_fileo.hdr.e_ehsize = Elf64HdrSz;
+  elf_fileo.hdr.e_phentsize = 0;
+  elf_fileo.hdr.e_phnum = 0;
+  elf_fileo.hdr.e_shentsize = Elf64ShdrSz;
+  elf_fileo.hdr.e_shstrndx = 5;           // index into section table of string table header
 }
 
 void SaveOutput(char *ofname)
@@ -687,11 +1149,12 @@ void SaveOutput(char *ofname)
 int main(int argc, char *argv[])
 {
   int nn;
-  FES fes;
+  FS fes;
 
   if (argc < 2) {
     exit(0);
   }
+  baseaddr = 0;
   for (nn = 0; nn < 100; nn++)
     elf_files[nn] = nullptr;
   file_count = 0;
@@ -708,23 +1171,26 @@ int main(int argc, char *argv[])
   }
   if (entry_sym[0] == '\0')
     strcpy(entry_sym, "start");
-  AddTextsec();
   fes = FindEntrySymbol();
+  entry_pt = fes.sym->st_value;
+  elf_fileo.hdr.e_shnum = 0;  // This will be incremented by AddSection()
+  AddTextsec();
+  AddRodatasec();
+  AddDatasec();
+  AddBsssec();
+  AddTlssec();
+  AddStrtabsec();
+  InitRelsec();
+  SetHdr();
   // The file containing the entry symbol is the root file.
   if (fes.fileno >= 0 && fes.symnum >= 0) {
-    CopyToOutput(fes);
+    CopySymsToOutput(fes);
+    //CopyToOutput(fes);
+    // Lookup all symbols in root file and copy to output.
+    // Set offset of string table.
+    elf_fileo.sections[5]->hdr.sh_offset = 512 + elf_fileo.sections[0]->index + elf_fileo.sections[1]->index + elf_fileo.sections[2]->index; // offset in file
+
     SaveOutput((char*)"flink_out.elf");
   }
 //  compress_exi(argv[1], true);
 }
-
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
-
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
