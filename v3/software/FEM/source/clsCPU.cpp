@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include <stdio.h>
 
+#define BIT(a,b)	(((a) >> (b)) & 1LL)
+
 void clsCPU::Reset()
 	{
 		int nn;
@@ -13,7 +15,7 @@ void clsCPU::Reset()
 		isRunning = false;
 		for (nn = 0; nn < 64; nn++)
 			regs[0][nn] = 0;
-		rgs = 8;
+		rgs = 0;
 		sregs[15] = 0xFFFFFFFFFFFC0007LL;
 		pc = 0x0600LL;
 		vbr = 0;
@@ -39,9 +41,9 @@ void clsCPU::Reset()
 		int brdisp;
 		int broffs;
 		__int64 imm4,imm9,imm9bra;
+		uint64_t mask;
 		bool isCompressed;
 		bool isUnsignedOp;
-		int64_t exi_imm;
 		uint64_t rv,rv2;
 		uint64_t csip = ((sregs[15] & 0xFFFFFFF0LL) << 1LL) + pc;
 
@@ -97,30 +99,51 @@ dc:
 		opcode = ir & 0x7F;
 		func = ir >> 29LL;
 		lsfunc = ir >> 32LL;
-		Rt = (ir >> 8) & 0x1f;
-		Ra = (ir >> 14) & 0x1f;
-		Rb = (ir >> 20) & 0x1f;
+		switch (opcode) {
+		case IJAL:
+		case IBAL:
+			Rt = (ir >> 8LL) & 0x3LL;
+			break;
+		default:
+			Rt = (ir >> 8LL) & 0x1fLL;
+		}
+		Ra = (ir >> 14LL) & 0x1fLL;
+		Rb = (ir >> 20LL) & 0x1fLL;
 		if (opcode==IJAL || opcode==IBAL)
-			Rt = (ir >> 8) & 3;
+			Rt = (ir >> 8LL) & 3LL;
 		Bn = (ir >> 16) & 0x3f;
 		sc = (ir >> 21) & 3;
 		mb = (ir >> 16) & 0x3f;
 		me = (ir >> 22) & 0x3f;
 		switch (opcode) {
+		case IBLTU:
+		case IBGEU:
+			isUnsignedOp = true;
+			break;
+		case IR2:
+			switch (func) {
+			case ISLTU:
+			case ISGEU:
+			case IMULF:
+				isUnsignedOp = true;
+				break;
+			}
+		}
+		switch (opcode) {
 		case EXI0:
-			exi_imm <= ((ir >> 8LL) << 11LL);
-			if (ir >> 35)
-				exi_imm <= exi_imm | 0xffffffe000000000LL;
+			exi_imm = ((ir >> 8LL) << 11LL);
+			if (ir >> 35LL)
+				exi_imm = exi_imm | 0xffffffe000000000LL;
 			exi = true;
 			break;
 		case EXI1:
-			exi_imm <= exi_imm & 0x7fffffffffLL;
-			exi_imm <= exi_imm | (((ir >> 8LL) << 39LL));
+			exi_imm = exi_imm & 0x7fffffffffLL;
+			exi_imm = exi_imm | (((ir >> 8LL) << 39LL));
 			exi = true;
 			break;
 		case ILDx:
 		case ILDxZ:
-			imm <= (ir >> 20LL) & 0xfffLL;
+			imm = (ir >> 20LL) & 0xfffLL;
 			if ((ir >> 31LL) & 1LL)
 				imm |= 0xfffffffffffff000LL;
 			if (exi) {
@@ -130,7 +153,7 @@ dc:
 			break;
 		case ISTx:
 			Rt = 0;
-			imm <= ((ir >> 8LL) & 0x3f) | (((ir >> 27LL) & 0x1fLL) << 6LL);
+			imm = ((ir >> 8LL) & 0x3f) | (((ir >> 27LL) & 0x1fLL) << 6LL);
 			if ((ir >> 31LL) & 1LL)
 				imm |= 0xfffffffffffff000LL;
 			if (exi) {
@@ -142,18 +165,18 @@ dc:
 			Rt = 0;
 			break;
 		default:
-			imm <= (ir >> 20LL) & 0xffffLL;
+			imm = (ir >> 20LL) & 0xffffLL;
 			if ((ir >> 35LL) & 1LL)
 				imm |= 0xffffffffffff0000LL;
 			if (exi) {
-				imm &= 0x7ffLL | exi_imm;
+				imm = (imm & 0x7ffLL) | exi_imm;
 				exi = false;
 			}
 			break;
 		}
 		a = opera.ai = regs[Ra][rgs];
 		b = operb.ai = regs[Rb][rgs];
-		if ((ir >> 26LL) & 1LL) {
+		if (BIT(ir,26)) {
 			b = ((ir >> 20LL) & 0x3fLL);
 			if ((ir >> 25LL) && !isUnsignedOp)
 				b |= 0xffffffffffffffc0LL;
@@ -249,19 +272,19 @@ dc:
 				res = (a >> (b & 0x3f)) | (a << ((64 - b) & 0x3f));
 				break;
 			case ISLLI:
-				res = ua << (Bn & 0x3f);
+				res = ua << (b & 0x3f);
 				break;
 			case ISRLI:
-				res = ua >> (Bn & 0x3f);
+				res = ua >> (b & 0x3f);
 				break;
 			case ISRAI:
-				res = a >> (Bn & 0x3f);
+				res = a >> (b & 0x3f);
 				break;
 			case IROLI:
-				res = (ua << (Bn & 0x3f)) | (ua >> ((64 - Bn) & 0x3f));
+				res = (ua << (b & 0x3f)) | (ua >> (64 - (b & 0x3f)));
 				break;
 			case IRORI:
-				res = (ua >> (Bn & 0x3f)) | (ua << ((64 - Bn) & 0x3f));
+				res = (ua >> (b & 0x3f)) | (ua << (64 - (b & 0x3f)));
 				break;
 			}
 			break;
@@ -600,7 +623,7 @@ dc:
 		case IJALR:
 			ad = a + imm;
 			res = pc;
-			pc = ad & -4LL;
+			pc = ad;
 			break;
 		case IBRK:
 			switch((ir >> 30)&3) {
@@ -624,16 +647,31 @@ dc:
 			ad = vbr + (((ir >> 17) & 0x1ff) << 3);
 			pc = system1->Read(ad);
 			break;
-		case IBEQ:	if (a == b) pc <= pc + brdisp - 9; break;
-		case IBNE:	if (a != b) pc <= pc + brdisp - 9; break;
-		case IBLT:	if (a <  b) pc <= pc + brdisp - 9; break;
-		case IBGE:	if (a >= b) pc <= pc + brdisp - 9; break;
-		case IBLTU:	if (ua < ub) pc <= pc + brdisp - 9; break;
-		case IBGEU:	if (ua >= ub) pc <= pc + brdisp - 9; break;
+		case IBEQ:	if (a == b) pc = pc + brdisp - 9; break;
+		case IBNE:	if (a != b) pc = pc + brdisp - 9; break;
+		case IBLT:	if (a <  b) pc = pc + brdisp - 9; break;
+		case IBGE:	if (a >= b) pc = pc + brdisp - 9; break;
+		case IBLTU:	if (ua < ub) pc = pc + brdisp - 9; break;
+		case IBGEU:	if (ua >= ub) pc = pc + brdisp - 9; break;
 			// Branch on bit set or clear
-		case IBBC:	if (((ua >> ub) & 1LL) == 0LL) pc <= pc + brdisp - 9; break;
-		case IBBS:	if (((ua >> ub) & 1LL) == 1LL) pc <= pc + brdisp - 9; break;
+		case IBBC:	if (BIT(ua,ub) == 0LL) pc = pc + brdisp - 9; break;
+		case IBBS:	if (BIT(ua,ub) == 1LL) pc = pc + brdisp - 9; break;
 		case INOP:	Rt = 0; immcnt = 0; break;
+		case IOSR2:
+			switch ((ir >> 29LL) & 0x7fLL) {
+			case IMTBASE:
+				sregs[BIT(ir,26) ? b & 15 : Rb & 15] = a;
+				Rt = 0;
+				break;
+			case IMFBASE:
+				res = sregs[Ra & 15];
+				break;
+			case IBASE:
+				mask = 0xffffffffffffffffLL >> (64LL - 28LL);
+				res = (a & mask) | (b << 28LL);
+				break;
+			}
+			break;
 		default: break;
 		}
 		//---------------------------------------------------------------------------

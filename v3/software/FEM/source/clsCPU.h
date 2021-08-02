@@ -28,6 +28,7 @@ class clsCPU
 	unsigned int regLR;
 	unsigned int imm1;
 	unsigned int imm2;
+	int64_t exi_imm;
 	char hasPrefix;
 	int immcnt;
 	unsigned int opcode;

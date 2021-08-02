@@ -468,7 +468,7 @@ private: System::Windows::Forms::Label^  label41;
 			});
 			this->menuStrip1->Location = System::Drawing::Point(0, 0);
 			this->menuStrip1->Name = L"menuStrip1";
-			this->menuStrip1->Size = System::Drawing::Size(984, 24);
+			this->menuStrip1->Size = System::Drawing::Size(479, 24);
 			this->menuStrip1->TabIndex = 1;
 			this->menuStrip1->Text = L"menuStrip1";
 			// 
@@ -482,7 +482,7 @@ private: System::Windows::Forms::Label^  label41;
 			// loadToolStripMenuItem
 			// 
 			this->loadToolStripMenuItem->Name = L"loadToolStripMenuItem";
-			this->loadToolStripMenuItem->Size = System::Drawing::Size(171, 22);
+			this->loadToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->loadToolStripMenuItem->Text = L"&Load Intel Hex File";
 			this->loadToolStripMenuItem->Click += gcnew System::EventHandler(this, &frmMain::loadToolStripMenuItem_Click);
 			// 
@@ -502,68 +502,68 @@ private: System::Windows::Forms::Label^  label41;
 			// resetToolStripMenuItem
 			// 
 			this->resetToolStripMenuItem->Name = L"resetToolStripMenuItem";
-			this->resetToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->resetToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->resetToolStripMenuItem->Text = L"Reset";
 			this->resetToolStripMenuItem->Click += gcnew System::EventHandler(this, &frmMain::resetToolStripMenuItem_Click);
 			// 
 			// stepIntoToolStripMenuItem
 			// 
 			this->stepIntoToolStripMenuItem->Name = L"stepIntoToolStripMenuItem";
-			this->stepIntoToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->stepIntoToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->stepIntoToolStripMenuItem->Text = L"Step Into";
 			this->stepIntoToolStripMenuItem->Click += gcnew System::EventHandler(this, &frmMain::stepIntoToolStripMenuItem_Click);
 			// 
 			// stepOverToolStripMenuItem
 			// 
 			this->stepOverToolStripMenuItem->Name = L"stepOverToolStripMenuItem";
-			this->stepOverToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->stepOverToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->stepOverToolStripMenuItem->Text = L"Step Over";
 			this->stepOverToolStripMenuItem->Click += gcnew System::EventHandler(this, &frmMain::stepOverToolStripMenuItem_Click);
 			// 
 			// stepOutToolStripMenuItem
 			// 
 			this->stepOutToolStripMenuItem->Name = L"stepOutToolStripMenuItem";
-			this->stepOutToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->stepOutToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->stepOutToolStripMenuItem->Text = L"Step Out";
 			// 
 			// freeRunToolStripMenuItem
 			// 
 			this->freeRunToolStripMenuItem->Name = L"freeRunToolStripMenuItem";
-			this->freeRunToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->freeRunToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->freeRunToolStripMenuItem->Text = L"&Animate";
 			// 
 			// stopToolStripMenuItem
 			// 
 			this->stopToolStripMenuItem->Name = L"stopToolStripMenuItem";
-			this->stopToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->stopToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->stopToolStripMenuItem->Text = L"&Stop";
 			this->stopToolStripMenuItem->Click += gcnew System::EventHandler(this, &frmMain::stopToolStripMenuItem_Click);
 			// 
 			// interruptToolStripMenuItem
 			// 
 			this->interruptToolStripMenuItem->Name = L"interruptToolStripMenuItem";
-			this->interruptToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->interruptToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->interruptToolStripMenuItem->Text = L"&Interrupt";
 			this->interruptToolStripMenuItem->Click += gcnew System::EventHandler(this, &frmMain::interruptToolStripMenuItem_Click);
 			// 
 			// breakpointToolStripMenuItem
 			// 
 			this->breakpointToolStripMenuItem->Name = L"breakpointToolStripMenuItem";
-			this->breakpointToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->breakpointToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->breakpointToolStripMenuItem->Text = L"&Breakpoint";
 			this->breakpointToolStripMenuItem->Click += gcnew System::EventHandler(this, &frmMain::breakpointToolStripMenuItem_Click);
 			// 
 			// freeRunFastToolStripMenuItem
 			// 
 			this->freeRunFastToolStripMenuItem->Name = L"freeRunFastToolStripMenuItem";
-			this->freeRunFastToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->freeRunFastToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->freeRunFastToolStripMenuItem->Text = L"Animate Fast";
 			this->freeRunFastToolStripMenuItem->Click += gcnew System::EventHandler(this, &frmMain::freeRunFastToolStripMenuItem_Click);
 			// 
 			// fullSpeedToolStripMenuItem
 			// 
 			this->fullSpeedToolStripMenuItem->Name = L"fullSpeedToolStripMenuItem";
-			this->fullSpeedToolStripMenuItem->Size = System::Drawing::Size(143, 22);
+			this->fullSpeedToolStripMenuItem->Size = System::Drawing::Size(180, 22);
 			this->fullSpeedToolStripMenuItem->Text = L"Full Speed";
 			this->fullSpeedToolStripMenuItem->Click += gcnew System::EventHandler(this, &frmMain::fullSpeedToolStripMenuItem_Click);
 			// 
@@ -642,7 +642,7 @@ private: System::Windows::Forms::Label^  label41;
 			});
 			this->toolStrip1->Location = System::Drawing::Point(0, 24);
 			this->toolStrip1->Name = L"toolStrip1";
-			this->toolStrip1->Size = System::Drawing::Size(984, 25);
+			this->toolStrip1->Size = System::Drawing::Size(479, 25);
 			this->toolStrip1->TabIndex = 3;
 			this->toolStrip1->Text = L"toolStripExec";
 			this->toolStrip1->ItemClicked += gcnew System::Windows::Forms::ToolStripItemClickedEventHandler(this, &frmMain::toolStrip1_ItemClicked);
@@ -1514,7 +1514,7 @@ private: System::Windows::Forms::Label^  label41;
 			// checkBoxLED0
 			// 
 			this->checkBoxLED0->AutoSize = true;
-			this->checkBoxLED0->Location = System::Drawing::Point(361, 509);
+			this->checkBoxLED0->Location = System::Drawing::Point(348, 101);
 			this->checkBoxLED0->Name = L"checkBoxLED0";
 			this->checkBoxLED0->Size = System::Drawing::Size(15, 14);
 			this->checkBoxLED0->TabIndex = 120;
@@ -1523,7 +1523,7 @@ private: System::Windows::Forms::Label^  label41;
 			// checkBoxLED1
 			// 
 			this->checkBoxLED1->AutoSize = true;
-			this->checkBoxLED1->Location = System::Drawing::Point(340, 509);
+			this->checkBoxLED1->Location = System::Drawing::Point(327, 101);
 			this->checkBoxLED1->Name = L"checkBoxLED1";
 			this->checkBoxLED1->Size = System::Drawing::Size(15, 14);
 			this->checkBoxLED1->TabIndex = 121;
@@ -1532,7 +1532,7 @@ private: System::Windows::Forms::Label^  label41;
 			// checkBoxLED2
 			// 
 			this->checkBoxLED2->AutoSize = true;
-			this->checkBoxLED2->Location = System::Drawing::Point(319, 509);
+			this->checkBoxLED2->Location = System::Drawing::Point(306, 101);
 			this->checkBoxLED2->Name = L"checkBoxLED2";
 			this->checkBoxLED2->Size = System::Drawing::Size(15, 14);
 			this->checkBoxLED2->TabIndex = 122;
@@ -1541,7 +1541,7 @@ private: System::Windows::Forms::Label^  label41;
 			// checkBoxLED3
 			// 
 			this->checkBoxLED3->AutoSize = true;
-			this->checkBoxLED3->Location = System::Drawing::Point(298, 509);
+			this->checkBoxLED3->Location = System::Drawing::Point(285, 101);
 			this->checkBoxLED3->Name = L"checkBoxLED3";
 			this->checkBoxLED3->Size = System::Drawing::Size(15, 14);
 			this->checkBoxLED3->TabIndex = 123;
@@ -1550,7 +1550,7 @@ private: System::Windows::Forms::Label^  label41;
 			// checkBoxLED4
 			// 
 			this->checkBoxLED4->AutoSize = true;
-			this->checkBoxLED4->Location = System::Drawing::Point(277, 509);
+			this->checkBoxLED4->Location = System::Drawing::Point(264, 101);
 			this->checkBoxLED4->Name = L"checkBoxLED4";
 			this->checkBoxLED4->Size = System::Drawing::Size(15, 14);
 			this->checkBoxLED4->TabIndex = 124;
@@ -1559,7 +1559,7 @@ private: System::Windows::Forms::Label^  label41;
 			// checkBoxLED5
 			// 
 			this->checkBoxLED5->AutoSize = true;
-			this->checkBoxLED5->Location = System::Drawing::Point(256, 509);
+			this->checkBoxLED5->Location = System::Drawing::Point(243, 101);
 			this->checkBoxLED5->Name = L"checkBoxLED5";
 			this->checkBoxLED5->Size = System::Drawing::Size(15, 14);
 			this->checkBoxLED5->TabIndex = 125;
@@ -1568,7 +1568,7 @@ private: System::Windows::Forms::Label^  label41;
 			// checkBoxLED6
 			// 
 			this->checkBoxLED6->AutoSize = true;
-			this->checkBoxLED6->Location = System::Drawing::Point(235, 509);
+			this->checkBoxLED6->Location = System::Drawing::Point(222, 101);
 			this->checkBoxLED6->Name = L"checkBoxLED6";
 			this->checkBoxLED6->Size = System::Drawing::Size(15, 14);
 			this->checkBoxLED6->TabIndex = 126;
@@ -1577,7 +1577,7 @@ private: System::Windows::Forms::Label^  label41;
 			// checkBoxLED7
 			// 
 			this->checkBoxLED7->AutoSize = true;
-			this->checkBoxLED7->Location = System::Drawing::Point(214, 509);
+			this->checkBoxLED7->Location = System::Drawing::Point(201, 101);
 			this->checkBoxLED7->Name = L"checkBoxLED7";
 			this->checkBoxLED7->Size = System::Drawing::Size(15, 14);
 			this->checkBoxLED7->TabIndex = 127;
@@ -1586,7 +1586,7 @@ private: System::Windows::Forms::Label^  label41;
 			// label41
 			// 
 			this->label41->AutoSize = true;
-			this->label41->Location = System::Drawing::Point(173, 509);
+			this->label41->Location = System::Drawing::Point(160, 101);
 			this->label41->Name = L"label41";
 			this->label41->Size = System::Drawing::Size(35, 13);
 			this->label41->TabIndex = 128;
@@ -1718,7 +1718,7 @@ private: System::Windows::Forms::Label^  label41;
 			// lblChecksumError
 			// 
 			this->lblChecksumError->AutoSize = true;
-			this->lblChecksumError->Location = System::Drawing::Point(24, 509);
+			this->lblChecksumError->Location = System::Drawing::Point(11, 101);
 			this->lblChecksumError->Name = L"lblChecksumError";
 			this->lblChecksumError->Size = System::Drawing::Size(75, 13);
 			this->lblChecksumError->TabIndex = 142;
@@ -1738,7 +1738,7 @@ private: System::Windows::Forms::Label^  label41;
 			// 
 			this->lblWriteErr->AutoSize = true;
 			this->lblWriteErr->ForeColor = System::Drawing::Color::Red;
-			this->lblWriteErr->Location = System::Drawing::Point(24, 527);
+			this->lblWriteErr->Location = System::Drawing::Point(11, 119);
 			this->lblWriteErr->Name = L"lblWriteErr";
 			this->lblWriteErr->Size = System::Drawing::Size(101, 13);
 			this->lblWriteErr->TabIndex = 143;
@@ -1916,7 +1916,7 @@ private: System::Windows::Forms::Label^  label41;
 			// 
 			this->AutoScaleDimensions = System::Drawing::SizeF(6, 13);
 			this->AutoScaleMode = System::Windows::Forms::AutoScaleMode::Font;
-			this->ClientSize = System::Drawing::Size(984, 549);
+			this->ClientSize = System::Drawing::Size(479, 151);
 			this->Controls->Add(this->trackBar1);
 			this->Controls->Add(this->label48);
 			this->Controls->Add(this->label49);

@@ -163,13 +163,13 @@ void clsSystem::Reset()
 				break;
 			}
 		}
-		else if ((ad & 0xFFFFFF00)==0xFF910000) {
+		else if ((ad & 0xFFFF0000)==0xFF910000) {
 			leds = dat;
 		}
 		else if ((ad & 0xfffc0000)==0xfffc0000) {
 			rom[(ad>>2) & 0xffff] = dat;
 		}
-		else if ((ad & 0xFFFF0000)==0xFFD00000) {
+		else if ((ad & 0xFFF00000)==0xFF800000) {
 			VideoMem[(ad>>2)& 0xFFF] = dat;
 			VideoMemDirty[(ad>>2)&0xfff] = true;
 			refscreen = true;

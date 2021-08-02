@@ -73,7 +73,7 @@ namespace E64 {
 			// 
 			this->AutoScaleDimensions = System::Drawing::SizeF(6, 13);
 			this->AutoScaleMode = System::Windows::Forms::AutoScaleMode::Font;
-			this->ClientSize = System::Drawing::Size(603, 398);
+			this->ClientSize = System::Drawing::Size(668, 398);
 			this->DoubleBuffered = true;
 			this->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedToolWindow;
 			this->MaximizeBox = false;
@@ -116,7 +116,7 @@ namespace E64 {
 					}
 					old_ad = ad2;
 					xx = 8;
-					gr->FillRectangle(bkbr,0,0,600,400);
+					gr->FillRectangle(bkbr,0,0,700,400);
 					for (row = 0; row < 32; row++) {
 						yy = row * 12 + 10;
 						sprintf(buf,"%06X.%.1X", ad2 >> 1, (ad2 & 1) << 3);
@@ -158,11 +158,26 @@ namespace E64 {
 						str = std::string(buf);
 						gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,430,yy);
 					}
-					yy = 17 * 12 + 10;
+					for (regno = 0; regno < 16; regno++)
+					{
+						yy = regno * 12 + 10;
+						switch (regno) {
+						case  0:	strcpy(buf, " ds"); break;
+						case 10:	strcpy(buf, " ss"); break;
+						case 11:	strcpy(buf, "ios"); break;
+						case 12:	strcpy(buf, "ros"); break;
+						case 15:	strcpy(buf, " cs"); break;
+						default:	strcpy(buf, "   ");
+						}
+						sprintf(&buf[3], " b%d %08X", regno, cpu1.sregs[regno]);
+						str = std::string(buf);
+						gr->DrawString(gcnew String(str.c_str()), myfont, fgbr, 540, yy);
+					}
+					yy = 18 * 12 + 10;
 					sprintf(buf, "cs %08I64X", cpu1.sregs[15]);
 					str = std::string(buf);
 					gr->DrawString(gcnew String(str.c_str()), myfont, fgbr, 320, yy);
-					yy = 18 * 12 + 10;
+					yy = 19 * 12 + 10;
 					sprintf(buf, "ip %08I64X.%1X", cpu1.pc >> 1, (unsigned int)(cpu1.pc & 1) << 3);
 					str = std::string(buf);
 					gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,320,yy);

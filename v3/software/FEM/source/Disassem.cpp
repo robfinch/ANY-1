@@ -59,9 +59,9 @@ std::string Rt()
 	char buf[40];
 	std::string str;
 	if ((insn & 0x7fLL)==IJAL || (insn & 0x7fLL)==IBAL)
-		str = "R" + std::string(_itoa((insn >> 8LL) & 0x3LL, buf, 10));
+		str = "x" + std::string(_itoa((insn >> 8LL) & 0x3LL, buf, 10));
 	else
-		str = "R" + std::string(_itoa((insn >> 8LL) & 0x1fLL,buf,10));
+		str = "x" + std::string(_itoa((insn >> 8LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -69,7 +69,7 @@ std::string Rt4()
 {
 	char buf[40];
 	std::string str;
-	str = "R" + std::string(_itoa(((insn >> 12) & 0xf)|((insn & 1) << 4),buf,10));
+	str = "x" + std::string(_itoa(((insn >> 12) & 0xf)|((insn & 1) << 4),buf,10));
 	return str;
 }
 
@@ -183,7 +183,7 @@ static std::string DisassemMemConstant(bool store)
 
 	sir = insn;
 	if (store) {
-		imm <= ((sir >> 8LL) & 0x3f) | (((sir >> 27LL) & 0x1fLL) << 6LL);
+		imm = ((sir >> 8LL) & 0x3f) | (((sir >> 27LL) & 0x1fLL) << 6LL);
 		if ((sir >> 31LL) & 1LL)
 			imm |= 0xfffffffffffff000LL;
 		//if (exi) {
@@ -192,7 +192,7 @@ static std::string DisassemMemConstant(bool store)
 		//}
 	}
 	else {
-		imm <= (sir >> 20LL) & 0xfffLL;
+		imm = (sir >> 20LL) & 0xfffLL;
 		if ((sir >> 31LL) & 1LL)
 			imm |= 0xfffffffffffff000LL;
 		//if (exi) {
@@ -285,9 +285,9 @@ static std::string DisassemMemAddress()
 	std::string str;
 
   sir = insn;
-	str = DisassemMemConstant((insn & 0x78LL)==0x68);
-  if (((insn >> 6) & 0x1F) != 0)
-    sprintf(buf,"[R%d]",((insn >> 6) & 0x1F));
+	str = DisassemMemConstant((insn & 0x78LL)==0x68LL);
+  if (((insn >> 14LL) & 0x1FLL) != 0)
+    sprintf(buf,"[x%d]",((insn >> 14LL) & 0x1FLL));
   else
     sprintf(buf,"");
   return str+std::string(buf);
@@ -404,7 +404,7 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 	opcode = insn & 0x7fLL;
 	func = (insn >> 29LL) & 0x7fLL;
 	*ad1 = dad + 4;
-	switch(opcode)
+	switch (opcode)
 	{
 	case IR2:
 		switch ((insn >> 29LL) & 0x7fLL)
@@ -519,14 +519,22 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		break;
 	case EXI0:
 		sprintf(buf, "#$%I64X", (insn >> 8LL));
-		str = "EXI0  " + std::string(buf); return (str);
+		str = "EXI0   " + std::string(buf); return (str);
 		break;
+	case EXI1:
+		sprintf(buf, "#$%I64X", (insn >> 8LL));
+		str = "EXI1   " + std::string(buf); return (str);
+		break;
+	case IREGLST:
+		sprintf(buf, "REGLST #$%I64X", (insn & 3LL) | ((insn >> 8LL) << 2LL));
+		return (std::string(buf));
 	case ILDx:
 		switch ((insn >> 32LL) & 15LL) {
 		case 0:	str = "LDB    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 1:	str = "LDW    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 2:	str = "LDT    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 3:	str = "LDO    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 13:	str = "LDM    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		}
 		break;
 	case ILDxZ:
@@ -553,12 +561,29 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		case 3:	str = "LDOUX  " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
 		}
 		break;
+	case IPOP:
+		switch ((insn >> 32LL) & 15LL) {
+		case 1:	str = "POP    " + Ra(); immcnt = 0; return (str);
+		case 2:	str = "POP    " + Ra() + "," + Rb(); immcnt = 0; return (str);
+		case 4:
+			sprintf(buf, "#%d", (int)((insn >> 20LL) & 0xfffLL));
+			str = "UNLINK " + std::string(buf);
+			immcnt = 0;
+			return (str);
+		case 5:
+			sprintf(buf, "#%d", (int)((insn >> 20LL) & 0xfffLL));
+			str = "LEAVE  " + std::string(buf);
+			immcnt = 0;
+			return (str);
+		}
+		break;
 	case ISTx:
 		switch ((insn >> 32LL) & 15LL) {
 		case 0:	str = "STB    " + Rb() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 1:	str = "STW    " + Rb() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 2:	str = "STT    " + Rb() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 3:	str = "STO    " + Rb() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 13:	str = "STM    " + Rb() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		}
 		break;
 	case ISTxX:
@@ -567,6 +592,12 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		case 1:	str = "STWX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
 		case 2:	str = "STTX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
 		case 3:	str = "STOX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		}
+		break;
+	case IPUSH:
+		switch ((insn >> 32LL) & 15LL) {
+		case 1:	str = "PUSH   " + Ra(); immcnt = 0; return (str);
+		case 2:	str = "PUSH   " + Ra() + "," + Rb(); immcnt = 0; return (str);
 		}
 		break;
 	case IBTFLD:
@@ -716,6 +747,13 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		str = DisassemJal(true);
 		immcnt = 0;
 		return str;
+	case IJALR:
+		if ((((insn >> 8LL) & 0x1fLL) == 0LL) && ((insn >> 14LL) & 0x1fLL) == 1LL && ((insn >> 20LL) && 0xffffLL)==0LL)
+			str = "RET    ";
+		else {
+			str = "JALR   " + Rt() + "," + Ra() + ",#" + DisassemConstant();
+		}
+		return (str);
 	case IBRK:
 		str = DisassemBrk();
 		immcnt = 0;
