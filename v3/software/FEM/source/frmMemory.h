@@ -123,7 +123,7 @@ namespace E64 {
 						 sprintf(buf, "\r\n%06X ", nn);
 						 str2 += buf;
 					 }
-					 sprintf(buf, "%02X ", (system1.memory[nn>>2] >> ((nn & 3)<<3)) & 0xFF);
+					 sprintf(buf, "%02X ", (system1.Read(nn) >> ((nn & 3)<<3)) & 0xFF);
 					 str2 += buf;
 				 }
 				 this->textBoxMem->Text = gcnew String(str2.c_str());

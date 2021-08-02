@@ -14,7 +14,7 @@ class clsSystem
 public:
 	unsigned int memory[33554432];
 	unsigned int scratchpad[8192];
-	unsigned int rom[32768];
+	unsigned int rom[65536];
 	unsigned long VideoMem[4096];
 	bool VideoMemDirty[4096];
 	unsigned int leds;
@@ -32,6 +32,6 @@ public:
 	int WriteWyde(unsigned int ad, unsigned int dat, int cr = 0);
 	int WriteTetra(unsigned int ad, unsigned int dat, int cr = 0);
 	int WriteOcta(unsigned int ad, uint64_t dat, int cr = 0);
-	uint64_t IFetch(unsigned int ad);
+	uint64_t IFetch(uint64_t ad);
  	int random();
 };

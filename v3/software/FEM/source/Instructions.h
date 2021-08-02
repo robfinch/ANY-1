@@ -6,7 +6,11 @@
 #define IR1			0x01
 #define IMEMDB			0x10
 #define IMEMSB			0x11
-#define ISYNC			0x12
+#define IOSR2		0x07
+#define ISYNC		0x1F
+#define IBASE		0x26
+#define IMFBASE	0x28
+#define IMTBASE	0x29
 #define IBTFLD	0x22
 #define IBFSET			0x0
 #define IBFCLR			0x1
@@ -58,6 +62,9 @@
 #define IDIVSU	0x12
 #define IMULU		0x1E
 #define ICMP    0x20
+#define IREM		0x23
+#define IREMU		0x24
+#define IREMSU	0x25
 #define IMULSU	0x26
 #define IMIN		0x38
 #define IMAX		0x39
@@ -120,6 +127,8 @@
 #define ILDxX		0x61
 #define ILDxZ		0x64
 #define ILDxXZ	0x65
-#define ISTx		0x70
-#define ISTxX		0x71
+#define IPOP		0x67
+#define ISTx		0x68
+#define ISTxX		0x69
+#define IPUSH		0x6F
 

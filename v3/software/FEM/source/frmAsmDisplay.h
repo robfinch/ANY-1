@@ -78,7 +78,7 @@ namespace E64 {
 			this->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedToolWindow;
 			this->MaximizeBox = false;
 			this->Name = L"frmAsmDisplay";
-			this->Text = L"EM64 Asm Display";
+			this->Text = L"FEM Asm Display";
 			this->Paint += gcnew System::Windows::Forms::PaintEventHandler(this, &frmAsmDisplay::frmAsmDisplay_Paint);
 			this->ResumeLayout(false);
 
@@ -88,14 +88,14 @@ namespace E64 {
 				Graphics^ gr = e->Graphics;
 				LARGE_INTEGER perf_count;
 				static LARGE_INTEGER operf_count = { 0 };
-				static unsigned int old_ad = -1;
+				static uint64_t old_ad = 0xffffffffffffffffLL;
 				char buf[200];
 				char *buf2;
 				std::string str;
 				unsigned int row;
 				int xx, yy;
-				unsigned int ad1, ad2;
-				unsigned int datx, daty, dat;
+				uint64_t ad1, ad2, csip;
+				uint64_t dat;
 				static unsigned int ticks;
 				int regno;
 
@@ -106,7 +106,8 @@ namespace E64 {
 				operf_count = perf_count;
 
 				//ad2 = ad;
-				ad2 = cpu1.pc - 32;
+				csip = ((cpu1.sregs[15] & 0xFFFFFFF0LL) << 1LL) + cpu1.pc;
+				ad2 = csip - 72LL;
 				//if (ad2 != old_ad)
 				{
 					if (animate) {
@@ -118,53 +119,53 @@ namespace E64 {
 					gr->FillRectangle(bkbr,0,0,600,400);
 					for (row = 0; row < 32; row++) {
 						yy = row * 12 + 10;
-						sprintf(buf,"%06X", ad2);
+						sprintf(buf,"%06X.%.1X", ad2 >> 1, (ad2 & 1) << 3);
 						str = std::string(buf);
-						datx = system1.Read(ad2);
-						datx = (datx >> ((ad2 & 3)<<3)) & 0xFFFF;
-						daty = system1.Read(ad2+2);
-						daty = (daty >> (((ad2+2) & 3)<<3)) & 0xFFFF;
-						dat = (daty << 16) | datx;
+						dat = system1.IFetch(ad2);
 			//			dat = system1.memory[ad>>2];
-						if (ad2==cpu1.pc) {
+						if (ad2==csip) {
 							gr->FillRectangle(fgbr,0,yy,300,12);
 							gr->DrawString(gcnew String(str.c_str()),myfont,bkbr,xx,yy);
-							sprintf(buf,"%08X", dat);
+							sprintf(buf,"%09I64X", dat);
 							str = std::string(buf);
-							gr->DrawString(gcnew String(str.c_str()),myfont,bkbr,xx + 64,yy);
-							str = Disassem(ad2,dat,&ad1);
-							gr->DrawString(gcnew String(str.c_str()),myfont,bkbr,xx + 128,yy);
+							gr->DrawString(gcnew String(str.c_str()),myfont,bkbr,xx + 80,yy);
+							str = Disassem((unsigned int)	ad2,dat,(unsigned int *)&ad1);
+							gr->DrawString(gcnew String(str.c_str()),myfont,bkbr,xx + 144,yy);
 						}
 						else {
 							gr->FillRectangle(bkbr,0,yy,300,12);
 							gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,xx,yy);
-							sprintf(buf,"%08X", dat);
+							sprintf(buf,"%09I64X", dat);
 							str = std::string(buf);
-							gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,xx + 64,yy);
-							str = Disassem(ad2,dat,&ad1);
-							gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,xx + 128,yy);
+							gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,xx + 80,yy);
+							str = Disassem((unsigned int)ad2,dat,(unsigned int *)&ad1);
+							gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,xx + 144,yy);
 						}
-						ad2 = ad2 + 4;
+						ad2 = ad2 + 9LL;
 					}
 
 					for (regno = 0; regno < 16; regno++)
 					{
 						yy = regno * 12 + 10;
-						sprintf(buf, "r%d %08X", regno, cpu1.regs[regno][cpu1.rgs]);
+						sprintf(buf, "x%d %08X", regno, cpu1.regs[regno][cpu1.rgs]);
 						str = std::string(buf);
-						gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,310,yy);
+						gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,320,yy);
 					}
 					for (regno = 16; regno < 32; regno++)
 					{
 						yy = (regno - 16) * 12 + 10;
-						sprintf(buf, "r%d %08X", regno, cpu1.regs[regno][cpu1.rgs]);
+						sprintf(buf, "x%d %08X", regno, cpu1.regs[regno][cpu1.rgs]);
 						str = std::string(buf);
-						gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,420,yy);
+						gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,430,yy);
 					}
 					yy = 17 * 12 + 10;
-					sprintf(buf, "pc %08X", cpu1.pc);
+					sprintf(buf, "cs %08I64X", cpu1.sregs[15]);
 					str = std::string(buf);
-					gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,310,yy);
+					gr->DrawString(gcnew String(str.c_str()), myfont, fgbr, 320, yy);
+					yy = 18 * 12 + 10;
+					sprintf(buf, "ip %08I64X.%1X", cpu1.pc >> 1, (unsigned int)(cpu1.pc & 1) << 3);
+					str = std::string(buf);
+					gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,320,yy);
 
 					this->Invalidate();
 				}

@@ -14,7 +14,8 @@ void clsCPU::Reset()
 		for (nn = 0; nn < 64; nn++)
 			regs[0][nn] = 0;
 		rgs = 8;
-		pc = 0xFFFC0300;
+		sregs[15] = 0xFFFFFFFFFFFC0007LL;
+		pc = 0x0600LL;
 		vbr = 0;
 		tick = 0;
 		rvecno = 0;
@@ -42,6 +43,7 @@ void clsCPU::Reset()
 		bool isUnsignedOp;
 		int64_t exi_imm;
 		uint64_t rv,rv2;
+		uint64_t csip = ((sregs[15] & 0xFFFFFFF0LL) << 1LL) + pc;
 
 		if (imcd > 0) {
 			imcd--;
@@ -60,7 +62,7 @@ void clsCPU::Reset()
 			sir = ir = 0x38 + (0x1E << 7) + (vecno << 17) + 0x80000000L;
 		else {
 			// Read the pc in three characters as the address may be character aligned.
-			ir = system1->IFetch(pc);
+			ir = system1->IFetch(csip);
 		}
 		ir21 = (ir >> 21) & 0x1F;
 		if (ir21 & 0x10)
@@ -68,7 +70,7 @@ void clsCPU::Reset()
 		if (pc != pcs[0]) {
 			for (nn = 39; nn >= 0; nn--)
 				pcs[nn] = pcs[nn-1];
-			pcs[0] = pc;
+			pcs[0] = csip;
 		}
 		imm4 = (ir >> 12) & 15;
 		imm9 = ((ir >> 7) & 0x1ff) << 3;	// For RTS2
@@ -629,52 +631,8 @@ dc:
 		case IBLTU:	if (ua < ub) pc <= pc + brdisp - 9; break;
 		case IBGEU:	if (ua >= ub) pc <= pc + brdisp - 9; break;
 			// Branch on bit set or clear
-		case IBBc0:
-		case IBBc1:
-			Rt = 0;
-			brdisp = (((sir >> 22) << 3) | ((ir & 1) << 2));
-			if (((ir >> 17) & 7)==1) {
-				if ((a & (1LL << ((ir >> 16) & 0x3f)))==0)
-					pc = pc + brdisp;
-			}
-			else {
-				if ((a & (1LL << ((ir >> 16) & 0x3f)))!=0)
-					pc = pc + brdisp;
-			}
-			break;
-		case IBcc0:
-		case IBcc1:
-			Rt = 0;
-			brdisp = (((sir >> 22) << 3) | ((ir & 1) << 2));
-			switch((ir >> 16) & 7) {
-			case IBEQ:
-				if (a==b)
-					pc = pc + brdisp;
-				break;
-			case IBNE:
-				if (a!=b)
-					pc = pc + brdisp;
-				break;
-			case IBLT:
-				if (a < b)
-					pc = pc + brdisp;
-				break;
-			case IBGE:
-				if (a >= b)
-					pc = pc + brdisp;
-				break;
-			case IBLTU:
-				if (ua < ub)
-					pc = pc + brdisp;
-				break;
-			case IBGEU:
-				if (ua <= ub)
-					pc = pc + brdisp;
-				break;
-			default:
-				break;
-			}
-			break;
+		case IBBC:	if (((ua >> ub) & 1LL) == 0LL) pc <= pc + brdisp - 9; break;
+		case IBBS:	if (((ua >> ub) & 1LL) == 1LL) pc <= pc + brdisp - 9; break;
 		case INOP:	Rt = 0; immcnt = 0; break;
 		default: break;
 		}
@@ -755,7 +713,7 @@ __int64 clsCPU::DecompressInstruction(__int64 ir)
 			tir |= (((ir >> 11LL) & 1LL) << 31LL);
 			break;
 		case 5:		// LW Rt,d[SP]
-			tir |= ILx;
+//			tir |= ILx;
 			tir |= 0x80LL;
 			tir |= (0x31LL << 8LL);
 			tir |= (ir & 0x1fLL) << 13LL;
@@ -770,7 +728,7 @@ __int64 clsCPU::DecompressInstruction(__int64 ir)
 			tir |= (((ir >> 11LL) & 1LL) << 31LL);
 			break;
 		case 6:		// LH Rt,d[FP]
-			tir |= ILx;
+//			tir |= ILx;
 			tir |= 0x80LL;
 			tir |= (0x30LL << 8LL);
 			tir |= (ir & 0x1fLL) << 13LL;
@@ -786,7 +744,7 @@ __int64 clsCPU::DecompressInstruction(__int64 ir)
 			tir |= (((ir >> 11LL) & 1LL) << 31LL);
 			break;
 		case 7:		// LW Rt,d[FP]
-			tir |= ILx;
+//			tir |= ILx;
 			tir |= 0x80LL;
 			tir |= (0x30LL << 8LL);
 			tir |= (ir & 0x1fLL) << 13LL;
@@ -834,7 +792,7 @@ __int64 clsCPU::DecompressInstruction(__int64 ir)
 			tir |= (((ir >> 11LL) & 1LL) << 31LL);
 			break;
 		case 10:		// SH Rb,d[FP]
-			tir |= ISx;
+//			tir |= ISx;
 			tir |= 0x80LL;
 			tir |= (30LL << 8LL);
 			tir |= (2LL << 13LL);
@@ -851,7 +809,7 @@ __int64 clsCPU::DecompressInstruction(__int64 ir)
 			tir |= (((ir >> 11LL) & 1LL) << 31LL);
 			break;
 		case 11:		// SW Rb,d[FP]
-			tir |= ISx;
+//			tir |= ISx;
 			tir |= 0x80LL;
 			tir |= (30LL << 8LL);
 			tir |= (4LL << 13LL);
@@ -867,7 +825,7 @@ __int64 clsCPU::DecompressInstruction(__int64 ir)
 			tir |= (((ir >> 11LL) & 1LL) << 31LL);
 			break;
 		case 12:	// LH Rt,d[Ra]
-			tir |= ILx;
+//			tir |= ILx;
 			tir |= 0x80LL;
 			tir |= (fnRp(ir & 7LL) << 8LL);
 			tir |= (fnRp((((ir >> 8LL) & 0xfLL) << 1LL) | (ir >> 5LL) & 1LL) << 13LL);
@@ -884,7 +842,7 @@ __int64 clsCPU::DecompressInstruction(__int64 ir)
 			tir |= (((ir >> 11LL) & 1LL) << 31LL);
 			break;
 		case 13:	// LW Rt,d[Ra]
-			tir |= ILx;
+//			tir |= ILx;
 			tir |= 0x80LL;
 			tir |= (fnRp(ir & 7LL) << 8LL);
 			tir |= (fnRp((((ir >> 8LL) & 0xfLL) << 1LL) | (ir >> 5LL) & 1LL) << 13LL);
@@ -900,7 +858,7 @@ __int64 clsCPU::DecompressInstruction(__int64 ir)
 			tir |= (((ir >> 11LL) & 1LL) << 31LL);
 			break;
 		case 14:	// SH Rb,d[Ra]
-			tir |= ISx;
+//			tir |= ISx;
 			tir |= 0x80LL;
 			tir |= (fnRp(ir & 7LL) << 8LL);
 			tir |= (2LL << 13LL);
@@ -918,7 +876,7 @@ __int64 clsCPU::DecompressInstruction(__int64 ir)
 			tir |= (((ir >> 11LL) & 1LL) << 31LL);
 			break;
 		case 15:	// SW Rb,d[Ra]
-			tir |= ISx;
+//			tir |= ISx;
 			tir |= 0x80LL;
 			tir |= (fnRp(ir & 7LL) << 8LL);
 			tir |= (4LL << 13LL);

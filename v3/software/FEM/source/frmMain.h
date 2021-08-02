@@ -2434,16 +2434,16 @@ private: void RunCPU() {
 			cpu1.Step();
 			pic1.Step();
 			if (stepout) {
-				if ((cpu1.ir & 0x7f)==ICALL)
-					depth++;
-				if (((cpu1.ir & 0x3f)==IRET)) {
+				if (((cpu1.ir & 0x7f) == IJAL) && ((((cpu1.ir >> 14LL) & 0x1fLL) >= 1LL) && (((cpu1.ir >> 14LL) & 0x1fLL) <= 3LL))) {
 					depth--;
-					if (depth==-1) {
+					if (depth == -1) {
 						isRunning = false;
 						stepout = false;
 						return;
 					}
 				}
+				if ((cpu1.ir & 0x7fLL)==IBAL || (cpu1.ir & 0x7fLL)==IJAL)
+					depth++;
 			}
 				 /*
 				if (cpu1.pc == stepoverBkpt) {

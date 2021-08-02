@@ -4,16 +4,17 @@
 #include "Disassem.h"
 
 
-unsigned int insn;
-unsigned int imm1,imm2;
+uint64_t insn;
+uint64_t imm1,imm2;
 int immcnt;
 int opcode;
+int func;
 
 std::string Ra()
 {
 	char buf[40];
 	std::string str;
-	str = "R" + std::string(_itoa((insn >> 6) & 0x1f,buf,10));
+	str = "x" + std::string(_itoa((insn >> 14LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -21,7 +22,27 @@ std::string Rb()
 {
 	char buf[40];
 	std::string str;
-	str = "R" + std::string(_itoa((insn >> 11) & 0x1f,buf,10));
+	int Rb;
+
+	Rb = (insn >> 20LL) & 0x7fLL;
+	if (Rb & 0x40)
+		str = "#" + std::string(_itoa(Rb & 0x3f, buf, 16));
+	else
+		str = "x" + std::string(_itoa(Rb & 0x1f,buf,10));
+	return str;
+}
+
+std::string Bb()
+{
+	char buf[40];
+	std::string str;
+	int Rb;
+
+	Rb = (insn >> 20LL) & 0x7fLL;
+	if (Rb & 0x40)
+		str = "#" + std::string(_itoa(Rb & 0x3f, buf, 16));
+	else
+		str = "b" + std::string(_itoa(Rb & 0x1f, buf, 10));
 	return str;
 }
 
@@ -29,7 +50,7 @@ std::string Rc()
 {
 	char buf[40];
 	std::string str;
-	str = "R" + std::string(_itoa((insn >> 16) & 0x1f,buf,10));
+	str = "x" + std::string(_itoa((insn >> 16) & 0x1f,buf,10));
 	return str;
 }
 
@@ -37,14 +58,10 @@ std::string Rt()
 {
 	char buf[40];
 	std::string str;
-	if ((insn & 0x3f)==IRR) {
-		if ((insn >> 26)==IMOV)
-			str = "R" + std::string(_itoa((insn >> 11) & 0x1f,buf,10));
-		else
-			str = "R" + std::string(_itoa((insn >> 16) & 0x1f,buf,10));
-	}
+	if ((insn & 0x7fLL)==IJAL || (insn & 0x7fLL)==IBAL)
+		str = "R" + std::string(_itoa((insn >> 8LL) & 0x3LL, buf, 10));
 	else
-		str = "R" + std::string(_itoa((insn >> 11) & 0x1f,buf,10));
+		str = "R" + std::string(_itoa((insn >> 8LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -60,7 +77,7 @@ std::string FPa()
 {
 	char buf[40];
 	std::string str;
-	str = "FP" + std::string(_itoa((insn >> 6) & 0x1f,buf,10));
+	str = "FP" + std::string(_itoa((insn >> 14LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -68,7 +85,7 @@ std::string FPb()
 {
 	char buf[40];
 	std::string str;
-	str = "FP" + std::string(_itoa((insn >> 11) & 0x1f,buf,10));
+	str = "FP" + std::string(_itoa((insn >> 20LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -76,7 +93,7 @@ std::string FPt()
 {
 	char buf[40];
 	std::string str;
-	str = "FP" + std::string(_itoa((insn >> 16) & 0x1f,buf,10));
+	str = "FP" + std::string(_itoa((insn >> 8LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -136,46 +153,79 @@ std::string Spr()
 
 static std::string CallConstant()
 {
-    static char buf[50];
-    int sir;
+  static char buf[50];
+  int sir;
 
-    sir = insn;
-    sprintf(buf,"$%X", (sir >> 6) << 2);
-    return std::string(buf);
+  sir = insn;
+  sprintf(buf,"$%X", (sir >> 10LL));
+  return std::string(buf);
 }
 
 static std::string DisassemConstant()
 {
-    static char buf[50];
-    int sir;
+  static char buf[50];
+  int sir;
 
-    sir = insn;
-    if (immcnt == 1) {
-        sprintf(buf,"$%X", (imm1 << 16)|(insn>>16));
-    }
-    else
-        sprintf(buf,"$%X", (sir >> 16));
-    return std::string(buf);
+  sir = insn;
+  if (immcnt == 1) {
+    sprintf(buf,"$%X", (imm1 << 16)|(insn>>16));
+  }
+  else
+    sprintf(buf,"$%X", (sir >> 20LL));
+  return std::string(buf);
 }
 
+static std::string DisassemMemConstant(bool store)
+{
+	static char buf[50];
+	int sir;
+	int64_t imm;
+
+	sir = insn;
+	if (store) {
+		imm <= ((sir >> 8LL) & 0x3f) | (((sir >> 27LL) & 0x1fLL) << 6LL);
+		if ((sir >> 31LL) & 1LL)
+			imm |= 0xfffffffffffff000LL;
+		//if (exi) {
+		//	imm &= 0x7ffLL | exi_imm;
+		//	exi = false;
+		//}
+	}
+	else {
+		imm <= (sir >> 20LL) & 0xfffLL;
+		if ((sir >> 31LL) & 1LL)
+			imm |= 0xfffffffffffff000LL;
+		//if (exi) {
+		//	imm &= 0x7ffLL | exi_imm;
+		//	exi = false;
+		//}
+	}
+
+	//if (immcnt == 1) {
+	//	sprintf(buf, "$%X", (imm1 << 16) | (insn >> 16));
+	//}
+	//else
+		sprintf(buf, "$%08I64X", imm);
+	return std::string(buf);
+}
 
 static std::string DisassemConstant9()
 {
-    static char buf[50];
-    int sir;
+  static char buf[50];
+  int sir;
 
-    sir = insn;
-    sprintf(buf,"$%X", ((sir >> 7) & 0x1ff)<< 3);
-    return std::string(buf);
+  sir = insn;
+  sprintf(buf,"$%X", ((sir >> 7) & 0x1ff)<< 3);
+  return std::string(buf);
 }
 
 
 static std::string DisassemConstant4()
 {
-    static char buf[50];
-    int sir;
+  static char buf[50];
+  int sir;
 
-    sir = insn;
+  sir = insn;
 	sir >>= 12;
 	sir &= 0xF;
 	if (sir&8)
@@ -187,58 +237,60 @@ static std::string DisassemConstant4()
 
 static std::string DisassemConstant4x8()
 {
-    static char buf[50];
-    int sir;
+  static char buf[50];
+  int sir;
 
-    sir = insn;
+  sir = insn;
 	sir >>= 12;
 	if (sir&0x8)
 		sir |= 0xFFFFFFF0;
 	sir <<= 3;
-    sprintf(buf,"$%X", sir);
-    return std::string(buf);
+  sprintf(buf,"$%X", sir);
+  return std::string(buf);
 }
 
 
 static std::string DisassemConstant4u()
 {
-    static char buf[50];
-    int sir;
+  static char buf[50];
+  int sir;
 
-    sir = insn;
+  sir = insn;
 	sir >>= 12;
 	sir &= 0xF;
-    sprintf(buf,"$%X", sir);
-    return std::string(buf);
+  sprintf(buf,"$%X", sir);
+  return std::string(buf);
 }
 
 
 static std::string DisassemBccDisplacement(unsigned int bad)
 {
-    static char buf[50];
-    int sir;
+  static char buf[50];
+  int sir;
 	int brdisp;
 
-    sir = insn;
-	brdisp = (((sir >> 22) << 3) | ((sir & 1) << 2));
-    sprintf(buf,"$%X", brdisp + bad + 4);
-    return (std::string(buf));
+  sir = insn;
+	brdisp = ((sir >> 8LL) & 0x3fLL) | (((sir >> 19LL) & 1LL) << 6LL) | ((sir >> 27LL) << 7LL);
+	if (sir >> 35LL)
+		brdisp = brdisp | 0xffffffffffff0000LL;
+  sprintf(buf,"$%X", brdisp + bad);
+  return (std::string(buf));
 }
 
 
 static std::string DisassemMemAddress()
 {
-    static char buf[50];
-    int sir;
+  static char buf[50];
+  int sir;
 	std::string str;
 
-    sir = insn;
-	str = DisassemConstant();
-    if (((insn >> 6) & 0x1F) != 0)
-        sprintf(buf,"[R%d]",((insn >> 6) & 0x1F));
-    else
-        sprintf(buf,"");
-    return str+std::string(buf);
+  sir = insn;
+	str = DisassemMemConstant((insn & 0x78LL)==0x68);
+  if (((insn >> 6) & 0x1F) != 0)
+    sprintf(buf,"[R%d]",((insn >> 6) & 0x1F));
+  else
+    sprintf(buf,"");
+  return str+std::string(buf);
 }
 
 static std::string DisassemMbMe()
@@ -251,22 +303,22 @@ static std::string DisassemMbMe()
 
 static std::string DisassemIndexedAddress()
 {
-    static char buf[50];
-    int sir;
+  static char buf[50];
+  int sir;
 	std::string str;
-	int Ra = (insn >> 6) & 0x1f;
-	int Rb = (insn >> 11) & 0x1f;
-	int sc = (insn >> 21) & 3;
+	int Ra = (insn >> 14LL) & 0x1fLL;
+	int Rb = (insn >> 20LL) & 0x1fLL;
+	int sc = (insn >> 27LL) & 7LL;
 	int offs = 0;
 
 	sc = 1 << sc;
 
-    sir = insn;
-	if (offs != 0) {
-		sprintf(buf,"$%X",offs);
-		str = std::string(buf);
-	}
-	else
+  sir = insn;
+	//if (offs != 0) {
+	//	sprintf(buf,"$%X",offs);
+	//	str = std::string(buf);
+	//}
+	//else
 		str = std::string("");
 	if (Rb && Ra)
 		sprintf(buf,"[R%d+R%d", Ra, Rb);
@@ -290,34 +342,40 @@ static std::string DisassemIndexedAddress()
 static std::string DisassemJali()
 {
 	char buf[50];
-	int Ra = (insn >> 7) & 0x1f;
-	int Rb = (insn >> 17) & 0x1f;
-	int Rt = (insn >> 12) & 0x1f;
+	int Ra = (insn >> 14LL) & 0x1fLL;
+	int Rb = (insn >> 20LL) & 0x1fLL;
+	int Rt = (insn >> 8LL) & 0x1fLL;
 
 	if (Rt==0) {
-		sprintf(buf, "JMP   (%s)", DisassemMemAddress().c_str());
+		sprintf(buf, "JMP    (%s)", DisassemMemAddress().c_str());
 	}
 	else if (Rt==31) {
-		sprintf(buf, "JSR   (%s)", DisassemMemAddress().c_str());
+		sprintf(buf, "JSR    (%s)", DisassemMemAddress().c_str());
 	}
 	else {
-		sprintf(buf, "JAL   R%d,(%s)",Rt, DisassemMemAddress().c_str());
+		sprintf(buf, "JAL    R%d,(%s)",Rt, DisassemMemAddress().c_str());
 	}
 	return std::string(buf);
 }
 
-static std::string DisassemJal()
+static std::string DisassemJal(bool bal)
 {
 	char buf[50];
-	int Ra = (insn >> 6) & 0x1f;
-	int Rb = (insn >> 11) & 0x1f;
-	int Rt = (insn >> 11) & 0x1f;
+	int Ra = (insn >> 14LL) & 0x1fLL;
+	int Rb = (insn >> 20LL) & 0x1fLL;
+	int Rt = (insn >> 8LL) & 0x3LL;
 
+	if (bal)
+		sprintf(buf, "BAL");
+	else if (Rt == 0)
+		sprintf(buf, "JMP");
+	else
+		sprintf(buf, "JAL");
 	if (Rt==0) {
-		sprintf(buf, "JMP   %s", DisassemMemAddress().c_str());
+		sprintf(&buf[3], "    %s", DisassemMemAddress().c_str());
 	}
 	else {
-		sprintf(buf, "JAL   R%d,%s",Rt, DisassemMemAddress().c_str());
+		sprintf(&buf[3], "    x%d,%s",Rt, DisassemMemAddress().c_str());
 	}
 	return std::string(buf);
 }
@@ -325,367 +383,337 @@ static std::string DisassemJal()
 static std::string DisassemBrk()
 {
 	char buf[50];
-	sprintf(buf, "BRK   #%d", (insn>>6) & 0x1ff);
+	sprintf(buf, "BRK    #%d", (insn>>8LL) & 0xffLL);
 	return std::string(buf);
 }
 
 
-std::string Disassem(std::string sad, std::string sinsn, unsigned int dad, unsigned int *ad1)
+std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned int *ad1)
 {
 	char buf[20];
 	std::string str;
 	static int first = 1;
-	int Rbb = (insn >> 11) & 0x1f;
+	int Rbb = (insn >> 11LL) & 0x1fLL;
 
 	if (first) {
 		immcnt = 0;
 		first = 0;
 	}
 
-	insn = strtoul(sinsn.c_str(),0,16);
-	opcode = insn & 0x3f;
+	insn = strtoull(sinsn.c_str(),0,16);
+	opcode = insn & 0x7fLL;
+	func = (insn >> 29LL) & 0x7fLL;
 	*ad1 = dad + 4;
 	switch(opcode)
 	{
-	case IRR:
-		switch((insn >> 26) & 0x3f)
+	case IR2:
+		switch ((insn >> 29LL) & 0x7fLL)
 		{
-		case ISEI:	str = "SEI"; break;
-		case IWAIT:	str = "WAI"; break;
-		case IRTI:	str = "RTI"; break;
+			//case ISEI:	str = "SEI"; break;
+			//case IWAIT:	str = "WAI"; break;
+			//case IRTI:	str = "RTI"; break;
 		case IADD:
-			str = "ADD   " + Rt() + "," + Ra() + "," + Rb();
+			str = "ADD    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
 		case ISUB:
-			str = "SUB   " + Rt() + "," + Ra() + "," + Rb();
+			str = "SUB    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
 		case ICMP:
-			str = "CMP   " + Rt() + "," + Ra() + "," + Rb();
-			immcnt = 0;
-			return str;
-		case ICMPU:
-			str = "CMPU  " + Rt() + "," + Ra() + "," + Rb();
+			str = "CMP    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
 		case IMUL:
-			str = "MUL   " + Rt() +"," + Ra() + "," + Rb();
+			str = "MUL    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
 		case IMULU:
-			str = "MULU  " + Rt() +"," + Ra() + "," + Rb();
+			str = "MULU   " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
 		case IMULSU:
-			str = "MULSU " + Rt() +"," + Ra() + "," + Rb();
+			str = "MULSU  " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
-		case IDIVMOD:
-			str = "DIVMOD" + Rt() +"," + Ra() + "," + Rb();
+		case IDIV:
+			str = "DIV    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
-		case IDIVMODU:
-			str = "DIVMODU" + Rt() +"," + Ra() + "," + Rb();
+		case IDIVU:
+			str = "DIVU   " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
-		case IDIVMODSU:
-			str = "DIVMODSU" + Rt() +"," + Ra() + "," + Rb();
+		case IDIVSU:
+			str = "DIVSU  " + Rt() + "," + Ra() + "," + Rb();
+			immcnt = 0;
+			return str;
+		case IREM:
+			str = "REM    " + Rt() + "," + Ra() + "," + Rb();
+			immcnt = 0;
+			return str;
+		case IREMU:
+			str = "REMU   " + Rt() + "," + Ra() + "," + Rb();
+			immcnt = 0;
+			return str;
+		case IREMSU:
+			str = "REMSU  " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
 		case IAND:
-			str = "AND   " + Rt() +"," + Ra() + "," + Rb();
+			str = "AND    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
 		case IOR:
-			if (Rbb==0)
-				str = "MOV   " + Rt() +"," + Ra();
+			if (Rbb == 0)
+				str = "MOV    " + Rt() + "," + Ra();
 			else
-				str = "OR    " + Rt() +"," + Ra() + "," + Rb();
+				str = "OR     " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
 		case IXOR:
-			str = "XOR   " + Rt() +"," + Ra() + "," + Rb();
+			str = "XOR    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
-		case IMOV:
-			{
-				int d3 = (insn >> 23) & 7;
-				switch(d3) {
-				case 2:
-					str = "MOV   " + Rt() + ":x," + Ra();
-					break;
-				case 3:
-					str = "MOV   " + Rt() + "," + Ra() + ":x";
-					break;
-				case 7:
-				default:
-					str = "MOV   " + Rt() + "," + Ra();
-					break;
-				}
-				immcnt = 0;
-			}
-			return (str);
-		case ILBX:
-			str = "LBX   " + Rt() + "," + DisassemIndexedAddress();
+		case ISLL:
+			str = "SLL    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
-		case ILBUX:
-			str = "LBUX  " + Rt() + "," + DisassemIndexedAddress();
+		case ISRL:
+			str = "SRL    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
-		case ILCX:
-			str = "LCX   " + Rt() + "," + DisassemIndexedAddress();
+		case ISRA:
+			str = "SRA    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
-		case ILCUX:
-			str = "LCUX  " + Rt() + "," + DisassemIndexedAddress();
+		case IROL:
+			str = "ROL    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
-		case ILHX:
-			str = "LHX   " + Rt() + "," + DisassemIndexedAddress();
+		case IROR:
+			str = "ROR    " + Rt() + "," + Ra() + "," + Rb();
 			immcnt = 0;
 			return str;
-		case ILHUX:
-			str = "LHUX   " + Rt() + "," + DisassemIndexedAddress();
+		case ISLLI:
+			str = "SLL    " + Rt() + "," + Ra() + ",#" + Sa();
 			immcnt = 0;
 			return str;
-		case ILWX:
-			str = "LWX   " + Rt() + "," + DisassemIndexedAddress();
+		case ISRLI:
+			str = "SRL    " + Rt() + "," + Ra() + ",#" + Sa();
 			immcnt = 0;
 			return str;
-		case ISBX:
-			str = "SB    " + Rt() + "," + DisassemIndexedAddress();
+		case ISRAI:
+			str = "SRA    " + Rt() + "," + Ra() + ",#" + Sa();
 			immcnt = 0;
 			return str;
-		case ISCX:
-			str = "SC    " + Rt() + "," + DisassemIndexedAddress();
+		case IROLI:
+			str = "ROL    " + Rt() + "," + Ra() + ",#" + Sa();
 			immcnt = 0;
 			return str;
-		case ISHX:
-			str = "SH    " + Rt() + "," + DisassemIndexedAddress();
+		case IRORI:
+			str = "ROR    " + Rt() + "," + Ra() + ",#" + Sa();
 			immcnt = 0;
 			return str;
-		case ISWX:
-			str = "SW    " + Rt() + "," + DisassemIndexedAddress();
-			immcnt = 0;
-			return str;
-		case ISHIFT:
-			switch((insn >> 22) & 0xF) {
-			case ISHL:
-				str = "SHL   " + Rt() +"," + Ra() + "," + Rb();
-				immcnt = 0;
-				return str;
-			case ISHR:
-				str = "SHR   " + Rt() +"," + Ra() + "," + Rb();
-				immcnt = 0;
-				return str;
-			case IASL:
-				str = "ASL   " + Rt() +"," + Ra() + "," + Rb();
-				immcnt = 0;
-				return str;
-			case IASR:
-				str = "ASR   " + Rt() +"," + Ra() + "," + Rb();
-				immcnt = 0;
-				return str;
-			case IROL:
-				str = "ROL   " + Rt() +"," + Ra() + "," + Rb();
-				immcnt = 0;
-				return str;
-			case IROR:
-				str = "ROR   " + Rt() +"," + Ra() + "," + Rb();
-				immcnt = 0;
-				return str;
-			case ISHLI:
-				str = "SHL   " + Rt() +"," + Ra() + ",#" + Sa();
-				immcnt = 0;
-				return str;
-			case ISHRI:
-				str = "SHR   " + Rt() +"," + Ra() + ",#" + Sa();
-				immcnt = 0;
-				return str;
-			case IASLI:
-				str = "ASL   " + Rt() +"," + Ra() + ",#" + Sa();
-				immcnt = 0;
-				return str;
-			case IASRI:
-				str = "ASL   " + Rt() +"," + Ra() + ",#" + Sa();
-				immcnt = 0;
-				return str;
-			case IROLI:
-				str = "ROL   " + Rt() +"," + Ra() + ",#" + Sa();
-				immcnt = 0;
-				return str;
-			case IRORI:
-				str = "ROR   " + Rt() +"," + Ra() + ",#" + Sa();
-				immcnt = 0;
-				return str;
-			}
-			break;
+		}
+		break;
+	case EXI0:
+		sprintf(buf, "#$%I64X", (insn >> 8LL));
+		str = "EXI0  " + std::string(buf); return (str);
+		break;
+	case ILDx:
+		switch ((insn >> 32LL) & 15LL) {
+		case 0:	str = "LDB    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 1:	str = "LDW    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 2:	str = "LDT    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 3:	str = "LDO    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		}
+		break;
+	case ILDxZ:
+		switch ((insn >> 32LL) & 15LL) {
+		case 0:	str = "LDBU   " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 1:	str = "LDWU   " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 2:	str = "LDTU   " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 3:	str = "LDOU   " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		}
+		break;
+	case ILDxX:
+		switch ((insn >> 32LL) & 15LL) {
+		case 0:	str = "LDBX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 1:	str = "LDWX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 2:	str = "LDTX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 3:	str = "LDOX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		}
+		break;
+	case ILDxXZ:
+		switch ((insn >> 32LL) & 15LL) {
+		case 0:	str = "LDBUX  " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 1:	str = "LDWUX  " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 2:	str = "LDTUX  " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 3:	str = "LDOUX  " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		}
+		break;
+	case ISTx:
+		switch ((insn >> 32LL) & 15LL) {
+		case 0:	str = "STB    " + Rb() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 1:	str = "STW    " + Rb() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 2:	str = "STT    " + Rb() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 3:	str = "STO    " + Rb() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		}
+		break;
+	case ISTxX:
+		switch ((insn >> 32LL) & 15LL) {
+		case 0:	str = "STBX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 1:	str = "STWX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 2:	str = "STTX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 3:	str = "STOX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
 		}
 		break;
 	case IBTFLD:
 		switch((insn >> 29)&7) {
-		case IBFSET:	str = "BFSET  " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
-		case IBFCLR:	str = "BFCLR  " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
-		case IBFCHG:	str = "BFCHG  " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
-		case IBFINS:	str = "BFINS  " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
+		case IBFSET:	str = "BFSET   " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
+		case IBFCLR:	str = "BFCLR   " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
+		case IBFCHG:	str = "BFCHG   " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
+		case IBFINS:	str = "BFINS   " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
 //		case BFINSI:	str = "BFINSI " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
-		case IBFEXT:	str = "BFEXT  " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
-		case IBFEXTU:	str = "BFEXTU " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
+		case IBFEXT:	str = "BFEXT   " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
+		case IBFEXTU:	str = "BFEXTU  " + Rt() + "," + Ra() + "," + DisassemMbMe(); break;
 		}
 		immcnt = 0;
-		return str;
-	case IQOPI:
-		switch((insn >> 8) & 7) {
-		case 0:	str = "QOR   " + Rt() + ",#" + DisassemConstant(); break;
-		}
 		return str;
 	case ICHK:
-		str = "CHK   " + Rt() +"," + Ra() + "," + Bn();
+		str = "CHK    " + Rt() +"," + Ra() + "," + Bn();
 		immcnt = 0;
 		return str;
-	case IADD:
-		str = "ADD   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+	case IADDI:
+		str = "ADD    " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
-	case ICMP:
-		str = "CMP   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+	case IMULI:
+		str = "MUL    " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
-	case ICMPU:
-		str = "CMPU  " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+	case IMULUI:
+		str = "MULU   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
-	case IMUL:
-		str = "MUL   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
-		immcnt = 0;
-		return str;
-	case IMULU:
-		str = "MULU  " + Rt() +"," + Ra() + ",#" + DisassemConstant();
-		immcnt = 0;
-		return str;
-	case IMULSU:
-		str = "MULSU " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+	case IMULSUI:
+		str = "MULSU  " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
 	case IDIVI:
-		str = "DIV   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+		str = "DIV    " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
 	case IDIVUI:
-		str = "DIVU  " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+		str = "DIVU   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
 	case IDIVSUI:
-		str = "DIVSU " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+		str = "DIVSU  " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
-	case IMODI:
-		str = "MOD   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+	case IREMI:
+		str = "REM    " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
-	case IMODUI:
-		str = "MODU  " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+	case IREMUI:
+		str = "REMU   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
-	case IMODSUI:
-		str = "MODSU " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+	case IREMSUI:
+		str = "REMSU  " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
-	case IAND:
-		str = "AND   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+	case IANDI:
+		str = "AND    " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
-	case IOR:
-		if ((insn >> 16) == 0)
-			str = "MOV   " + Rt() + "," + Ra();
+	case IORI:
+		if (((insn >> 20LL) & 0x1fLL) == 0)
+			str = "MOV    " + Rt() + "," + Ra();
 		else
-			str = "OR    " + Rt() + "," + Ra() + ",#" + DisassemConstant();
+			str = "OR     " + Rt() + "," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
-	case IXOR:
-		str = "EOR   " + Rt() +"," + Ra() + ",#" + DisassemConstant();
+	case IXORI:
+		str = "EOR    " + Rt() +"," + Ra() + ",#" + DisassemConstant();
 		immcnt = 0;
 		return str;
 	case IFLOAT:
-		switch ((insn>>26)&0x3f) {
+		switch ((insn>>26LL)&0x3fLL) {
 		case IFADD:
-			str = "FADD  " + FPt() +"," + FPa() + "," + FPb();
+			str = "FADD   " + FPt() +"," + FPa() + "," + FPb();
 			immcnt = 0;
 			return str;
 		case IFSUB:
-			str = "FSUB  " + FPt() +"," + FPa() + "," + FPb();
+			str = "FSUB   " + FPt() +"," + FPa() + "," + FPb();
 			immcnt = 0;
 			return str;
 		case IFCMP:
-			str = "FCMP  " + Rt() +"," + FPa() + "," + FPb();
+			str = "FCMP   " + Rt() +"," + FPa() + "," + FPb();
 			immcnt = 0;
 			return str;
 		case IFMUL:
-			str = "FMUL  " + FPt() +"," + FPa() + "," + FPb();
+			str = "FMUL   " + FPt() +"," + FPa() + "," + FPb();
 			immcnt = 0;
 			return str;
 		case IFDIV:
-			str = "FDIV  " + FPt() +"," + FPa() + "," + FPb();
+			str = "FDIV   " + FPt() +"," + FPa() + "," + FPb();
 			immcnt = 0;
 			return str;
 		case IFMOV:
-			str = "FMOV  " + FPt() +"," + FPa();
+			str = "FMOV   " + FPt() +"," + FPa();
 			immcnt = 0;
 			return str;
 		case IFNEG:
-			str = "FNEG  " + FPt() +"," + FPa();
+			str = "FNEG   " + FPt() +"," + FPa();
 			immcnt = 0;
 			return str;
 		case IFABS:
-			str = "FABS  " + FPt() +"," + FPa();
+			str = "FABS   " + FPt() +"," + FPa();
 			immcnt = 0;
 			return str;
 		}
 		break;
-	case IBcc0:
-	case IBcc1:
-		switch((insn >> 16) & 0x7) {
-		case IBEQ:
-			str = "BEQ   " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
-			immcnt = 0;
-			return str;
-		case IBNE:
-			str = "BNE   " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
-			immcnt = 0;
-			return str;
-		case IBLT:
-			str = "BLT   " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
-			immcnt = 0;
-			return str;
-		case IBGE:
-			str = "BGE   " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
-			immcnt = 0;
-			return str;
-		case IBLTU:
-			str = "BLTU  " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
-			immcnt = 0;
-			return str;
-		case IBGEU:
-			str = "BGEU  " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
-			immcnt = 0;
-			return str;
-		}
-		immcnt = 0;
-		return "B????";
-	case ICALL:
-		str = "CALL  " + CallConstant();
-		return (str);
-	case IJMP:
-		str = "JMP   " + CallConstant();
-		return (str);
-	case IJAL:
-		str = DisassemJal();
+	case IBEQ:
+		str = "BEQ    " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
 		immcnt = 0;
 		return str;
-	case IRET:
-		str = "RET   #" + DisassemConstant();
+	case IBNE:
+		str = "BNE    " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
+		immcnt = 0;
+		return str;
+	case IBLT:
+		str = "BLT    " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
+		immcnt = 0;
+		return str;
+	case IBGE:
+		str = "BGE    " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
+		immcnt = 0;
+		return str;
+	case IBLTU:
+		str = "BLTU   " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
+		immcnt = 0;
+		return str;
+	case IBGEU:
+		str = "BGEU   " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
+		immcnt = 0;
+		return str;
+	case IBBC:
+		str = "BBC    " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
+		immcnt = 0;
+		return str;
+	case IBBS:
+		str = "BBS    " + Ra() + "," + Rb() + "," + DisassemBccDisplacement(dad);
+		immcnt = 0;
+		return str;
+	case IJAL:
+		str = DisassemJal(false);
+		immcnt = 0;
+		return str;
+	case IBAL:
+		str = DisassemJal(true);
 		immcnt = 0;
 		return str;
 	case IBRK:
@@ -693,72 +721,33 @@ std::string Disassem(std::string sad, std::string sinsn, unsigned int dad, unsig
 		immcnt = 0;
 		return str;
 	case INOP:
-		str = "NOP";
+		str = "NOP    ";
 		immcnt = 0;
 		return str;
-	case ILB:
-		str = "LB    " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ILBU:
-		str = "LBU   " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ILC:
-		str = "LC    " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ILCU:
-		str = "LCU   " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ILH:
-		str = "LH    " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ILHU:
-		str = "LHU   " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ILW:
-		str = "LW    " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ILWR:
-		str = "LWAR  " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ISB:
-		str = "SB    " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ISC:
-		str = "SC    " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ISH:
-		str = "SH    " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ISW:
-		str = "SW    " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
-	case ISWC:
-		str = "SWC   " + Rt() + "," + DisassemMemAddress();
-		immcnt = 0;
-		return str;
+	case IOSR2:
+		switch (func) {
+		case ISYNC:
+			str = "SYNC   ";
+			return (str);
+		case IMTBASE:
+			str = "MTBASE " + Bb() + "," + Ra();
+			return (str);
+		case IBASE:
+			str = "BASE   " + Rt() + "," + Ra() + "," + Rb();
+			return (str);
+		}
+		break;
 	}
 	immcnt = 0;
 	return "?????";
 }
 
-std::string Disassem(unsigned int ad, unsigned int dat, unsigned int *ad1)
+std::string Disassem(unsigned int ad, uint64_t dat, unsigned int *ad1)
 {
 	char buf1[20];
 	char buf2[20];
 
 	sprintf(buf1,"%06X", ad);
-	sprintf(buf2,"%08X", dat);
+	sprintf(buf2,"%09I64X", dat);
 	return (Disassem(std::string(buf1),std::string(buf2),ad,ad1));
 }

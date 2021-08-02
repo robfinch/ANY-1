@@ -44,8 +44,9 @@ public:
 	unsigned int rgs;
 	unsigned __int64 regs[32][64];
 	unsigned __int64 vregs[32][64];
+	uint64_t sregs[16];
 	double dregs[32];
-	unsigned int pc;
+	uint64_t pc;
 	unsigned int pcs[40];
 	unsigned int dpc;
 	unsigned int epc;

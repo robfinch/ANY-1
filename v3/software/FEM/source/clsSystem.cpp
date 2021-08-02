@@ -46,9 +46,9 @@ void clsSystem::Reset()
 			return (scratchpad[(ad & 32767) >> 2]);
 		}
 		else if ((ad & 0xfffc0000)==0xfffc0000) {
-			return (rom[(ad >> 2) & 0x7fff]);
+			return (rom[(ad >> 2) & 0xffff]);
 		}
-		else if ((ad & 0xFFFF0000)==0xFFD00000) {
+		else if ((ad & 0xFFF00000)==0xFF800000) {
 			return VideoMem[(ad>>2)& 0xFFF];
 		}
 		else if (keybd.IsSelected(ad)) {
@@ -163,11 +163,11 @@ void clsSystem::Reset()
 				break;
 			}
 		}
-		else if ((ad & 0xFFFFFF00)==0xFFDC0600) {
+		else if ((ad & 0xFFFFFF00)==0xFF910000) {
 			leds = dat;
 		}
 		else if ((ad & 0xfffc0000)==0xfffc0000) {
-			rom[(ad>>2) & 0x7fff] = dat;
+			rom[(ad>>2) & 0xffff] = dat;
 		}
 		else if ((ad & 0xFFFF0000)==0xFFD00000) {
 			VideoMem[(ad>>2)& 0xFFF] = dat;
@@ -200,31 +200,34 @@ j1:
 		case 2: mask = 4; break;
 		case 3:	mask = 8; break;
 		}
-		Write(ad & 0xFFFFFFFCL, dt, mask, cr);
+		return (Write(ad & 0xFFFFFFFCL, dt, mask, cr));
 	};
 	int clsSystem::WriteWyde(unsigned int ad, unsigned int dat, int cr) {
 		unsigned int mask;
 		unsigned int dt = dat << ((ad & 3) << 3);
+		int rv;
 		switch (ad & 3) {
 		case 0:	mask = 3; break;
 		case 1: mask = 6; break;
 		case 2: mask = 12; break;
 		case 3:	mask = 8; break;
 		}
-		Write(ad & 0xFFFFFFFCL, dt, mask, cr);
+		rv = Write(ad & 0xFFFFFFFCL, dt, mask, cr);
 		if ((ad & 3) == 3)
-			Write((ad + 4) & 0xFFFFFFFCL, dat >> 8, 1, cr);
+			rv = rv & Write((ad + 4) & 0xFFFFFFFCL, dat >> 8, 1, cr);
+		return (rv);
 	};
 	int clsSystem::WriteTetra(unsigned int ad, unsigned int dat, int cr) {
 		unsigned int mask;
 		unsigned int dt = dat << ((ad & 3) << 3);
+		int rv;
 		switch (ad & 3) {
 		case 0:	mask = 15; break;
 		case 1: mask = 14; break;
 		case 2: mask = 12; break;
 		case 3:	mask = 8; break;
 		}
-		Write(ad & 0xFFFFFFFCL, dt, mask, cr);
+		rv = Write(ad & 0xFFFFFFFCL, dt, mask, cr);
 		if ((ad & 3) != 0) {
 			dt = dat >> ((4-(ad & 3)) << 3);
 			switch (ad & 3) {
@@ -232,11 +235,13 @@ j1:
 			case 2: mask = 3; break;
 			case 3:	mask = 7; break;
 			}
-			Write((ad + 4) & 0xFFFFFFFCL, dt, 1, cr);
+			rv = rv & Write((ad + 4) & 0xFFFFFFFCL, dt, 1, cr);
 		}
+		return (rv);
 	};
 	int clsSystem::WriteOcta(unsigned int ad, uint64_t dat, int cr) {
 		unsigned int mask;
+		int rv;
 		uint64_t dt = dat << (((uint64_t)ad & 3LL) << 3LL);
 		switch (ad & 3) {
 		case 0:	mask = 15; break;
@@ -244,9 +249,9 @@ j1:
 		case 2: mask = 12; break;
 		case 3:	mask = 8; break;
 		}
-		Write(ad & 0xFFFFFFFCL, dt, mask, cr);
+		rv = Write(ad & 0xFFFFFFFCL, dt, mask, cr);
 		dt = dat >> ((4LL - ((uint64_t)ad & 3LL)) << 3LL);
-		Write((ad + 4) & 0xFFFFFFFCL, dt, 15, cr);
+		rv = rv & Write((ad + 4) & 0xFFFFFFFCL, dt, 15, cr);
 		if ((ad & 3) != 0) {
 			dt = dat >> ((8LL - ((uint64_t)ad & 3LL)) << 3LL);
 			switch (ad & 3) {
@@ -254,29 +259,30 @@ j1:
 			case 2: mask = 3; break;
 			case 3:	mask = 7; break;
 			}
-			Write((ad + 8) & 0xFFFFFFFCL, dt, mask, cr);
+			rv = rv & Write((ad + 8) & 0xFFFFFFFCL, dt, mask, cr);
 		}
+		return (rv);
 	};
-	uint64_t clsSystem::IFetch(unsigned int ip) {
+	uint64_t clsSystem::IFetch(uint64_t ip) {
 		int rr;
 		unsigned __int8 sc;
 		unsigned __int8 st;
 		uint64_t rv;
 		if (ip < 134217728 * 2) {
 			rv = memory[ip >> 3];
-			rv = rv | (uint64_t)(memory[(ip >> 3) + 1]) << 32LL;
+			rv = rv | ((uint64_t)(memory[(ip >> 3) + 1]) << 32LL);
 		}
 		else if ((((ip >> 1) & 0xFFF00000) >> 20) == 0xFF4) {
 			rv = scratchpad[(ip >> 3) & 8191];
-			rv = rv | (uint64_t)(scratchpad[((ip >> 3) + 1) & 8191]) << 32LL;
+			rv = rv | ((uint64_t)(scratchpad[((ip >> 3) + 1) & 8191]) << 32LL);
 		}
 		else if (((ip >> 1) & 0xfffc0000) == 0xfffc0000) {
-			rv = rom[(ip >> 3) & 16383];
-			rv = rv | (uint64_t)(rom[((ip >> 3) + 1) & 16383]) << 32LL;
+			rv = rom[(ip >> 3) & 65535];
+			rv = rv | ((uint64_t)(rom[((ip >> 3) + 1) & 65535]) << 32LL);
 		}
 		else if (((ip >> 1) & 0xFF800000) == 0xFF800000) {
 			rv = VideoMem[(ip >> 3) & 16383];
-			rv = rv | (uint64_t)(VideoMem[((ip >> 3) + 1) & 16383]) << 32LL;
+			rv = rv | ((uint64_t)(VideoMem[((ip >> 3) + 1) & 16383]) << 32LL);
 		}
 		else
 			rv = 0;
