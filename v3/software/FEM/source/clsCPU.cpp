@@ -147,7 +147,7 @@ dc:
 			if ((ir >> 31LL) & 1LL)
 				imm |= 0xfffffffffffff000LL;
 			if (exi) {
-				imm &= 0x7ffLL | exi_imm;
+				imm = (imm & 0x7ffLL) | exi_imm;
 				exi = false;
 			}
 			break;
@@ -157,12 +157,23 @@ dc:
 			if ((ir >> 31LL) & 1LL)
 				imm |= 0xfffffffffffff000LL;
 			if (exi) {
-				imm &= 0x7ffLL | exi_imm;
+				imm = (imm & 0x7ffLL) | exi_imm;
 				exi = false;
 			}
 			break;
 		case ISTxX:
 			Rt = 0;
+			break;
+		case IR2:
+			switch (func) {
+			case ISLLI:
+			case ISRLI:
+			case ISRAI:
+			case IROLI:
+			case IRORI:
+				imm = ((ir >> 20LL) & 0x3fLL);
+				break;
+			}
 			break;
 		default:
 			imm = (ir >> 20LL) & 0xffffLL;
@@ -272,19 +283,19 @@ dc:
 				res = (a >> (b & 0x3f)) | (a << ((64 - b) & 0x3f));
 				break;
 			case ISLLI:
-				res = ua << (b & 0x3f);
+				res = ua << imm;
 				break;
 			case ISRLI:
-				res = ua >> (b & 0x3f);
+				res = ua >> imm;
 				break;
 			case ISRAI:
-				res = a >> (b & 0x3f);
+				res = a >> imm;
 				break;
 			case IROLI:
-				res = (ua << (b & 0x3f)) | (ua >> (64 - (b & 0x3f)));
+				res = (ua << imm) | (ua >> (64 - imm));
 				break;
 			case IRORI:
-				res = (ua >> (b & 0x3f)) | (ua << (64 - (b & 0x3f)));
+				res = (ua >> imm) | (ua << (64 - imm));
 				break;
 			}
 			break;
@@ -497,6 +508,7 @@ dc:
 			break;
 		case ILDx:
 			ad = a + imm;
+			ad = (ad & 0xfffffffLL) + (sregs[(ad >> 28LL) & 15LL] & -16LL);
 			switch (lsfunc) {
 			case 0:	// 8 bit load
 				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
@@ -537,6 +549,7 @@ dc:
 			break;
 		case ILDxZ:
 			ad = a + imm;
+			ad = (ad & 0xfffffffLL) + (sregs[(ad >> 28LL) & 15LL] & -16LL);
 			switch (lsfunc) {
 			case 0:	// 8 bit load
 				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
@@ -574,6 +587,7 @@ dc:
 			break;
 		case ISTx:
 			ad = a + imm;
+			ad = (ad & 0xfffffffLL) + (sregs[(ad >> 28LL) & 15LL] & -16LL);
 			switch (lsfunc) {
 			case 0:
 				system1->WriteByte(ad, b, 0);

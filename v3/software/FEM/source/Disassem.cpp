@@ -109,7 +109,7 @@ std::string Sa()
 {
 	char buf[40];
 	std::string str;
-	str = std::string(_itoa((insn >> 16) & 0x3f,buf,16));
+	str = std::string(_itoa((insn >> 20LL) & 0x3f,buf,16));
 	return str;
 }
 

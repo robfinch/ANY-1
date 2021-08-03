@@ -2046,7 +2046,7 @@ private: System::Windows::Forms::Label^  label41;
 			this->Controls->Add(this->menuStrip1);
 			this->MainMenuStrip = this->menuStrip1;
 			this->Name = L"frmMain";
-			this->Text = L"E64";
+			this->Text = L"FEM - Control Panel";
 			this->menuStrip1->ResumeLayout(false);
 			this->menuStrip1->PerformLayout();
 			this->toolStrip1->ResumeLayout(false);

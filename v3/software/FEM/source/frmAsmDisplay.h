@@ -32,6 +32,8 @@ namespace E64 {
 			myfont = gcnew System::Drawing::Font("Courier New", 8);
 			bkbr = gcnew System::Drawing::SolidBrush(System::Drawing::Color::Blue);
 			fgbr = gcnew System::Drawing::SolidBrush(System::Drawing::Color::White);
+			dgbr = gcnew System::Drawing::SolidBrush(System::Drawing::Color::DarkGreen);
+			grbr = gcnew System::Drawing::SolidBrush(System::Drawing::Color::LightGreen);
 			animateDelay = 300000;
 		}
 
@@ -55,6 +57,8 @@ namespace E64 {
 		System::Drawing::Font^ myfont;
 		SolidBrush^ bkbr;
 		SolidBrush^ fgbr;
+		SolidBrush^ dgbr;
+		SolidBrush^ grbr;
 	public:
 		bool animate;
 		int animateDelay;
@@ -73,7 +77,7 @@ namespace E64 {
 			// 
 			this->AutoScaleDimensions = System::Drawing::SizeF(6, 13);
 			this->AutoScaleMode = System::Windows::Forms::AutoScaleMode::Font;
-			this->ClientSize = System::Drawing::Size(668, 398);
+			this->ClientSize = System::Drawing::Size(668, 420);
 			this->DoubleBuffered = true;
 			this->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedToolWindow;
 			this->MaximizeBox = false;
@@ -93,7 +97,7 @@ namespace E64 {
 				char *buf2;
 				std::string str;
 				unsigned int row;
-				int xx, yy;
+				int xx, yy, ledno, leds;
 				uint64_t ad1, ad2, csip;
 				uint64_t dat;
 				static unsigned int ticks;
@@ -119,7 +123,7 @@ namespace E64 {
 					gr->FillRectangle(bkbr,0,0,700,400);
 					for (row = 0; row < 32; row++) {
 						yy = row * 12 + 10;
-						sprintf(buf,"%06X.%.1X", ad2 >> 1, (ad2 & 1) << 3);
+						sprintf(buf,"%06I64X.%.1X", ad2 >> 1LL, (int)(ad2 & 1LL) << 3);
 						str = std::string(buf);
 						dat = system1.IFetch(ad2);
 			//			dat = system1.memory[ad>>2];
@@ -182,6 +186,18 @@ namespace E64 {
 					str = std::string(buf);
 					gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,320,yy);
 
+					yy = 33 * 12 + 10;
+					sprintf(buf, "LEDS", cpu1.sregs[15]);
+					str = std::string(buf);
+					gr->DrawString(gcnew String(str.c_str()), myfont, fgbr, 16, yy);
+					leds = system1.leds;
+					for (ledno = 0; ledno < 8; ledno++) {
+						if (leds & 0x80)
+							gr->FillRectangle(grbr, 80 + ledno * 16, yy, 12, 12);
+						else
+							gr->FillRectangle(dgbr, 80 + ledno * 16, yy, 12, 12);
+						leds <<= 1;
+					}
 					this->Invalidate();
 				}
 			 }
