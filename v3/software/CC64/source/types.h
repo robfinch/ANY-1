@@ -301,6 +301,7 @@ public:
 	unsigned int IsNocall : 1;
 	unsigned int IsPascal : 1;
 	unsigned int IsLeaf : 1;
+	unsigned int IsFar : 1;
 	unsigned int DoesThrow : 1;
 	unsigned int doesJAL : 1;
 	unsigned int UsesNew : 1;
@@ -421,7 +422,6 @@ public:
 	void GenLoad(Operand *ap3, Operand *ap1, int ssize, int size);
 	int64_t SizeofReturnBlock();
 	void SetupReturnBlock();
-	bool GenDefaultCatch();
 	void GenerateReturn(Statement *stmt);
 	void Generate();
 	void GenerateDefaultCatch();
@@ -1770,6 +1770,7 @@ private:
 	bool isTypedefs[100];
 public:
 	bool isTypedef;
+	bool isFar;
 	TYP* head;
 	TYP* tail;
 	int16_t bit_offset;

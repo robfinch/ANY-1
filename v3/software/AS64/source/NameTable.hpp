@@ -27,26 +27,30 @@
 #define NAMETABLE_HPP
 
 #include <string.h>
-extern char nametext[1000000];
 
 class NameTable {
+
 public:
-    int length;
+  char* nametext;
+  int length;
+  int size;
 
 public:    
-    NameTable() {
-        nametext[0] = 0;
-        nametext[1] = 0;
-        length = 1;
-    };
-    void Clear() {
-        nametext[0] = 0;
-        nametext[1] = 0;
-        length = 1;
-    };
-    char *GetName(int ndx) {
-         return &nametext[ndx];
-    };
+  NameTable(int sz) {
+    size = sz;
+    nametext = new char[sz];
+    nametext[0] = 0;
+    nametext[1] = 0;
+    length = 1;
+  };
+  void Clear() {
+    nametext[0] = 0;
+    nametext[1] = 0;
+    length = 1;
+  };
+  char *GetName(int ndx) {
+    return &nametext[ndx];
+  };
     
     int FindName(char *nm) {
         int nn, mm;
@@ -74,7 +78,7 @@ public:
         if ((ret = FindName(nm)) > 0)
            return ret;
         olen = length;
-        strcpy_s(&nametext[length], sizeof(nametext)-length, nm);
+        strcpy_s(&nametext[length], size-length, nm);
         if ((sizeof(nametext) - length) <= 0)
           exit(0);
         length += strlen(nm) + 1;

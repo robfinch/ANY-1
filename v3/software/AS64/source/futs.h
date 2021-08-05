@@ -17,4 +17,7 @@
 #define ANY1_FUTC95		40
 #define ANY1_FUTC95L	41
 #define ANY1_FUTC95S	42
+#define ANY1_FUTJ26		43
+#define ANY1_FUTJ95		44
+#define ANY1_DATA			45
 

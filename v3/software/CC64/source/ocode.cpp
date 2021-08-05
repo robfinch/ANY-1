@@ -1485,7 +1485,7 @@ void OCODE::storeHex(txtoStream& ofs)
 		break;
 	case op_fnname:
 		ep = (ENODE *)oper1->offset;
-		ofs.printf("F%s:\n", (char *)ep->sp->c_str());
+		ofs.printf("F%s .proc\n", (char *)ep->sp->c_str());
 		break;
 	default:
 		ofs.printf("C");
@@ -1639,7 +1639,7 @@ void OCODE::store(txtoStream& ofs)
 	}
 	if (op == op_fnname) {
 		ep = (ENODE *)oper1->offset;
-		ofs.printf("%s:", (char *)ep->sp->c_str());
+		ofs.printf("%s .proc", (char *)ep->sp->c_str());
 	}
 	else if (ap1 != 0)
 	{

@@ -29,7 +29,6 @@ extern FILE *ofp;
 extern int pass;
 extern bool keepUnreferenced;
 int numsym = 0;
-char nametext[1000000];
 SYM* current_symbol;
 
 void ShellSort(void *, int, int, int (*)());   // Does a shellsort - like bsort()
@@ -40,32 +39,37 @@ SHashTbl HashInfo = { HashFnc, icmp, ncmp, 0, sizeof(SYM), NULL };
 
 char *GetName(int ndx)
 {
-	return (&nametext[ndx]);
+	return (nmTable.GetName(ndx));
+}
+
+char* GetShName(int ndx)
+{
+  return (shnmTable.GetName(ndx));
 }
 
 SHashVal HashFnc(void *d)
 {
    SYM *def = (SYM *)d;
-   return htSymHash(&HashInfo, &nametext[def->name]);
+   return htSymHash(&HashInfo, &nmTable.nametext[def->name]);
 }
 
 int icmp (const void *m1, const void *m2)
 {
-    SYM *n1; SYM *n2;
-    n1 = (SYM *)m1;
-    n2 = (SYM *)m2;
-	if (n1->name==NULL) return 1;
-	if (n2->name==NULL) return -1;
-  return (strcmp(GetName(n1->name), &nametext[n2->name]));
+  SYM *n1; SYM *n2;
+  n1 = (SYM *)m1;
+  n2 = (SYM *)m2;
+	if (n1->name==0) return 1;
+	if (n2->name==0) return -1;
+  return (strcmp(&nmTable.nametext[n1->name], &nmTable.nametext[n2->name]));
 }
 
 int ncmp (char *m1, const void *m2)
 {
-    SYM *n2;
-    n2 = (SYM *)m2;
+  SYM *n2;
+  n2 = (SYM *)m2;
 	//if (m1==NULL) return 1;
 	//if (n2->name==NULL) return -1;
-  return (strcmp(m1, &nametext[n2->name]));
+  return (strcmp(m1, &nmTable.nametext[n2->name]));
 }
 
 void SymbolInit()
@@ -110,7 +114,7 @@ void SymbolInitForPass()
   pt = (SYM*)HashInfo.table;
   for (ii = 0; ii < HashInfo.size; ii++) {
     dp = &pt[ii];
-    dp->referenced = 0;
+    dp->referenceCount = 0;
   }
 }
 
@@ -125,7 +129,7 @@ void RemoveUnreferenced(int count)
 
   for (ii = 0; ii < count; ii++) {
     dp = &pt[ii];
-    if (dp->referenced == 0) {
+    if (dp->referenceCount == 0) {
       // Remove any symbols that match the root name.
       for (jj = 0; jj < count; jj++) {
         qt = &pt[jj];
@@ -207,17 +211,19 @@ SYM *new_symbol(char *name)
   ts.name = nmTable.AddName(name);
 //     strncpy(syms[numsym].name, name, sizeof(syms[numsym].name)/sizeof(char)-1);
 //     syms[numsym].name[199] = '\0';
-	ts.value.low = 0x8000000000000000LL | numsym;
+//	ts.value.low = 0x8000000000000000LL | numsym;
+  ts.value.low = sections[segment].start + numsym;
 	ts.value.high = 0; 
-  ts.defined = 0;
+  ts.alignment = 1;
+  ts.isDefined = 0;
   ts.segment = segment;
-  ts.scope = ' ';
+  ts.isGlobal = 0;
   ts.isExtern = 0;
 	ts.isMacro = false;
-	ts.phaserr = ' ';
-	ts.bits = 32;
+	ts.hasPhaseErr = 0;
+	ts.addressBits = 32;
   ts.size = 0;
-  ts.referenced = 0;
+  ts.referenceCount = 0;
   p = insert_symbol(&ts);
   numsym++;
   return p;
@@ -263,16 +269,16 @@ void DumpSymbols()
         dp = &pt[nn];
         if (dp->name && !dp->isMacro) {
           if (gCpu==ANY1V3)
-            fprintf(ofp, "%c %-40s %6s  %06I64x.%1x %4llu %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low >> 1, (int)dp->value.low & 1, dp->size, dp->bits, dp->referenced);
+            fprintf(ofp, "%c %-40s %6s  %06I64x.%1x %4llu %d %d\n", dp->hasPhaseErr ? '*' : ' ', nmTable.GetName(dp->name), segname(dp->segment), dp->value.low >> 1, (int)dp->value.low & 1, dp->size, dp->addressBits, dp->referenceCount);
           else
-            fprintf(ofp, "%c %-40s %6s  %06I64x %4llu %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), (int)dp->value.low, dp->size, dp->bits, dp->referenced);
+            fprintf(ofp, "%c %-40s %6s  %06I64x %4llu %d %d\n", dp->hasPhaseErr ? '*' : ' ', nmTable.GetName(dp->name), segname(dp->segment), (int)dp->value.low, dp->size, dp->addressBits, dp->referenceCount);
         }
     }
 		fprintf(ofp, "\nUndefined Symbols\n");
 		for (nn = 0; nn < ii; nn++) {
 			dp = &pt[nn];
-			if (dp->name && !dp->isMacro && dp->defined == false)
-				fprintf(ofp, "%c %-40s %6s  %06I64x %d %d\n", dp->phaserr, nmTable.GetName(dp->name), segname(dp->segment), dp->value.low, dp->bits, dp->referenced);
+			if (dp->name && !dp->isMacro && dp->isDefined == false)
+				fprintf(ofp, "%c %-40s %6s  %06I64x %d %d\n", dp->hasPhaseErr ? '*' : ' ', nmTable.GetName(dp->name), segname(dp->segment), dp->value.low, dp->addressBits, dp->referenceCount);
 		}
 		fprintf(ofp, "\n  Macro Name\n");
 		for (nn = 0; nn < ii; nn++) {

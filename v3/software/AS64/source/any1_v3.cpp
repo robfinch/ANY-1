@@ -118,6 +118,7 @@
 #define I_LDxZ	0x64
 #define I_LDxXZ	0x65
 #define I_POP		0x67
+#define I_DEFCAT	0x800000067
 #define I_STx		0x68
 #define I_STxX	0x69
 #define I_PUSH	0x6F
@@ -266,6 +267,8 @@
 #define I_MVSEG	0x1D
 #define I_MVCI	0x1F
 #define I_BASE	0x26
+#define I_MFBASE	0x28
+#define I_MTBASE	0x29
 
 #define I_FCMP	0x10
 #define I_FSEQ	0x11
@@ -579,6 +582,7 @@ static int getRegisterX()
     }
 		return (-1);
 
+	// $a0 ... $afp
   case 'a': case 'A':
     if (isdigit(inptr[1])) {
       reg = inptr[1]-'0' + regArg;
@@ -588,9 +592,39 @@ static int getRegisterX()
       any1_NextToken();
       return (reg);
     }
+		else if ((inptr[1] == 'f' || inptr[1] == 'F') && (inptr[2] == 'p' || inptr[2] == 'P') && !isIdentChar(inptr[3])) {
+			inptr += 3;
+			any1_NextToken();
+			return (31);
+		}
 		return (-1);
 
-  case 'f': case 'F':
+	// BP or base registers $b0 to $b15
+	case 'b': case 'B':
+		if ((inptr[1] == 'P' || inptr[1] == 'p') && !isIdentChar(inptr[2])) {
+			inptr += 2;
+			any1_NextToken();
+			return (regFP);
+		}
+		if (isdigit(inptr[1])) {
+			reg = inptr[1] - '0';
+			if (isdigit(inptr[2])) {
+				reg = reg * 10 + inptr[2] - '0';
+				if (!isIdentChar(inptr[3])) {
+					inptr += 3;
+					any1_NextToken();
+					return (reg);
+				}
+			}
+			if (!isIdentChar(inptr[2])) {
+				inptr += 2;
+				any1_NextToken();
+				return (reg);
+			}
+		}
+		break;
+
+	case 'f': case 'F':
 		if ((inptr[1]=='P' || inptr[1]=='p') && !isIdentChar(inptr[2])) {
 			inptr += 2;
 			any1_NextToken();
@@ -2162,7 +2196,7 @@ static void process_riop(int64_t opcode6, int64_t func6, int64_t bit23)
 		ext11(val, false);
 	else
 		if (bGen) {
-			if (lastsym && !use_gp && lastsym->defined == false) {
+			if (lastsym && !use_gp && lastsym->isDefined == false) {
 				if (lastsym->segment < 5)
 					sections[segment + 7].AddRel(sections[segment].index, ((lastsym->ord + 1) << 32) | ANY1_FUTC16 | (lastsym->isExtern ? 128 : 0) |
 						(lastsym->segment == codeseg ? code_bits << 8 : data_bits << 8));
@@ -3069,6 +3103,55 @@ static void process_rop(int oc)
 	ScanToEOL();
 }
 
+static void process_mvbase(int oc)
+{
+	int Ra,Rb;
+	int Rt;
+	int sz = 3;
+	char* p;
+	int mop = 0;
+
+	Ra = 0;
+	Rb = 0;
+	Rt = 0;
+	p = inptr;
+	SkipSpaces();
+	// MTBASE
+	if (oc == 0x29) {
+		if (inptr[0] == '[') {
+			Rb = getRegisterX();
+			if (inptr[0] == ']')
+				any1_NextToken();
+		}
+		else
+			Rb = getRegisterX();
+		if (token == ',') {
+			Ra = getRegisterX();
+		}
+	}
+	// MFBASE
+	else {
+		Rt = getRegisterX();
+		need(',');
+		if (token == '[') {
+			Rb = getRegisterX();
+			if (inptr[0] == ']')
+				any1_NextToken();
+		}
+		else
+			Rb = getRegisterX();
+	}
+	emit_insn(
+		FUNC6(oc) |
+		RT(Rt) |
+		RA(Ra) |
+		RB(Rb) |
+		I_OSR2
+	);
+	prevToken();
+	ScanToEOL();
+}
+
 // ---------------------------------------------------------------------------
 // popq r3,r3
 // ---------------------------------------------------------------------------
@@ -3632,13 +3715,27 @@ static void process_call(int opcode, int opt)
 	}
 	if (Ra == 0 && rel) {
 		val = disp;
-		if (IsNBit(disp, 10LL) && gCanCompress) {
-			emit_insn((val << 10LL) | ((lk) << 8LL) | I_BAL20, 5);
-			return;
-		}
+		//if (IsNBit(disp, 10LL) && gCanCompress) {
+		//	emit_insn((val << 10LL) | ((lk) << 8LL) | I_BAL20, 5);
+		//	return;
+		//}
 		if (code_bits < 25) {
+			if (bGen) {
+				if (lastsym) {
+					if (lastsym->segment < 5)
+						sections[segment + 7].AddRel(sections[segment].index, ((lastsym->ord + 1) << 32) | ANY1_FUTJ26 | (lastsym->isExtern ? 128 : 0) |
+							(lastsym->segment == codeseg ? code_bits << 8 : data_bits << 8));
+				}
+			}
 			emit_insn(((val) << 10LL) | ((lk) << 8LL) | opcode);
 			return;
+		}
+		if (bGen) {
+			if (lastsym) {
+				if (lastsym->segment < 5)
+					sections[segment + 7].AddRel(sections[segment].index, ((lastsym->ord + 1) << 32) | ANY1_FUTJ95 | (lastsym->isExtern ? 128 : 0) |
+						(lastsym->segment == codeseg ? code_bits << 8 : data_bits << 8));
+			}
 		}
 		if (!IsNBit(val, 26))
 			ext11(val,false);
@@ -3818,13 +3915,24 @@ static void process_push(int64_t oc)
 		Rb = getRegisterX();
 		gotRb = true;
 	}
-	emit_insn(
-		(gotRb ? (2LL << 32LL) : (1LL << 32LL)) |
-		RB(Rb) |
-		RA(Ra) |
-		RT(regSP) |
-		oc
-	);
+	if (oc == I_DEFCAT) {
+		if (!gotRb)
+			error("DEFCAT requires two registers");
+		emit_insn(
+			RB(Rb) |
+			RA(Ra) |
+			RT(0) |
+			oc
+		);
+	}
+	else
+		emit_insn(
+			(gotRb ? (2LL << 32LL) : (1LL << 32LL)) |
+			RB(Rb) |
+			RA(Ra) |
+			RT(regSP) |
+			oc
+		);
 xit:
 	prevToken();
 	ScanToEOL();
@@ -4946,7 +5054,7 @@ static void process_shift(int64_t op4)
 	any1_NextToken();
 	if (token=='#') {
 		inptr = p;
-		process_shifti(op4);
+		process_shifti(op4+8);
 		return;
 	}
 	else {
@@ -5621,6 +5729,7 @@ j1:
 	case tk_dct: process_dct(); break;
 	case tk_dcw: process_dcw(); break;
 	case tk_dco: process_dco(); break;
+	case tk_defcat: process_push(I_DEFCAT); break;
 	case tk_dep: process_bitfield(I_DEP, 0x00);
 	case tk_dh:  process_dh(); break;
 	case tk_dh_htbl:  process_dh_htbl(); break;
@@ -5629,8 +5738,12 @@ j1:
 	case tk_dw:  process_dw(); break;
 		//	case tk_end: goto j1;
 	case tk_else: doelse(); break;
+	case '}':
 	case tk_dotdot:
-	case tk_end:	process_end(); break;
+	case tk_end:	
+	case tk_endproc:
+		process_end();
+		break;
 	case tk_end_expand: expandedBlock = 0; break;
 	case tk_endif: doendif(); break;
 	case tk_endpublic: break;
@@ -5690,7 +5803,9 @@ j1:
 	case tk_memdb: emit_insn(0x04400002); break;
 	case tk_memsb: emit_insn(0x04440002); break;
 	case tk_message: process_message(); break;
+	case tk_mfbase: process_mvbase(I_MFBASE); break;
 	case tk_mov: process_mov(I_MOV, 0x00); break;
+	case tk_mtbase: process_mvbase(I_MTBASE); break;
 	case tk_mux: process_cmove(4); break;
 	case tk_mvseg: process_rrop(); break;
 		//case tk_mulh: process_rrop(0x26, 0x3A); break;
@@ -5733,6 +5848,7 @@ j1:
 	case tk_rte: process_iret(I_RTE); break;
 	//case tk_rtl: process_ret(I_RTL); break;
 	case tk_rts: process_ret(I_RET); break;
+	case tk_section: process_section(); break;
 	case tk_sei: process_sei(); break;
 	case tk_seq:	process_setop(I_SEQ, I_SEQ, 0x00); break;
 	
@@ -5772,7 +5888,7 @@ j1:
 	case tk_sxb: process_sxx(0x280000001); break;
 	case tk_sxw: process_sxx(0x2A0000001); break;
 	case tk_sxt: process_sxx(0x2C0000001); break;
-	case tk_sync: emit_insn(0x04480002); break;
+	case tk_sync: emit_insn(0x3E0000007); break;
 	case tk_tlbdis:  process_tlb(6); break;
 	case tk_tlben:   process_tlb(5); break;
 	case tk_tlbpb:   process_tlb(1); break;

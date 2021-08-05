@@ -1151,6 +1151,7 @@ j1:
 		}
 		if (sp->fi == nullptr) {
 			sp->fi = MakeFunction(sp->number, sp, isPascal, isInline);
+			sp->fi->IsFar = isFar;
 			sp->tp = head;
 			gsyms->insert(sp);
 		}
@@ -1179,6 +1180,7 @@ j1:
 			}
 			if (sp->fi == nullptr) {
 				sp->fi = MakeFunction(sp->number, sp, isPascal, isInline);
+				sp->fi->IsFar = isFar;
 			}
 			parsingParameterList++;
 			temp2 = head;
@@ -1541,6 +1543,7 @@ Function* Declaration::ParseSuffixOpenpa(Function *sp)
 	NextToken();
 	sp->IsPascal = isPascal;
 	sp->IsInline = isInline;
+	sp->IsFar = isFar;
 	sp->IsUnknown = true;
 	/*
 	if (currentClass == nullptr) {
@@ -1917,8 +1920,10 @@ int Declaration::ParseFunction(TABLE* table, SYM* sp, e_sc al)
 	dfs.printf("J");
 	if (needParseFunction) {
 		needParseFunction = FALSE;
-		if (sp->fi == nullptr)
+		if (sp->fi == nullptr) {
 			sp->fi = MakeFunction(sp->number, sp, isPascal, isInline);
+			sp->fi->IsFar = isFar;
+		}
 		currentFn = sp->fi;
 		fn_doneinit = sp->fi->Parse();
 		if (lastst == closepa) {
@@ -2294,6 +2299,7 @@ void GlobalDeclaration::Parse()
 
 	dfs.puts("<ParseGlobalDecl>\n");
 	isPascal = defaultcc==1;
+	isFar = false;
 	isInline = false;
 	isLeaf = false;
 	head = tail = nullptr;
@@ -2325,6 +2331,10 @@ void GlobalDeclaration::Parse()
 		  NextToken();
 		  isInline = true;
 		  break;
+		case kw_far:
+			NextToken();
+			isFar = true;
+			break;
 
 		case kw_try:
 			NextToken();
@@ -2376,6 +2386,10 @@ j1:
         NextToken();
 				if (lastst==kw_pascal) {
 					isPascal = TRUE;
+					goto j1;
+				}
+				if (lastst == kw_far) {
+					isFar = true;
 					goto j1;
 				}
 				if (lastst == kw_leaf) {
@@ -2555,13 +2569,16 @@ int ParameterDeclaration::Parse(int fd, bool throw_away)
 	int ofd;
   int opascal;
 	int oisInline;
+	int ofar;
 	bool fellip = false;
 
 	dfs.puts("<ParseParmDecls>\n");
 	ofd = funcdecl;
 	opascal = isPascal;
+	ofar = isFar;
 	oisInline = isInline;
 	isPascal = defaultcc==1;
+	isFar = false;
 	funcdecl = fd;
 	parsingParameterList++;
 	nparms = 0;
@@ -2586,6 +2603,10 @@ j1:
 			NextToken();
 		  isPascal = TRUE;
 		  goto j1;
+		case kw_far:
+			NextToken();
+			isFar = true;
+			goto j1;
 		case kw_cdecl:
     case kw_kernel:
 		case kw_interrupt:
@@ -2667,6 +2688,7 @@ xit:
 	funcdecl = ofd;
 	isPascal = opascal;
 	isInline = oisInline;
+	isFar = ofar;
 	dfs.printf("</ParseParmDecls>\n");
 	return (nparms);
 }

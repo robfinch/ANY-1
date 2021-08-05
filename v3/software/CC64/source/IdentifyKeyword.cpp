@@ -212,11 +212,13 @@ int IdentifyKeyword()
   	}
 	}
 
-	if (p[0]=='f') {	// float,forever,for,fallthru,firstcall,false
+	if (p[0]=='f') {	// float,forever,for,fallthru,firstcall,false,far
 		if (p[1]=='o' && p[2]=='r' && p[3]=='\0')
 			return lastst = kw_for;
 		if (p[1]=='l' && p[2]=='o' && p[3]=='a' && p[4]=='t' && p[5]=='\0')
 			return lastst = kw_float;
+		if (p[1] == 'a' && p[2] == 'r' && p[3] == '\0')
+			return lastst = kw_far;
 		if (p[1]=='o' && p[2]=='r' && p[3]=='e' && p[4]=='v' && p[5]=='e' && p[6]=='r' && p[7]=='\0')
 			return lastst = kw_forever;
 		if (p[1]=='a' && p[2]=='l' && p[3]=='l' && p[4]=='t' && p[5]=='h' && p[6]=='r' && p[7]=='u' && p[8]=='\0')

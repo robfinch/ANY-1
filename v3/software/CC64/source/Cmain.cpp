@@ -157,8 +157,8 @@ int main(int argc, char **argv)
 	cpu.SupportsBBS = true;
 	cpu.SupportsPop = false;
 	cpu.SupportsPush = true;
-	cpu.SupportsLink = true;
-	cpu.SupportsUnlink = true;
+	cpu.SupportsLink = false;
+	cpu.SupportsUnlink = false;
 	cpu.SupportsBitfield = false;
 	cpu.SupportsLDM = true;
 	cpu.SupportsSTM = true;

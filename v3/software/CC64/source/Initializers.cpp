@@ -132,8 +132,8 @@ void doinit(SYM *sp)
 			sprintf_s(buf, sizeof(buf), "\talign\t8\n\tdw\t$FFF0200000000001\n");
 			ofs.printf(buf);
 		}
-		sp->realname = my_strdup(put_label((int)sp->value.i, (char *)sp->name->c_str(), GetNamespace(), 'D'));
-		strcpy_s(glbl2, sizeof(glbl2), gen_label((int)sp->value.i, (char *)sp->name->c_str(), GetNamespace(), 'D'));
+		sp->realname = my_strdup(put_label((int)sp->value.i, (char *)sp->name->c_str(), GetNamespace(), 'D', sp->tp->size));
+		strcpy_s(glbl2, sizeof(glbl2), gen_label((int)sp->value.i, (char *)sp->name->c_str(), GetNamespace(), 'D', sp->tp->size));
 	}
 	else {
 		if (sp->storage_class == sc_global) {
@@ -146,6 +146,7 @@ void doinit(SYM *sp)
 				strcat_s(lbl, sizeof(lbl), isRiscv ? "" : "tls ");
 		}
 		strcat_s(lbl, sizeof(lbl), sp->name->c_str());
+		sprintf_s(&lbl[strlen(lbl)], sizeof(lbl) - strlen(lbl), "[%d]", sp->tp->size);
 		if (sp->tp->IsSkippable()) {
 			patchpoint = ofs.tellp();
 			sprintf_s(buf, sizeof(buf), "\talign\t8\n\tdw\t$FFF0200000000001\n");
@@ -177,7 +178,7 @@ void doinit(SYM *sp)
 					strcpy(buf2, isRiscv ? "" : "endpublic\n");
 				else
 					strcpy(buf2, "");
-				sprintf(buf, "%s:\ndco %s_dat\n%s%s_dat:\n", lbl, sp->name->c_str(), buf2, lbl);
+				sprintf(buf, "%s[%d]:\ndco %s_dat\n%s%s_dat():\n", lbl, 8, sp->name->c_str(), buf2, lbl);
 				ofs.seekp(lblpoint);
 				ofs.write(buf);
 				//			while (lastst != begin && lastst != semicolon && lastst != my_eof)
@@ -217,13 +218,13 @@ void doinit(SYM *sp)
 						}
 					}
 				}
-				sprintf(buf, "%s:\ndco ", lbl);
+				sprintf(buf, "%s[%d]:\ndco ", lbl, 8);
 				ofs.seekp(lblpoint);
 				ofs.write(buf);
 				n2->PutConstant(ofs, 0, 0, false, 0);
 			}
 			else {
-				sprintf(buf, "%s:\ndco %s_func\n", lbl, sp->name->c_str());
+				sprintf(buf, "%s[%d]:\ndco %s_func\n", lbl, 8, sp->name->c_str());
 				ofs.seekp(lblpoint);
 				ofs.write(buf);
 			}

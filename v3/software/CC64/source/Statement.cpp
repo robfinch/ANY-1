@@ -1596,8 +1596,13 @@ void Statement::GenerateTry()
 //	GenerateDiadic(op_ldo, 0, ap, MakeIndexed((int64_t)16,regFP));	// Get current handler
 //	GenerateMonadic(op_push, 0, ap);	// stack it
 	sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)throwlab);
+	DataLabels[throwlab] = true;
 	GenerateDiadic(cpu.ldi_op, 0, ap, MakeStringAsNameConst(buf, codeseg));
-	GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed(8, regFP));	// Set current handler
+	if (currentFn->IsFar)
+		GenerateMonadic(op_di, 0, MakeImmediate(2));
+	GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed(32, regFP));	// Set current handler
+	if (currentFn->IsFar)
+		GenerateDiadic(cpu.sto_op, 0, makereg(regCS), MakeIndexed((int64_t)40, regFP));	// Set current handler
 	if (compiler.ipoll)
 		GenerateZeradic(op_pfi);
 	ReleaseTempRegister(ap);
@@ -1658,8 +1663,13 @@ void Statement::GenerateCatch(int opt, int oldthrow, int olderthrow)
 	// Restore previous handler
 	ap = GetTempRegister();
 	sprintf_s(buf, sizeof(buf), "#.C%05lld", (int64_t)oldthrow);
+	DataLabels[oldthrow] = true;
 	GenerateDiadic(cpu.ldi_op, 0, ap, MakeStringAsNameConst(buf, codeseg));
-	GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed((int64_t)8, regFP));	// Restore handler
+	if (currentFn->IsFar)
+		GenerateMonadic(op_di, 0, MakeImmediate(2));
+	GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed((int64_t)32, regFP));	// Restore handler
+	if (currentFn->IsFar)
+		GenerateDiadic(cpu.sto_op, 0, makereg(regCS), MakeIndexed((int64_t)40, regFP));	// Restore handler
 	ReleaseTempRegister(ap);
 	// Branch around the catch handlers
 	if (opt == 0) {

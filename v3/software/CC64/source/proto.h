@@ -48,6 +48,22 @@ extern void GenerateFloat(Float128 *val);
 extern void GenerateQuad(Float128 *);
 extern void GenerateReference(SYM *sp, int64_t offset);
 extern void GenerateLabelReference(int n, int64_t);
+// Outcode.c
+extern void gen_strlab(char* s);
+extern void dumplits();
+extern int  stringlit(char* s);
+extern int quadlit(Float128* f128);
+extern void nl();
+extern void seg(int sg, int algn);
+extern void cseg();
+extern void dseg();
+extern void tseg();
+//extern void put_code(int op, int len,Operand *aps, Operand *apd, Operand *);
+extern void put_code(OCODE*);
+extern char* put_label(int lab, char*, char*, char, int);
+extern char* gen_label(int lab, char*, char*, char, int);
+extern char* put_labels(char*);
+extern char* opstr(int op);
 
 extern char *RegMoniker(int regno);
 extern void push_token();

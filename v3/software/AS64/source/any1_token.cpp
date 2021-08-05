@@ -449,7 +449,7 @@ int any1_NextToken()
 					tbndx++;
 					return (token = '_');
 					*/
-        // abs add addi addu addui and andcm andi align aslx asr asri
+        // abs add addi addu addui and andcm andi align aslx asr asri at
         case 'a':
         case 'A':
             if ((inptr[1]=='n' || inptr[1]=='N') && (inptr[2]=='d' || inptr[2]=='D') && isspaceOrDot(inptr[3])) {
@@ -544,7 +544,13 @@ int any1_NextToken()
 								tbndx++;
 								return token = tk_abs;
             }
-            break;
+						if ((inptr[1] == 't' || inptr[1] == 'T') && isspaceOrDot(inptr[2])) {
+							inptr += 2;
+							tokenBuffer[tbndx] = tk_at;
+							tbndx++;
+							return token = tk_at;
+						}
+						break;
 
         // band begin beq bor bne bit
         case 'b':
@@ -1408,7 +1414,18 @@ int any1_NextToken()
 								tbndx++;
 								return token = tk_dep;
 							}
-						 break;
+							if ((inptr[1] == 'e' || inptr[1] == 'E') &&
+								(inptr[2] == 'f' || inptr[2] == 'F') &&
+								(inptr[3] == 'c' || inptr[3] == 'C') &&
+								(inptr[4] == 'a' || inptr[4] == 'A') &&
+								(inptr[5] == 't' || inptr[5] == 'T') &&
+								isspaceOrDot(inptr[6])) {
+								inptr += 6;
+								tokenBuffer[tbndx] = tk_defcat;
+								tbndx++;
+								return token = tk_defcat;
+							}
+							break;
 
         // end eor eori endif endpublic enter ext extern extu equ eret es
         case 'e': case 'E':
@@ -1488,6 +1505,15 @@ int any1_NextToken()
 								 tbndx++;
 								 return token = tk_endpublic;
              }
+						 if ((inptr[1] == 'n' || inptr[1] == 'N') &&
+							 (inptr[2] == 'd' || inptr[2] == 'D') &&
+							 (inptr[3] == 'p' || inptr[3] == 'P') &&
+							 isspaceOrDot(inptr[4])) {
+							 inptr += 4;
+							 tokenBuffer[tbndx] = tk_endproc;
+							 tbndx++;
+							 return token = tk_endproc;
+						 }
 						 if ((inptr[1] == 'n' || inptr[1] == 'N') &&
 							 (inptr[2] == 'd' || inptr[2] == 'D') &&
 							 (inptr[3] == 'p' || inptr[3] == 'P') &&
@@ -2579,6 +2605,28 @@ int any1_NextToken()
 								tbndx++;
 								return (token = tk_macro);
             }
+						if ((inptr[1] == 'f' || inptr[1] == 'F') &&
+							(inptr[2] == 'b' || inptr[2] == 'B') &&
+							(inptr[3] == 'a' || inptr[3] == 'A') &&
+							(inptr[4] == 's' || inptr[4] == 'S') &&
+							(inptr[5] == 'e' || inptr[5] == 'E') &&
+							isspaceOrDot(inptr[6])) {
+							inptr += 6;
+							tokenBuffer[tbndx] = tk_mfbase;
+							tbndx++;
+							return (token = tk_mfbase);
+						}
+						if ((inptr[1] == 't' || inptr[1] == 'T') &&
+							(inptr[2] == 'b' || inptr[2] == 'B') &&
+							(inptr[3] == 'a' || inptr[3] == 'A') &&
+							(inptr[4] == 's' || inptr[4] == 'S') &&
+							(inptr[5] == 'e' || inptr[5] == 'E') &&
+							isspaceOrDot(inptr[6])) {
+							inptr += 6;
+							tokenBuffer[tbndx] = tk_mtbase;
+							tbndx++;
+							return (token = tk_mtbase);
+						}
 						if ((inptr[1] == 'v' || inptr[1] == 'V') &&
 							(inptr[2] == 's' || inptr[2] == 'S') &&
 							(inptr[3] == 'e' || inptr[3] == 'E') &&
@@ -2892,7 +2940,7 @@ int any1_NextToken()
         
     // sb sc sf sh sw sxb sxc sxh sub subf subi subu subui shl shli shr shru shrui sei smr ss:
     // seq seqi sne snei sge sgei sgt sgti slt slti sle slei sgeu sgeui sgtu sgtui sltu sltui sleu sleui
-    // swcr sfd sts sync sws stcmp stmov srai srli stcb sv
+    // swcr sfd sts sync sws stcmp stmov srai srli stcb sv section
 		// DSD9/Itanium: stb stw stp stt std sto
     case 's': case 'S':
 			if ((inptr[1]=='t' || inptr[1]=='T') &&
@@ -3468,12 +3516,24 @@ int any1_NextToken()
 			if ((inptr[1] == 't' || inptr[1] == 'T') &&
 				(inptr[2] == 'a' || inptr[2] == 'A') &&
 				(inptr[3] == 't' || inptr[3] == 'T') &&
-				(inptr[4] == 'q' || inptr[3] == 'Q') &&
+				(inptr[4] == 'q' || inptr[4] == 'Q') &&
 				isspaceOrDot(inptr[5])) {
 				inptr += 5;
 				tokenBuffer[tbndx] = tk_statq;
 				tbndx++;
 				return token = tk_statq;
+			}
+			if ((inptr[1] == 'e' || inptr[1] == 'T') &&
+				(inptr[2] == 'c' || inptr[2] == 'A') &&
+				(inptr[3] == 't' || inptr[3] == 'T') &&
+				(inptr[4] == 'i' || inptr[4] == 'I') &&
+				(inptr[5] == 'o' || inptr[5] == 'O') &&
+				(inptr[6] == 'n' || inptr[6] == 'N') &&
+				isspaceOrDot(inptr[7])) {
+				inptr += 7;
+				tokenBuffer[tbndx] = tk_section;
+				tbndx++;
+				return (token = tk_section);
 			}
 			break;
 

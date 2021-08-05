@@ -145,42 +145,52 @@ public:
     int64_t sh_entsize;
 
     void Write(FILE *fp) {
-         fwrite((void*)&sh_name,1,sizeof(sh_name),fp);
-         fwrite((void*)&sh_type,1,sizeof(sh_type),fp);
-         fwrite((void*)&sh_flags,1,sizeof(sh_flags),fp);
-         fwrite((void*)&sh_addr,1,sizeof(sh_addr),fp);
-         fwrite((void*)&sh_offset,1,sizeof(sh_offset),fp);
-         fwrite((void*)&sh_size,1,sizeof(sh_size),fp);
-         fwrite((void*)&sh_link,1,sizeof(sh_link),fp);
-         fwrite((void*)&sh_info,1,sizeof(sh_info),fp);
-         fwrite((void*)&sh_addralign,1,sizeof(sh_addralign),fp);
-         fwrite((void*)&sh_entsize,1,sizeof(sh_entsize),fp);
+      fwrite((void*)&sh_name,1,sizeof(sh_name),fp);
+      fwrite((void*)&sh_type,1,sizeof(sh_type),fp);
+      fwrite((void*)&sh_flags,1,sizeof(sh_flags),fp);
+      fwrite((void*)&sh_addr,1,sizeof(sh_addr),fp);
+      fwrite((void*)&sh_offset,1,sizeof(sh_offset),fp);
+      fwrite((void*)&sh_size,1,sizeof(sh_size),fp);
+      fwrite((void*)&sh_link,1,sizeof(sh_link),fp);
+      fwrite((void*)&sh_info,1,sizeof(sh_info),fp);
+      fwrite((void*)&sh_addralign,1,sizeof(sh_addralign),fp);
+      fwrite((void*)&sh_entsize,1,sizeof(sh_entsize),fp);
     };
-    void Read(FILE *fp) {
-         fread((void*)&sh_name,1,sizeof(sh_name),fp);
-         fread((void*)&sh_type,1,sizeof(sh_type),fp);
-         fread((void*)&sh_flags,1,sizeof(sh_flags),fp);
-         fread((void*)&sh_addr,1,sizeof(sh_addr),fp);
-         fread((void*)&sh_offset,1,sizeof(sh_offset),fp);
-         fread((void*)&sh_size,1,sizeof(sh_size),fp);
-         fread((void*)&sh_link,1,sizeof(sh_link),fp);
-         fread((void*)&sh_info,1,sizeof(sh_info),fp);
-         fread((void*)&sh_addralign,1,sizeof(sh_addralign),fp);
-         fread((void*)&sh_entsize,1,sizeof(sh_entsize),fp);
+    int Read(FILE *fp) {
+      int xx;
+
+      xx = fread((void*)&sh_name,1,sizeof(sh_name),fp);
+      xx += fread((void*)&sh_type,1,sizeof(sh_type),fp);
+      xx += fread((void*)&sh_flags,1,sizeof(sh_flags),fp);
+      xx += fread((void*)&sh_addr,1,sizeof(sh_addr),fp);
+      xx += fread((void*)&sh_offset,1,sizeof(sh_offset),fp);
+      xx += fread((void*)&sh_size,1,sizeof(sh_size),fp);
+      xx += fread((void*)&sh_link,1,sizeof(sh_link),fp);
+      xx += fread((void*)&sh_info,1,sizeof(sh_info),fp);
+      xx += fread((void*)&sh_addralign,1,sizeof(sh_addralign),fp);
+      xx += fread((void*)&sh_entsize,1,sizeof(sh_entsize),fp);
+      if (xx < sizeof(clsElf64Shdr)) {
+        if (feof(fp)) {
+          printf("End of file reached reading section header table.\n");
+          exit(0);
+        }
+      }
+      return (xx);
     };
 };
 
 #define STB_GLOBAL  1
 #define STT_FUNC    2
 
-typedef struct {
-    int32_t st_name;
-    int8_t st_info;
-    int8_t st_other;
-    int16_t st_shndx;
-    int64_t st_value;
-    int64_t st_size;
-} Elf64Symbol;
+class Elf64Symbol {
+public:
+  int32_t st_name;
+  int8_t st_info;
+  int8_t st_other;
+  int16_t st_shndx;
+  int64_t st_value;
+  int64_t st_size;
+};
 
 typedef struct {
     int64_t r_offset;
@@ -390,12 +400,13 @@ public:
         hdr.e_shnum++;
     };
 
-    void ReadSectionHeaderTable(FILE* fp) {
-      int nn;
+    int ReadSectionHeaderTable(FILE* fp) {
+      int nn, xx;
 
-      for (nn = 0; nn < hdr.e_shnum; nn++) {
-        sections[nn]->hdr.Read(fp);
+      for (xx = nn = 0; nn < hdr.e_shnum; nn++) {
+        xx += sections[nn]->hdr.Read(fp);
       }
+      return (xx);
     };
 
     void WriteSectionHeaderTable(FILE *fp) {
@@ -417,17 +428,27 @@ public:
         }
         fseek(fp, (size_t)hdr.e_shoff, SEEK_SET);
         WriteSectionHeaderTable(fp);
+        fflush(fp);
     };
 
     void Read(FILE* fp) {
-      int nn;
+      int nn, xx;
+      int retries = 0;
 
       hdr.Read(fp);
-      fseek(fp, 512, SEEK_SET);
       fseek(fp, (size_t)hdr.e_shoff, SEEK_SET);
       for (nn = 0; nn < hdr.e_shnum; nn++)
         sections[nn] = new clsElf64Section();
-      ReadSectionHeaderTable(fp);
+      xx = ReadSectionHeaderTable(fp);
+      for (retries = 0; xx < hdr.e_shnum * sizeof(clsElf64Shdr) && retries < 5; retries++) {
+        fseek(fp, (size_t)hdr.e_shoff, SEEK_SET);
+        xx = ReadSectionHeaderTable(fp);
+      }
+      if (retries == 5) {
+        printf("Unable to read section header table.\n");
+        fclose(fp);
+        exit(0);
+      }
       for (nn = 0; nn < hdr.e_shnum; nn++) {
         fseek(fp, (size_t)sections[nn]->hdr.sh_offset, SEEK_SET);
         sections[nn]->Read(fp);

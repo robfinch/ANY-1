@@ -32,18 +32,22 @@ typedef struct {
   int ord;        // ordinal
   int name;       // name table index
   int parent;
-	Int128 value;
-  char segment;
-  char defined;
-  char isExtern;
-  char phaserr;
-  char scope;     // P = public
-	bool isMacro;
-  bool isFunc;
-	Macro *macro;
-  int bits;
-  int referenced;
+  int referenceCount;
+  Int128 value;
   int64_t size;
+  int64_t alignment;
+  Macro* macro;
+  unsigned int segment : 6;   // or section
+  unsigned int pad2a : 1;
+  unsigned int isConst : 1;   // An equate
+  unsigned int isDefined : 1;
+  unsigned int isExtern : 1;
+  unsigned int isGlobal : 1;
+	unsigned int isMacro : 1;
+  unsigned int isFunc : 1;  // 1=func, 0=data
+  unsigned int hasPhaseErr : 1;
+  unsigned int pad2b : 2;
+  unsigned int addressBits : 8; // number of bits needed to represent address
 } SYM;
 
 SYM *find_symbol(char *name);

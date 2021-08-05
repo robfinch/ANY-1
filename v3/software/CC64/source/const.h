@@ -111,7 +111,7 @@ enum e_sym {
 	kw_interrupt, kw_vortex, kw_pascal, kw_oscall, kw_nocall, kw_naked,
 	kw_intoff, kw_inton, kw_then,
 	kw_private, kw_public, kw_stop, kw_critical, kw_spinlock, kw_spinunlock, kw_lockfail,
-	kw_cdecl, kw_align, kw_prolog, kw_epilog, kw_check, kw_exception, kw_task,
+	kw_far, kw_cdecl, kw_align, kw_prolog, kw_epilog, kw_check, kw_exception, kw_task,
 	kw_unordered, kw_inline, kw_kernel, kw_inout, kw_leaf, kw_leafs,
 	kw_unique, kw_virtual, kw_this,
 	kw_new, kw_delete, kw_using, kw_namespace, kw_not, kw_attribute,
@@ -228,7 +228,8 @@ enum e_op {
 	op_stdp,
 	op_string,
 	op_rem,
-	op_rtl, op_rtx, op_enter, op_leave, op_base,
+	op_rtl, op_rtx, op_enter, op_leave, op_base, op_enter_far, op_leave_far,
+	op_mfbase, op_mtbase, op_di, op_defcat,
 	op_ptrdif, op_isnullptr,
 	// Built in functions
 	op_abs, op_mulf, op_bytendx, op_zxw, op_zxt,

@@ -51,7 +51,7 @@ static Int128 primary()
          if (sym->segment < 5)
              nsym++;
          lastsym = sym;
-         sym->referenced++;
+         sym->referenceCount++;
          NextToken();
          if (token==tk_eol)
             prevToken();

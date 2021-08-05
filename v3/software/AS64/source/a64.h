@@ -43,6 +43,22 @@ enum {
     constseg = 6,
 };
 
+enum {
+  textsec = 0,
+  rodatasec = 1,
+  datasec = 2,
+  bsssec = 3,
+  tlssec = 4,
+  strtabsec = 5,
+  symtabsec = 6,
+  reltextsec = 7,
+  relrodatasec = 8,
+  reldatasec = 9,
+  relbsssec = 10,
+  reltlssec = 11,
+  shstrtabsec = 12,
+};
+
 extern int rel_out;
 extern int code_bits;
 extern int data_bits;
@@ -81,6 +97,7 @@ extern int bt_ndx;
 extern int64_t binstart;
 extern int8_t bitstart;
 extern NameTable nmTable;
+extern NameTable shnmTable;
 extern float num_bytes;
 extern int num_insns;
 extern int num_cinsns;
@@ -119,12 +136,11 @@ extern int GetSymNdx(SYM *sp);
 extern SYM *GetSymByIndex(int n);
 extern void getbase(int base);
 extern int NumSections;
-extern clsElf64Section sections[12];
+extern clsElf64Section sections[50];
 extern SYM *lastsym;
 
 extern char currentFilename[300];
 extern HTBLE hTable[10000];
-extern char nametext[1000000];
 extern int processOpt;
 extern int expandedBlock;
 extern int gCanCompress;

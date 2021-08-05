@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2017-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2017-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -54,6 +54,9 @@ Statement *Function::ParseBody()
 
 	tmpReset();
 	//ParseAutoDeclarations();
+	lbl += *sym->mangledName;
+	ofs.printf("\n;{++ %s\n", (char* )lbl.c_str());
+	lbl = std::string("");
 	cseg();
 	if (sym->storage_class == sc_static)
 	{
@@ -77,10 +80,6 @@ Statement *Function::ParseBody()
 			lbl += "\n\t.align 16\n";
 			if (!IsInline) {
 				ofs.printf((char*)lbl.c_str());
-				lbl = "\n;.func ";
-				lbl += *sym->mangledName;
-				lbl += "\n";
-				ofs.printf((char*)lbl.c_str());
 				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst(my_strdup((char*)lbl.c_str()), codeseg));
 				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst("\n;{+",codeseg));
 				GenerateMonadic(op_fnname, 0, MakeStringAsNameConst((char *)sym->mangledName->c_str(), codeseg));
@@ -94,9 +93,7 @@ Statement *Function::ParseBody()
 				lbl = "\n\t.local ";
 				lbl += *sym->mangledName;
 				ofs.printf((char*)lbl.c_str());
-				lbl = "\n\t.align 16\n;.func ";
-				lbl += *sym->mangledName;
-				lbl += "\n";
+				lbl = "\n\t.align 16\n";
 				ofs.printf((char*)lbl.c_str());
 				lbl = *sym->mangledName;
 				//GenerateMonadic(op_verbatium, 0, MakeStringAsNameConst("\n;{+", codeseg));
@@ -169,8 +166,8 @@ Statement *Function::ParseBody()
 
 		PeepOpt();
 		FlushPeep();
-		lbl = ".. ";
-		//lbl += *sym->mangledName;
+		lbl = ".endp ";
+		lbl += *sym->mangledName;
 		ofs.printf(lbl.c_str());
 		ofs.printf("\n");
 //		if (sym->storage_class == sc_global) {
@@ -721,43 +718,29 @@ void Function::UnlinkStack(int64_t amt)
 	if (cpu.SupportsLeave) {
 	}
 	else if (!IsLeaf && doesJAL) {
-		if (alstk)
-			GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndexed(sizeOfWord + stkspace, regSP));
+		if (alstk) {
+			GenerateDiadic(cpu.mov_op, 0, makereg(regSP), makereg(regFP));
+			GenerateDiadic(cpu.ldo_op, 0, makereg(regFP), MakeIndirect(regSP));
+			GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndexed(2 * sizeOfWord, regFP));
+			if (IsFar)
+				GenerateDiadic(cpu.ldo_op, 0, makereg(regCS), MakeIndexed(3 * sizeOfWord, regFP));
+		}
 	}
 	cg.GenerateUnlink(amt);
 	if (cpu.SupportsLeave) {
 	}
 	else if (!IsLeaf && doesJAL) {
-		if (!alstk)
-			GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndexed(sizeOfWord, regSP));
+		if (!alstk) {
+			GenerateDiadic(cpu.mov_op, 0, makereg(regSP), makereg(regFP));
+			GenerateDiadic(cpu.ldo_op, 0, makereg(regFP), MakeIndirect(regSP));
+			GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndexed(2 * sizeOfWord, regFP));
+			if (IsFar)
+				GenerateDiadic(cpu.ldo_op, 0, makereg(regCS), MakeIndexed(3 * sizeOfWord, regFP));
+		}
 	}
 	//	GenerateTriadic(op_add,0,makereg(regSP),makereg(regSP),MakeImmediate(3*sizeOfWord));
 	if (!cpu.SupportsLeave)
 		GenerateMonadic(op_hint, 0, MakeImmediate(end_stack_unlink));
-}
-
-bool Function::GenDefaultCatch()
-{
-/*
-	GenerateLabel(throwlab);
-	if (IsLeaf) {
-		if (DoesThrow) {
-			GenerateDiadic(op_ldd, 0, makereg(regLR), MakeIndexed(2 * sizeOfWord, regFP));		// load throw return address from stack into LR
-			GenerateDiadic(op_std, 0, makereg(regLR), MakeIndexed(3 * sizeOfWord, regFP));		// and store it back (so it can be loaded with the lm)
-																									//GenerateDiadic(op_spt,0,makereg(0),MakeIndexed(3 * sizeOfWord, regFP));
-																									//			GenerateDiadic(op_bra,0,MakeDataLabel(retlab),NULL);				// goto regular return cleanup code
-			return (true);
-		}
-	}
-	else {
-		GenerateDiadic(op_ldd, 0, makereg(regLR), MakeIndexed(2 * sizeOfWord, regFP));		// load throw return address from stack into LR
-		GenerateDiadic(op_std, 0, makereg(regLR), MakeIndexed(3 * sizeOfWord, regFP));		// and store it back (so it can be loaded with the lm)
-																								//GenerateDiadic(op_spt, 0, makereg(0), MakeIndexed(3 * sizeOfWord, regFP));
-																								//		GenerateDiadic(op_bra,0,MakeDataLabel(retlab),NULL);				// goto regular return cleanup code
-		return (true);
-	}
-*/
-	return (false);
 }
 
 int64_t Function::SizeofReturnBlock()
@@ -778,15 +761,15 @@ void Function::SetupReturnBlock()
 		GenerateMonadic(op_hint,0,MakeImmediate(begin_return_block));
 	if (cpu.SupportsEnter)
 	{
-		if (stkspace < 32767 - Compiler::GetReturnBlockSize()) {
-			GenerateMonadic(op_enter, 0, MakeImmediate(Compiler::GetReturnBlockSize() + stkspace));
+		if (stkspace < 32767) {
+			GenerateMonadic(IsFar ? op_enter_far : op_enter, 0, MakeImmediate(stkspace));
 			//			GenerateMonadic(op_link, 0, MakeImmediate(stkspace));
 						//spAdjust = pl.tail;
 			alstk = true;
 		}
 		else {
-			GenerateMonadic(op_enter, 0, MakeImmediate(32760));
-			GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(Compiler::GetReturnBlockSize() + stkspace - 32760));
+			GenerateMonadic(IsFar ? op_enter_far : op_enter, 0, MakeImmediate(32760));
+			GenerateTriadic(op_sub, 0, makereg(regSP), makereg(regSP), MakeImmediate(stkspace - 32760));
 			//GenerateMonadic(op_link, 0, MakeImmediate(SizeofReturnBlock() * sizeOfWord));
 			alstk = true;
 		}
@@ -826,8 +809,13 @@ void Function::SetupReturnBlock()
 		}
 		else
 		*/
-			if (!cpu.SupportsEnter)
-				GenerateDiadic(cpu.sto_op, 0, makereg(regLR), MakeIndexed(1 * sizeOfWord + stkspace, regSP));
+		if (!cpu.SupportsEnter) {
+			//if (IsFar)
+			//	GenerateMonadic(op_di, 0, MakeImmediate(2));
+			GenerateDiadic(cpu.sto_op, 0, makereg(regLR), MakeIndexed(2 * sizeOfWord, regFP));
+			if (IsFar)
+				GenerateDiadic(cpu.sto_op, 0, makereg(regRS), MakeIndexed(3 * sizeOfWord, regFP));
+		}
 	}
 	/*
 	switch (n) {
@@ -853,9 +841,16 @@ void Function::SetupReturnBlock()
 			sprintf_s(buf, sizeof(buf), ".C%05lld", defCatchLabel);
 		else
 			sprintf_s(buf, sizeof(buf), "#.C%05lld", defCatchLabel);
+		DataLabels[defCatchLabel] = true;
 		defCatchLabelPatchPoint = currentFn->pl.tail;
 		GenerateDiadic(cpu.ldi_op, 0, ap, MakeStringAsNameConst(buf, codeseg));
-		GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed((int64_t)16, regFP));
+		if (IsFar)
+			GenerateMonadic(op_di, 0, MakeImmediate(2));
+		GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed((int64_t)32, regFP));
+		if (IsFar) {
+			GenerateDiadic(cpu.sto_op, 0, makereg(regCS), MakeIndexed((int64_t)40, regFP));
+		}
+//		GenerateDiadic(cpu.mov_op, 0, makereg(regAFP), makereg(regFP));
 		GenerateMonadic(op_bex, 0, cg.MakeCodeLabel(currentFn->defCatchLabel));
 	}
 	tryCount = 0;
@@ -1018,21 +1013,21 @@ void Function::GenerateReturn(Statement* stmt)
 		}
 		return;
 	}
-	if (!cpu.SupportsLeave)
+	toAdd = 0;
+	if (!cpu.SupportsLeave) {
 		UnlinkStack(0);
+		toAdd = SizeofReturnBlock();
+	}
 	if (!alstk) {
 		// The size of the return block is included in the link instruction, so the
 		// unlink instruction will reverse the allocation.
 		if (cpu.SupportsLink)
 			toAdd = 0;
-		else
-			toAdd = SizeofReturnBlock() * sizeOfWord;
+		else if (cpu.SupportsLeave)
+			toAdd = 0;
 	}
 	else if (currentFn->IsLeaf)
 		toAdd = 0;
-	else // ???
-		toAdd = 0;
-	//	toAdd = sizeOfWord;
 
 	if (epilog) {
 		epilog->Generate();
@@ -1109,8 +1104,10 @@ void Function::GenerateReturn(Statement* stmt)
 				UnlinkStack(toAdd);
 			else {
 				GenerateDiadic(cpu.mov_op, 0, makereg(regSP), makereg(regFP));
-				GenerateDiadic(cpu.ldo_op, 0, makereg(regFP), MakeIndexed(-sizeOfWord, regSP));
-				GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndirect(regSP));
+				GenerateDiadic(cpu.ldo_op, 0, makereg(regFP), MakeIndirect(regSP));
+				GenerateDiadic(cpu.ldo_op, 0, makereg(regLR), MakeIndexed(2 * sizeOfWord, regFP));
+				if (IsFar)
+					GenerateDiadic(cpu.ldo_op, 0, makereg(regCS), MakeIndexed(3 * sizeOfWord, regFP));
 				GenerateTriadic(op_add, 0, makereg(regSP), makereg(regSP), MakeImmediate(toAdd));
 			}
 		}
@@ -1253,16 +1250,23 @@ void Function::Generate()
 
 void Function::GenerateDefaultCatch()
 {
-	Operand* ap;
+	Operand* ap, *ap2;
 
 	if (!isNocall) {
 		initstack();
 		ap = GetTempRegister();
+		ap2 = GetTempRegister();
 		if (!hasDefaultCatch)
 			GenerateLabel(defCatchLabel);
-		GenerateDiadic(cpu.ldo_op, 0, ap, MakeIndexed((int64_t)16, regFP));				// Get previous frame pointer
-		GenerateDiadic(cpu.ldo_op, 0, ap, MakeIndexed((int64_t)8, ap->preg));		// Get previous handler address
-		GenerateDiadic(cpu.sto_op, 0, ap, MakeIndexed((int64_t)0, regFP));				// move it to return address loc
+		GenerateDiadic(op_defcat, 0, ap, ap2);
+		//GenerateDiadic(cpu.ldo_op, 0, ap, MakeIndexed((int64_t)0, regFP));				// Get previous frame pointer
+		//GenerateDiadic(cpu.ldo_op, 0, ap2, MakeIndexed((int64_t)32, ap->preg));		// Get previous handler address
+		//GenerateDiadic(cpu.sto_op, 0, ap2, MakeIndexed((int64_t)16, regFP));				// move it to return address loc
+		//if (IsFar||true) {
+		//	GenerateDiadic(cpu.ldo_op, 0, ap2, MakeIndexed((int64_t)40, ap->preg));		// Get previous handler address base
+		//	GenerateDiadic(cpu.sto_op, 0, ap2, MakeIndexed((int64_t)24, regFP));				// move it to return address loc base
+		//}
+		ReleaseTempRegister(ap2);
 		ReleaseTempRegister(ap);
 		GenerateMonadic(op_bra, 0, MakeCodeLabel(retlab));										// And execute return code
 	}
@@ -1773,6 +1777,7 @@ void Function::Summary(Statement *stmt)
 	isOscall = FALSE;
 	isInterrupt = FALSE;
 	isNocall = FALSE;
+	ofs.printf(";--}\n");
 	dfs.printf("</FuncSummary>\n");
 }
 

@@ -83,9 +83,10 @@ char buf[10000];
 int masterFileLength = 0;
 char masterFile[10000000];
 char segmentFile[10000000];
-int NumSections = 12;
-clsElf64Section sections[12];
-NameTable nmTable;
+int NumSections = 13;
+clsElf64Section sections[50];
+NameTable nmTable(1000000);
+NameTable shnmTable(2000);
 char codebuf[10000000];
 char rodatabuf[10000000];
 char databuf[10000000];
@@ -863,10 +864,10 @@ void process_public()
   sym = find_symbol(lastid);
   if (pass == 4) {
     if (sym) {
-			if (sym->defined) {
+			if (sym->isDefined) {
 				printf("Symbol (%s) already defined.\r\n", lastid);
         sym->segment = segment;
-        sym->scope = 'P';
+        sym->isGlobal = 1;
         goto xit1;
 			}
     }
@@ -875,19 +876,19 @@ void process_public()
     }
 		if (!sym)
 			goto xit1;
-    sym->defined = 1;
+    sym->isDefined = 1;
 		if (gCpu=='G')
 			sym->value.low = ca & -4LL;
 		else
 			sym->value.low = ca;
 		sym->value.high = 0;
     sym->segment = segment;
-    sym->scope = 'P';
+    sym->isGlobal = 1;
   }
   // Strip out unreferenced publics
   else if (pass == 5) {
     if (sym) {
-      if (sym->referenced==0 && !keepUnreferenced) {
+      if (sym->referenceCount==0 && !keepUnreferenced) {
         char* p2, * p3;
         p3 = p1;
         do {
@@ -902,7 +903,7 @@ void process_public()
       }
       if (sym->value.low != ca) {
         phasing_errors++;
-        sym->phaserr = '*';
+        sym->hasPhaseErr = 1;
         //if (bGen) printf("%s=%06I64x ca=%06I64x\r\n", nmTable.GetName(sym->name),  sym->value, code_address);
         if (gCpu == 'G')
           sym->value.low = ca & -4LL;
@@ -911,7 +912,7 @@ void process_public()
         sym->value.high = 0;
       }
       else
-        sym->phaserr = ' ';
+        sym->hasPhaseErr = 0;
     }
   }
 	else if (pass > 5) {
@@ -920,7 +921,7 @@ void process_public()
 			goto xit1;
 		}
     if (sym) {
-      if (!sym->referenced && !keepUnreferenced) {
+      if (sym->referenceCount==0 && !keepUnreferenced) {
         do {
           NextToken();
         } while (token != tk_endpublic && token != tk_clip_end);
@@ -928,7 +929,7 @@ void process_public()
     }
     if (sym->value.low != ca) {
 			phasing_errors++;
-			sym->phaserr = '*';
+			sym->hasPhaseErr = 1;
 			//if (bGen) printf("%s=%06I64x ca=%06I64x\r\n", nmTable.GetName(sym->name),  sym->value, code_address);
       if (gCpu == 'G')
         sym->value.low = ca & -4LL;
@@ -937,7 +938,7 @@ void process_public()
       sym->value.high = 0;
     }
 		else
-			sym->phaserr = ' ';
+			sym->hasPhaseErr = 0;
 	}
 xit1:
   strcpy_s(current_label, sizeof(current_label), lastid);
@@ -1035,11 +1036,11 @@ void process_extern()
                 sym = new_symbol(lastid);
             }
             if (sym) {
-                sym->defined = 0;
+                sym->isDefined = 0;
                 sym->value.low = 0;
 				sym->value.high = 0;
                 sym->segment = segment;
-                sym->scope = 'P';
+                sym->isGlobal = 1;
                 sym->isExtern = 1;
             }
         }
@@ -1049,13 +1050,13 @@ void process_extern()
         if (token==':') {
            NextToken();
            if (sym)
-               sym->bits = (int)expr();
+               sym->addressBits = (int)expr();
         }
         else {
 //    printf("J:sym=%p lastid=%s", sym, lastid);
            prevToken();
             if (sym)
-               sym->bits = 32;
+               sym->addressBits = 32;
         }
     }
     ScanToEOL();
@@ -1092,6 +1093,7 @@ void process_org()
               code_address = new_address*mul;
               start_address = new_address*mul;
               sections[0].address = new_address*mul;
+              sections[0].start = new_address * mul;
               first_org = 0;
             }
             else {
@@ -1813,6 +1815,56 @@ void process_fill()
 }
 
 // ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+
+void process_section()
+{
+  int nn;
+  std::string nm;
+  int64_t loc = 0;
+  bool setloc = false;
+
+  if (token == tk_id) {
+    NextToken();
+    // see if it's an existing section
+    for (nn = 0; nn < NumSections; nn++) {
+      if (strcmp(lastid, shnmTable.GetName(sections[nn].hdr.sh_name)) == 0) {
+        segment = nn;
+        return;
+      }
+      if (lastid[0] == '.') {
+        if (strcmp(&lastid[1], shnmTable.GetName(sections[nn].hdr.sh_name)) == 0) {
+          segment = nn;
+          return;
+        }
+      }
+    }
+    if (token == tk_at) {
+      setloc = true;
+      NextToken();
+      loc = expr();
+    }
+    // not an existing section
+    segment = nn;
+    NumSections++;
+    sections[nn].Clear();
+    sections[nn].hdr.sh_name = shnmTable.AddName(lastid);
+    if (setloc)
+      sections[nn].hdr.sh_addr = loc;
+    nm = ".rel";
+    if (lastid[0] == '.')
+      nm += &lastid[1];
+    else
+      nm += lastid;
+    NumSections++;
+    nn++;
+    sections[nn].Clear();
+    sections[nn].hdr.sh_name = shnmTable.AddName((char *)nm.c_str());
+  }
+}
+
+
+// ----------------------------------------------------------------------------
 // Bump up the address to the next aligned code address.
 // ----------------------------------------------------------------------------
 
@@ -1846,7 +1898,7 @@ void process_macro()
 		}
 		else {
 			sym = new_symbol(lastid);
-			sym->defined = 1;
+			sym->isDefined = 1;
 			sym->isMacro = true;
 			sym->macro = macr;
 		}
@@ -1948,8 +2000,8 @@ void process_label()
     ca = sections[4].address >> shft;
     break;
 	default:
-		ca = code_address >> shft;
-		ca = sections[0].address >> shft;
+		ca = sections[segment].address >> shft;
+//		ca = sections[0].address >> shft;
 		break;
 	}
 //    if (segment==bssseg)
@@ -1970,15 +2022,35 @@ void process_label()
 	if (strcmp("end_init_data", nm)==0)
     isInitializationData = 0;
   // Skip over ':' or begin
-  if (token == '(') {
+  if (token == tk_proc) {
+    SkipSpaces();
+    sym->isFunc = true;
+    NextToken();
+    if (token == ':' || token == '{' || token == tk_begin)
+      NextToken();
+  }
+  else if (token == '(') {
     SkipSpaces();
     NextToken();
     if (token == ')') {
       sym->isFunc = true;
       NextToken();
-      if (token == ':' || token == tk_begin)
+      if (token == ':' || token=='{' || token == tk_proc || token == tk_begin)
         NextToken();
     }
+  }
+  // Size specification?
+  else if (token == '[') {
+    SkipSpaces();
+    sym->size = expr();
+    if (token == ',') {
+      NextToken();
+      sym->alignment = expr();
+    }
+    if (token == ']')
+      NextToken();
+    if (token == ':')
+      NextToken();
   }
   else
     NextToken();
@@ -2001,17 +2073,17 @@ void process_label()
 //  sym = find_symbol(nm);
   if (pass==4 || pass==3) {
     if (sym) {
-      if (sym->defined) {
+      if (sym->isDefined) {
         //if (!Int128::IsEqual(&sym->value, &val)) {
         //    printf("Label %s already defined %ld vs %ld.\r\n", nm, sym->value.low, val.low);
         //    printf("Line %d: %.60s\r\n", lineno, stptr);
         //}
       }
-      sym->defined = 1;
+      sym->isDefined = 1;
       if (isEquate) {
         sym->value = val;
         sym->segment = constseg;
-        sym->bits = (int)ceil(log(fabs((double)val.low)+1) / log(2.0))+1;
+        sym->addressBits = (int)ceil(log(fabs((double)val.low)+1) / log(2.0))+1;
       }
       else {
 				if (gCpu == 'G') {
@@ -2022,18 +2094,18 @@ void process_label()
 					sym->value = Int128::Convert(ca);
         sym->segment = segment;
         if (segment==codeseg)
-          sym->bits = code_bits;
+          sym->addressBits = code_bits;
         else
-          sym->bits = data_bits;
+          sym->addressBits = data_bits;
       }
     }
     else {
       sym = new_symbol(nm);    
-      sym->defined = 1;
+      sym->isDefined = 1;
       if (isEquate) {
         sym->value = val;
         sym->segment = constseg;
-        sym->bits = (int)ceil(log(fabs((double)val.low)+1) / log(2.0))+1;
+        sym->addressBits = (int)ceil(log(fabs((double)val.low)+1) / log(2.0))+1;
       }
       else {
 				if (gCpu == 'G') {
@@ -2044,9 +2116,9 @@ void process_label()
 					sym->value = Int128::Convert(ca);
 				sym->segment = segment;
         if (segment==codeseg)
-          sym->bits = code_bits;
+          sym->addressBits = code_bits;
         else
-          sym->bits = data_bits;
+          sym->addressBits = data_bits;
       }
     }
   }
@@ -2066,11 +2138,11 @@ void process_label()
 					//if (verbose)
 					//	printf("Phase error %s=%06llx, Address=%06llX\n", nmTable.GetName(sym->name), sym->value.low, ca);
           phasing_errors++;
-          sym->phaserr = '*';
+          sym->hasPhaseErr = 1;
           //if (bGen) printf("%s=%06llx ca=%06llx\r\n", nmTable.GetName(sym->name),  sym->value, code_address);
         }
         else
-          sym->phaserr = ' ';
+          sym->hasPhaseErr = 0;
 				if (gCpu == 'G') {
 					sym->value.low = ca & -4LL;
 					sym->value.high = 0;
@@ -2085,6 +2157,22 @@ void process_label()
 //    printf("</process_ label>\r\n");
   if (lastid[0] != '.')
     current_symbol = sym;
+  if (bGen) {
+    if (rel_out && !sym->isConst && (ca & 0xffffffffff000000LL) != 0xffffffffff000000LL) {
+      if (sym->segment < 5) {
+        int relsec;
+        switch (segment) {
+        case 0: case 1: case 2: case 3: case 4: case 5:
+          relsec = segment + 7;
+          break;
+        default:
+          relsec = segment + 1;
+        }
+        sections[relsec].AddRel(sections[segment].index, ((sym->ord + 1) << 32) | ANY1_DATA | (sym->isExtern ? 128 : 0) |
+          (sym->segment == codeseg ? code_bits << 8 : data_bits << 8));
+      }
+    }
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -2726,7 +2814,7 @@ void WriteELFFile(FILE *fp)
     SYM *sym,*syms;
     int64_t start;
 
-    sections[0].hdr.sh_name = nmTable.AddName(".text");
+    // text
     sections[0].hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
     sections[0].hdr.sh_flags = clsElf64Shdr::SHF_ALLOC | clsElf64Shdr::SHF_EXECINSTR;
     sections[0].hdr.sh_addr = rel_out ? 0 : sections[0].start;
@@ -2737,90 +2825,97 @@ void WriteELFFile(FILE *fp)
     sections[0].hdr.sh_addralign = 16;
     sections[0].hdr.sh_entsize = 0;
 
-    sections[1].hdr.sh_name = nmTable.AddName(".rodata");
+    // rodata
     sections[1].hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
     sections[1].hdr.sh_flags = clsElf64Shdr::SHF_ALLOC;
     sections[1].hdr.sh_addr = sections[0].hdr.sh_addr + sections[0].index;
-    sections[1].hdr.sh_offset = sections[0].hdr.sh_offset + sections[0].index; // offset in file
+    sections[1].hdr.sh_offset = Round512(sections[0].hdr.sh_offset + sections[0].hdr.sh_size); // offset in file
     sections[1].hdr.sh_size = sections[1].index;
     sections[1].hdr.sh_link = 0;
     sections[1].hdr.sh_info = 0;
     sections[1].hdr.sh_addralign = 8;
     sections[1].hdr.sh_entsize = 0;
 
-    sections[2].hdr.sh_name = nmTable.AddName(".data");
+     // data
     sections[2].hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
     sections[2].hdr.sh_flags = clsElf64Shdr::SHF_ALLOC | clsElf64Shdr::SHF_WRITE;
     sections[2].hdr.sh_addr = sections[1].hdr.sh_addr + sections[1].index;
-    sections[2].hdr.sh_offset = sections[1].hdr.sh_offset + sections[1].index; // offset in file
+    sections[2].hdr.sh_offset = Round512(sections[1].hdr.sh_offset + sections[1].hdr.sh_size); // offset in file
     sections[2].hdr.sh_size = sections[2].index;
     sections[2].hdr.sh_link = 0;
     sections[2].hdr.sh_info = 0;
     sections[2].hdr.sh_addralign = 8;
     sections[2].hdr.sh_entsize = 0;
 
-    sections[3].hdr.sh_name = nmTable.AddName(".bss");
+    // bss
     sections[3].hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
     sections[3].hdr.sh_flags = clsElf64Shdr::SHF_ALLOC | clsElf64Shdr::SHF_WRITE;
     sections[3].hdr.sh_addr = sections[2].hdr.sh_addr + sections[2].index;
-    sections[3].hdr.sh_offset = sections[2].hdr.sh_offset + sections[2].index; // offset in file
+    sections[3].hdr.sh_offset = Round512(sections[2].hdr.sh_offset + sections[2].hdr.sh_size); // offset in file
     sections[3].hdr.sh_size = 0;
     sections[3].hdr.sh_link = 0;
     sections[3].hdr.sh_info = 0;
     sections[3].hdr.sh_addralign = 8;
     sections[3].hdr.sh_entsize = 0;
 
-    sections[4].hdr.sh_name = nmTable.AddName(".tls");
+    // tls
     sections[4].hdr.sh_type = clsElf64Shdr::SHT_PROGBITS;
     sections[4].hdr.sh_flags = clsElf64Shdr::SHF_ALLOC | clsElf64Shdr::SHF_WRITE;
-    sections[4].hdr.sh_addr = sections[3].hdr.sh_addr + sections[3].index;;
-    sections[4].hdr.sh_offset = sections[2].hdr.sh_offset + sections[2].index; // offset in file
+    sections[4].hdr.sh_addr = sections[3].hdr.sh_addr + sections[3].index;
+    sections[4].hdr.sh_offset = Round512(sections[3].hdr.sh_offset + sections[3].hdr.sh_size); // offset in file
     sections[4].hdr.sh_size = 0;
     sections[4].hdr.sh_link = 0;
     sections[4].hdr.sh_info = 0;
     sections[4].hdr.sh_addralign = 8;
     sections[4].hdr.sh_entsize = 0;
 
-    sections[5].hdr.sh_name = nmTable.AddName(".strtab");
-    // The following line must be before the name table is copied to the section.
-    sections[6].hdr.sh_name = nmTable.AddName(".symtab");
-    sections[7].hdr.sh_name = nmTable.AddName(".reltext");
-    sections[8].hdr.sh_name = nmTable.AddName(".relrodata");
-    sections[9].hdr.sh_name = nmTable.AddName(".reldata");
-    sections[10].hdr.sh_name = nmTable.AddName(".relbss");
-    sections[11].hdr.sh_name = nmTable.AddName(".reltls");
+     // strtab
     sections[5].hdr.sh_type = clsElf64Shdr::SHT_STRTAB;
     sections[5].hdr.sh_flags = 0;
     sections[5].hdr.sh_addr = 0;
-    sections[5].hdr.sh_offset = 512 + sections[0].index + sections[1].index + sections[2].index; // offset in file
+    sections[5].hdr.sh_offset = Round512(sections[4].hdr.sh_offset + sections[4].hdr.sh_size); // offset in file
     sections[5].hdr.sh_size = nmTable.length;
     sections[5].hdr.sh_link = 0;
     sections[5].hdr.sh_info = 0;
     sections[5].hdr.sh_addralign = 1;
     sections[5].hdr.sh_entsize = 0;
-    memcpy(sections[5].bytes, nametext, nmTable.length);
+    memcpy(sections[5].bytes, nmTable.GetName(0), nmTable.length);
 
+    // symtab
     sections[6].hdr.sh_type = clsElf64Shdr::SHT_SYMTAB;
     sections[6].hdr.sh_flags = 0;
     sections[6].hdr.sh_addr = 0;
-    sections[6].hdr.sh_offset = Round512(512 + sections[0].index + sections[1].index + sections[2].index) + nmTable.length; // offset in file
+    sections[6].hdr.sh_offset = Round512(sections[5].hdr.sh_offset + sections[5].hdr.sh_size); // offset in file
     sections[6].hdr.sh_size = (numsym + 1) * 24;
     sections[6].hdr.sh_link = 5;
     sections[6].hdr.sh_info = 0;
     sections[6].hdr.sh_addralign = 1;
     sections[6].hdr.sh_entsize = 24;
 
+    // relxxx
     for(nn = 7; nn < 12; nn++) {
         sections[nn].hdr.sh_type = clsElf64Shdr::SHT_REL;
         sections[nn].hdr.sh_flags = 0;
         sections[nn].hdr.sh_addr = 0;
-        sections[nn].hdr.sh_offset = sections[nn-1].hdr.sh_offset + sections[nn-1].hdr.sh_size; // offset in file
+        sections[nn].hdr.sh_offset = Round512(sections[nn-1].hdr.sh_offset + sections[nn-1].hdr.sh_size); // offset in file
         sections[nn].hdr.sh_size = sections[nn].index;
         sections[nn].hdr.sh_link = 6;
         sections[nn].hdr.sh_info = 0;
         sections[nn].hdr.sh_addralign = 1;
         sections[nn].hdr.sh_entsize = 16;
     }
+
+    // shstrtab
+    sections[12].hdr.sh_type = clsElf64Shdr::SHT_STRTAB;
+    sections[12].hdr.sh_flags = 0;
+    sections[12].hdr.sh_addr = 0;
+    sections[12].hdr.sh_offset = Round512(sections[11].hdr.sh_offset + sections[11].hdr.sh_size); // offset in file
+    sections[12].hdr.sh_size = shnmTable.length;
+    sections[12].hdr.sh_link = 0;
+    sections[12].hdr.sh_info = 0;
+    sections[12].hdr.sh_addralign = 1;
+    sections[12].hdr.sh_entsize = 0;
+    memcpy(sections[12].bytes, shnmTable.GetName(0), shnmTable.length);
 
     nn = 1;
     // The first entry is an NULL symbol
@@ -2837,10 +2932,10 @@ void WriteELFFile(FILE *fp)
 //        if (syms[nn].segment < 5) {
           if (syms[nn].name) {
             elfsym.st_name = syms[nn].name;
-            elfsym.st_info = (syms[nn].scope == 'P' ? (STB_GLOBAL << 4) : 0) | (syms[nn].isFunc ? STT_FUNC : 0);
+            elfsym.st_info = (syms[nn].isGlobal ? (STB_GLOBAL << 4) : 0) | (syms[nn].isFunc ? STT_FUNC : 0);
             elfsym.st_other = 0;
             elfsym.st_shndx = syms[nn].segment;
-            elfsym.st_value = syms[nn].value.low;
+            elfsym.st_value = (syms[nn].alignment << 48LL) | (syms[nn].value.low & 0xffffffffffffLL);
             elfsym.st_size = syms[nn].size;
             sections[6].Add(&elfsym);
 //        }
@@ -2873,16 +2968,16 @@ void WriteELFFile(FILE *fp)
         start = 0xC00200;
     elf.hdr.e_entry = start;
     elf.hdr.e_phoff = 0;
-    elf.hdr.e_shoff = sections[11].hdr.sh_offset + sections[11].index;
+    elf.hdr.e_shoff = sections[12].hdr.sh_offset + sections[12].hdr.sh_size;
     elf.hdr.e_flags = 0;
     elf.hdr.e_ehsize = Elf64HdrSz;
     elf.hdr.e_phentsize = 0;
     elf.hdr.e_phnum = 0;
     elf.hdr.e_shentsize = Elf64ShdrSz;
     elf.hdr.e_shnum = 0;              // This will be incremented by AddSection()
-    elf.hdr.e_shstrndx = 5;           // index into section table of string table header
+    elf.hdr.e_shstrndx = 12;          // index into section table of string table header
 
-    for (nn = 0; nn < 12; nn++)
+    for (nn = 0; nn < NumSections; nn++)
         elf.AddSection(&sections[nn]);    
     elf.Write(fp);
 
@@ -3023,6 +3118,23 @@ int PreProcessFile(char *nm)
 	return system(sysbuf);
 }
 */
+void AddStdSectionNames()
+{
+  sections[0].hdr.sh_name = shnmTable.AddName(".text");
+  sections[1].hdr.sh_name = shnmTable.AddName(".rodata");
+  sections[2].hdr.sh_name = shnmTable.AddName(".data");
+  sections[3].hdr.sh_name = shnmTable.AddName(".bss");
+  sections[4].hdr.sh_name = shnmTable.AddName(".tls");
+  sections[5].hdr.sh_name = shnmTable.AddName(".strtab");
+  sections[6].hdr.sh_name = shnmTable.AddName(".symtab");
+  sections[7].hdr.sh_name = shnmTable.AddName(".reltext");
+  sections[8].hdr.sh_name = shnmTable.AddName(".relrodata");
+  sections[9].hdr.sh_name = shnmTable.AddName(".reldata");
+  sections[10].hdr.sh_name = shnmTable.AddName(".relbss");
+  sections[11].hdr.sh_name = shnmTable.AddName(".reltls");
+  sections[12].hdr.sh_name = shnmTable.AddName(".shstrtab");
+}
+
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
 
@@ -3054,6 +3166,7 @@ int main(int argc, char *argv[])
     displayHelp();
     return 0;
   }
+  AddStdSectionNames();
   SymbolInit();
   strcpy_s(fname, sizeof(fname), argv[nn]);
   mfndx = 0;
@@ -3510,21 +3623,23 @@ int main(int argc, char *argv[])
         printf("fname:%s\r\n", fname);
         fopen_s(&vfp, fname, "w");
         if (vfp) {
-            if (gCpu==64||gCpu=='F'||gCpu=='G') {
-                for (kk = 0; kk < binndx; kk+=4) {
-                    if (lsa != (start_address + kk) >> 16LL) {
-                        sprintf_s(hexbuf, sizeof(hexbuf), ":02000004%04X00\n", (int)((start_address+(int64_t)kk) >> 16LL) & 0xffff);
-                        IHChecksum(hexbuf, 2);
-                        fprintf(vfp, hexbuf);
-                        lsa = (start_address+kk) >> 16LL;
-                    }
-                    sprintf_s(hexbuf, sizeof(hexbuf), ":%02X%04X00%02X%02X%02X%02X\n",
-                        4, (int)(start_address + kk) & 0xFFFF,
-                        binfile[kk], binfile[kk+1], binfile[kk+2], binfile[kk+3]
-                    );
-                    IHChecksum(hexbuf, 4);
-                    fprintf(vfp, hexbuf);
+          if (gCpu == ANY1V3)
+            start_address >>= 1;
+            if (gCpu==64||gCpu=='F'||gCpu=='G' || gCpu==ANY1V3) {
+              for (kk = 0; kk < binndx; kk+=4) {
+                if (lsa != (start_address + kk) >> 16LL) {
+                  sprintf_s(hexbuf, sizeof(hexbuf), ":02000004%04X00\n", (int)((start_address+(int64_t)kk) >> 16LL) & 0xffff);
+                  IHChecksum(hexbuf, 2);
+                  fprintf(vfp, hexbuf);
+                  lsa = (start_address+kk) >> 16LL;
                 }
+                sprintf_s(hexbuf, sizeof(hexbuf), ":%02X%04X00%02X%02X%02X%02X\n",
+                  4, (int)(start_address + kk) & 0xFFFF,
+                  binfile[kk], binfile[kk+1], binfile[kk+2], binfile[kk+3]
+                );
+                IHChecksum(hexbuf, 4);
+                fprintf(vfp, hexbuf);
+              }
             }
             else if (gCpu==4) {
                 for (kk = 0; kk < binndx; kk+=8) {
@@ -3546,7 +3661,10 @@ int main(int argc, char *argv[])
 						strcpy_s(nm, sizeof(nm), "start");
 						sym = find_symbol(nm);
 						if (sym) {
-							sprintf_s(hexbuf, sizeof(hexbuf), ":02000005%08X00", (int)(sym->value.low & 0xffffffffLL));
+              if (gCpu == ANY1V3)
+                sprintf_s(hexbuf, sizeof(hexbuf), ":02000005%08X00", (int)((int)(sym->value.low >> 1) & 0xffffffffLL));
+              else
+  							sprintf_s(hexbuf, sizeof(hexbuf), ":02000005%08X00", (int)(sym->value.low & 0xffffffffLL));
 							IHChecksum(hexbuf, 4);
 							fprintf(vfp, hexbuf);
 						}

@@ -38,7 +38,7 @@ extern void doInitCleanup();
 
 int Compiler::GetReturnBlockSize()
 {
-	return (4 * sizeOfWord);
+	return (12 * sizeOfWord);
 }
 
 int Compiler::main2(int argc, char **argv)
@@ -112,7 +112,6 @@ void Compiler::compile()
 	lstackptr = 0;
 	lastst = 0;
 	NextToken();
-	ofs.printf("\n;{++\n");
 	try {
 		while(lastst != my_eof)
 		{
@@ -135,7 +134,6 @@ void Compiler::compile()
  		dfs.printf("</compile>\n");
 	}
 	dumplits();
-	ofs.printf(";--}\n");
 }
 
 int Compiler::PreprocessFile(char *nm)

@@ -144,7 +144,7 @@ void *htFind2(SHashTbl *hi, char *name)
    for (count = 0; count < hi->size; count++)
    {
 //      rr = (*hi->IsEqualName)(name, &htbl[TableIndex * hi->width]);
-		 rr = strcmp(name, &nametext[((SYM*)&htbl[TableIndex * hi->width])->name]);
+		 rr = strcmp(name, nmTable.GetName(((SYM*)&htbl[TableIndex * hi->width])->name));
       if (rr == 0)
          break;
       TableIndex = (TableIndex + hash.delta) % hi->size;

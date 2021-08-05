@@ -303,7 +303,7 @@ int PeepList::CountSPReferences()
 		if (ip->opcode != op_label && ip->opcode != op_nop
 			&& ip->opcode != op_link && ip->opcode != op_unlk) {
 			if (ip->insn) {
-				if (ip->insn->opcode == op_push || ip->insn->opcode == op_pop) {
+				if (ip->insn->opcode == op_push || ip->insn->opcode == op_pop || ip->insn->opcode == op_leave || ip->insn->opcode == op_leave_far) {
 					refSP++;
 				}
 				else if (ip->insn->opcode != op_add && ip->insn->opcode != op_sub && ip->insn->opcode != op_gcsub && ip->insn->opcode != cpu.mov_op) {
@@ -355,7 +355,9 @@ int PeepList::CountBPReferences()
 		}
 		if (!inFuncBody)
 			continue;
-		if (ip->opcode != op_label && ip->opcode != op_nop
+		if (ip->opcode == op_leave || ip->opcode == op_leave_far || ip->opcode==op_defcat)
+			refBP++;
+		else if (ip->opcode != op_label && ip->opcode != op_nop
 			&& ip->opcode != op_link && ip->opcode != op_unlk) {
 			if (ip->oper1) {
 				if (ip->oper1->preg == regFP || ip->oper1->sreg == regFP)
@@ -713,6 +715,7 @@ void PeepList::OptInstructions()
 			case op_brk:
 			case op_jmp:
 			case op_leave:
+			case op_leave_far:
 			case op_ret:
 			case op_rtl:
 			case op_rts:
@@ -1221,7 +1224,7 @@ void PeepList::flush()
 	for (ip = head; ip; ip = ip->fwd)
 	{
 		if (ip->opcode == op_label)
-			put_label((int)ip->oper1, "", GetNamespace(), 'C');
+			put_label((int)ip->oper1, "", GetNamespace(), 'C', 0);
 		else
 			ip->store(ofs);
 	}

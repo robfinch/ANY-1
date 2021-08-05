@@ -1,6 +1,6 @@
 // ============================================================================
 //        __
-//   \\__/ o\    (C) 2014-2020  Robert Finch, Waterloo
+//   \\__/ o\    (C) 2014-2021  Robert Finch, Waterloo
 //    \  __ /    All rights reserved.
 //     \/_//     robfinch<remove>@finitron.ca
 //       ||
@@ -340,11 +340,14 @@ void getString()
 
 static char *pseudos[] = {
     "align", "code", "data", "tls", "rodata", "file",
-		"fill", "org", "byte", "message", "global", "end", (char *)NULL
+		"fill", "org", "byte", "message", "global", "end",
+		"section", "endp", "endproc", "proc",
+		(char *)NULL
 };
 static int pseudoTokens[] = {
     tk_align, tk_code, tk_data, tk_tls, tk_rodata, tk_file,
-    tk_fill, tk_org, tk_db, tk_message, tk_global, tk_end, tk_none
+    tk_fill, tk_org, tk_db, tk_message, tk_global, tk_end,
+		tk_section, tk_endproc, tk_endproc, tk_proc, tk_none
 };
 
 int isPseudoOp()
@@ -362,7 +365,7 @@ int isPseudoOp()
     nn++;
   }
   buf[nn] = '\0';
-  for (nn = 0; nn < 12; nn++) {
+  for (nn = 0; nn < 16; nn++) {
     if (strcmp(buf, pseudos[nn])==0) {
       //inptr = p;
       //token = pseudoTokens[nn];

@@ -45,7 +45,7 @@ struct nlit *numeric_tab = nullptr;
 // Please keep table in alphabetical order.
 // Instruction.cpp has the number of table elements hard-coded in it.
 //
-Instruction opl[307] =
+Instruction opl[313] =
 {   
 { ";", op_remark },
 { ";asm",op_asm,300 },
@@ -113,11 +113,14 @@ Instruction opl[307] =
 { "csrrw", op_csrrw,1,1,false,am_reg },
 { "dc",op_dc },
 { "dec", op_dec,4,0,true,am_i5 },
+{ "defcat", op_defcat,12,1,false,am_reg,am_reg,0 ,0 },
 { "dep",op_dep,1,1,false,am_reg,am_reg,am_reg | am_imm,am_reg | am_imm },
+{ "di", op_di,1,1,false,am_reg | am_ui6,0,0,0 },
 { "div", op_div,68,1,false,am_reg,am_reg,am_reg|am_imm,0 },
 { "divu",op_divu,68,1,false,am_reg,am_reg,am_reg|am_imm,0 },
 { "dw", op_dw },
 { "enter",op_enter,10,1,true,am_imm,0,0,0 },
+{ "enter_far",op_enter_far,12,1,true,am_imm,0,0,0 },
 { "eor",op_eor,1,1,false,am_reg,am_reg,am_reg|am_imm,0 },
 { "eq",op_eq },
 { "ext", op_ext,1,1,false,am_reg,am_reg,am_reg | am_imm | am_imm0, am_reg | am_imm | am_imm0 },
@@ -205,6 +208,7 @@ Instruction opl[307] =
 { "le",op_le },
 { "lea",op_lea,1,1,false,am_reg,am_mem,0,0 },
 { "leave",op_leave,10,2,true, 0, 0, 0, 0 },
+{ "leave_far",op_leave_far,12,2,true, 0, 0, 0, 0 },
 { "leu",op_leu },
 { "lh", op_lh,4,1,true,am_reg,am_mem,0,0 },
 { "lhu", op_lhu,4,1,true,am_reg,am_mem,0,0 },
@@ -221,12 +225,14 @@ Instruction opl[307] =
 { "lw", op_lw,4,1,true,am_reg,am_mem,0,0 },
 { "lwu", op_lwu,4,1,true,am_reg,am_mem,0,0 },
 { "lws", op_ldds,4,1,true },
+{ "mfbase", op_mfbase,1,0,false,am_reg,am_reg | am_ui6,0,0 },
 { "mffp",op_mffp },
 { "mod", op_mod,68,1, false,am_reg,am_reg,am_reg|am_imm,0 },
 { "modu", op_modu,68,1,false,am_reg,am_reg,am_reg,0 },
 { "mov", op_mov,1,1,false,am_reg,am_reg,0,0 },
 { "move",op_move,1,1,false,am_reg,am_reg,0,0 },
 { "movs", op_movs },
+{ "mtbase", op_mtbase,1,0,false,am_reg,am_reg | am_ui6,0,0 },
 { "mtfp", op_mtfp },
 { "mul",op_mul,18,1,false,am_reg,am_reg,am_reg|am_imm,0 },
 { "mulf",op_mulf,1,1,false,am_reg,am_reg,am_reg | am_imm,0 },
@@ -397,9 +403,15 @@ char *RegMoniker(int regno)
 		sprintf_s(&buf[n][0], 20, "$t%d", tmpregs[rg-1]);
 	}
 	else
-    if (regno==regFP)
-		sprintf_s(&buf[n][0], 20, "$fp");
-    else if (regno==regGP)
+		if (regno==regCS)
+			sprintf_s(&buf[n][0], 20, "$b15");
+		else if (regno == regRS)
+			sprintf_s(&buf[n][0], 20, "$b14");
+		else if (regno==regFP)
+			sprintf_s(&buf[n][0], 20, "$fp");
+		else if (regno == regAFP)
+			sprintf_s(&buf[n][0], 20, "$afp");
+		else if (regno==regGP)
 		sprintf_s(&buf[n][0], 20, "$gp");
 		else if (regno == regGP1)
 			sprintf_s(&buf[n][0], 20, "$gp1");
@@ -447,8 +459,14 @@ char *RegMoniker2(int regno)
 		sprintf_s(&buf[n][0], 20, "$t%d", tmpregs[rg - 1]);
 	}
 	else
-		if (regno == regFP)
+		if (regno == regCS)
+			sprintf_s(&buf[n][0], 20, "$b15");
+		else if (regno == regRS)
+			sprintf_s(&buf[n][0], 20, "$b14");
+		else if (regno == regFP)
 		sprintf_s(&buf[n][0], 20, "$fp");
+	else if (regno == regAFP)
+		sprintf_s(&buf[n][0], 20, "$afp");
 	else if (regno == regGP)
 		sprintf_s(&buf[n][0], 20, "$gp");
 	else if (regno == regGP1)
@@ -522,16 +540,16 @@ void gen_strlab(char *s)
 /*
  *      output a compiler generated label.
  */
-char *gen_label(int lab, char *nm, char *ns, char d)
+char *gen_label(int lab, char *nm, char *ns, char d, int sz)
 {
 	static char buf[500];
 
 	if (nm == NULL)
-		sprintf_s(buf, sizeof(buf), "%.400s_%d:\n", ns, lab);
+		sprintf_s(buf, sizeof(buf), "%.400s_%d[%d]:\n", ns, lab, sz);
 	else if (strlen(nm) == 0)
-		sprintf_s(buf, sizeof(buf), "%.400s_%d:\n", ns, lab);
+		sprintf_s(buf, sizeof(buf), "%.400s_%d[%d]:\n", ns, lab, sz);
 	else
-		sprintf_s(buf, sizeof(buf), "%.400s_%d: ; %s\n", ns, lab, nm);
+		sprintf_s(buf, sizeof(buf), "%.400s_%d[%d]: ; %s\n", ns, lab, sz, nm);
 	return (buf);
 }
 char *put_labels(char *buf)
@@ -540,7 +558,7 @@ char *put_labels(char *buf)
 	return (buf);
 }
 
-char *put_label(int lab, char *nm, char *ns, char d)
+char *put_label(int lab, char *nm, char *ns, char d, int sz)
 {
   static char buf[500];
 
@@ -548,20 +566,32 @@ char *put_label(int lab, char *nm, char *ns, char d)
 		buf[0] = '\0';
 		return buf;
 	}
-	if (d=='C')
+	if (d == 'C') {
 		sprintf_s(buf, sizeof(buf), ".C%05d", lab);
-	else
-		sprintf_s(buf, sizeof(buf), "%.400s_%d", ns, lab);
-	if (nm==NULL)
-		ofs.printf("%s:\n",buf);
-	else if (strlen(nm) == 0) {
-		ofs.printf("%s:\n", buf);
+		if (nm == NULL)
+			ofs.printf("%s:\n", buf);
+		else if (strlen(nm) == 0) {
+			ofs.printf("%s:\n", buf);
+		}
+		else {
+			//sprintf_s(buf, sizeof(buf), "%s_%s:\n", nm, ns);
+			ofs.printf("%s:	; %s\n", buf, nm);
+		}
 	}
 	else {
-		//sprintf_s(buf, sizeof(buf), "%s_%s:\n", nm, ns);
-		ofs.printf("%s:	; %s\n", buf, nm);
+		sprintf_s(buf, sizeof(buf), "%.400s_%d", ns, lab);
+		if (nm == NULL)
+			ofs.printf("%s[%d]:\n", buf, sz);
+		else if (strlen(nm) == 0) {
+			ofs.printf("%s[%d]:\n", buf, sz);
+		}
+		else {
+			//sprintf_s(buf, sizeof(buf), "%s_%s:\n", nm, ns);
+			ofs.printf("%s[%d]: ", buf, sz);
+			ofs.printf("; %s\n", nm);
+		}
 	}
-	return buf;
+	return (buf);
 }
 
 
@@ -1006,6 +1036,7 @@ void dumplits()
 		int64_t i;
 	} Flt;
 	union _tagFlt uf;
+	int ln;
 
 	dfs.printf("<Dumplits>\n");
 	roseg();
@@ -1017,7 +1048,7 @@ void dumplits()
 	while (casetab != nullptr) {
 		nl();
 		if (casetab->pass == 2)
-			put_label(casetab->label, "", casetab->nmspace, 'D');
+			put_label(casetab->label, "", casetab->nmspace, 'C', 0);// 'D');
 		for (nn = 0; nn < casetab->num; nn++) {
 			if (casetab->cases[nn].pass==2)
 				GenerateLabelReference(casetab->cases[nn].label, 0);
@@ -1032,16 +1063,17 @@ void dumplits()
 	while (numeric_tab != nullptr) {
 		nl();
 		if (DataLabels[numeric_tab->label])
-			put_label(numeric_tab->label, "", numeric_tab->nmspace, 'D');
 			switch (numeric_tab->typ) {
 			case bt_float:
 			case bt_double:
+				put_label(numeric_tab->label, "", numeric_tab->nmspace, 'D', sizeOfFPD);
 				ofs.printf("\tdct\t");
 				numeric_tab->f128.Pack(64);
 				ofs.printf("%s", numeric_tab->f128.ToString(64));
 				outcol += 35;
 				break;
 			case bt_quad:
+				put_label(numeric_tab->label, "", numeric_tab->nmspace, 'D', sizeOfFPQ);
 				ofs.printf("\tdct\t");
 				numeric_tab->f128.Pack(64);
 				ofs.printf("%s", numeric_tab->f128.ToString(64));
@@ -1050,16 +1082,19 @@ void dumplits()
 			case bt_posit:
 				switch (numeric_tab->precision) {
 				case 16:
+					put_label(numeric_tab->label, "", numeric_tab->nmspace, 'D', 2);
 					ofs.printf("\t\dcw\t");
 					ofs.printf("0x%04X\n", (int)(numeric_tab->p.val & 0xffffLL));
 					outcol += 35;
 					break;
 				case 32:
+					put_label(numeric_tab->label, "", numeric_tab->nmspace, 'D', 4);
 					ofs.printf("\t\dct\t");
 					ofs.printf("0x%08X\n", (int)(numeric_tab->p.val & 0xffffffffLL));
 					outcol += 35;
 					break;
 				default:
+					put_label(numeric_tab->label, "", numeric_tab->nmspace, 'D', 8);
 					ofs.printf("\t\dco\t");
 					ofs.printf("0x%016I64X\n", numeric_tab->p.val);
 					outcol += 35;
@@ -1067,8 +1102,10 @@ void dumplits()
 				}
 				break;
 			case bt_void:
+				put_label(numeric_tab->label, "", numeric_tab->nmspace, 'D', 0);
 				break;
 			default:
+				put_label(numeric_tab->label, "", numeric_tab->nmspace, 'D', 0);
 				;// printf("hi");
 			}
 		numeric_tab = numeric_tab->next;
@@ -1091,7 +1128,7 @@ void dumplits()
 	while(quadtab != nullptr) {
 		nl();
 		if (DataLabels[quadtab->label]) {
-			put_label(quadtab->label, "", quadtab->nmspace, 'D');
+			put_label(quadtab->label, "", quadtab->nmspace, 'D', sizeOfFPQ);
 			ofs.printf("\tdh\t");
 			quadtab->Pack(64);
 			ofs.printf("%s", quadtab->ToString(64));
@@ -1117,10 +1154,39 @@ void dumplits()
 		nl();
 		if (!lit->isString) {
 			if (DataLabels[lit->label])
-				put_label(lit->label, strip_crlf(&lit->str[1]), lit->nmspace, 'D');
+				put_label(lit->label, strip_crlf(&lit->str[1]), lit->nmspace, 'D', ep->esize);
 		}
-		else
-			put_label(lit->label,strip_crlf(&lit->str[1]),lit->nmspace,'D');
+		else {
+			cp = lit->str;
+			ln = 0;
+			switch (*cp) {
+			case 'B':
+				cp++;
+				while (*cp++)
+					ln++;
+				ln++;
+				break;
+			case 'W':
+				cp++;
+				while (*cp++)
+					ln+=2;
+				ln+=2;
+				break;
+			case 'T':
+				cp++;
+				while (*cp++)
+					ln += 4;
+				ln += 4;
+				break;
+			case 'O':
+				cp++;
+				while (*cp++)
+					ln += 8;
+				ln += 8;
+				break;
+			}
+			put_label(lit->label, strip_crlf(&lit->str[1]), lit->nmspace, 'D', ln);
+		}
 		if (lit->isString) {
 			cp = lit->str;
 			switch (*cp) {

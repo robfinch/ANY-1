@@ -653,7 +653,7 @@ static int emitImm15(int64_t v, int force)
      }
 
      // ToDo: modify the fixup record type based on the number of prefixes emitted.
-    if (bGen && lastsym && !use_gp && (lastsym->isExtern || lastsym->defined==0))
+    if (bGen && lastsym && !use_gp && (lastsym->isExtern || lastsym->isDefined==0))
     if( lastsym->segment < 5)
     sections[segment+7].AddRel(sections[segment].index,((int64_t)(lastsym->ord+1) << 32) | nn+1 | (lastsym->isExtern ? 128 : 0)|
     (lastsym->segment==codeseg ? code_bits << 8 : data_bits << 8));
@@ -1179,7 +1179,7 @@ static void process_bra(int oc)
     NextToken();
     val = expr();
      // ToDo: modify the fixup record type based on the number of prefixes emitted.
-    if (bGen && lastsym && (lastsym->isExtern || lastsym->defined==0))
+    if (bGen && lastsym && (lastsym->isExtern || lastsym->isDefined==0))
     if( lastsym->segment < 5)
     sections[segment+7].AddRel(sections[segment].index,((int64_t)(lastsym->ord+1) << 32) | FUT_R27 | (lastsym->isExtern ? 128 : 0)|
     (lastsym->segment==codeseg ? code_bits << 8 : data_bits << 8));

@@ -56,8 +56,8 @@ int64_t primary(int64_t* def)
     if (sym->segment < 5)
       nsym++;
     lastsym = sym;
-    sym->referenced++;
-    *def = sym->defined;
+    sym->referenceCount++;
+    *def = sym->isDefined;
     NextToken();
     if (token==tk_eol)
       prevToken();

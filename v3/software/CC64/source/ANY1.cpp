@@ -1660,6 +1660,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 					GenerateMonadic(op_call, 0, MakeDirect(node->p[0]));
 				else
 					GenerateDiadic(op_bal, 0, makereg(regLR), MakeDirect(node->p[0]));
+				currentFn->doesJAL = true;
 			}
 			GenerateMonadic(op_bex,0,MakeDataLabel(throwlab,regZero));
 			LinkAutonew(node);
@@ -1725,8 +1726,10 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 				GenerateDiadic(op_jal, 0, makereg(regLR), ap);
 				currentFn->doesJAL = true;
 			}
-			else
+			else {
 				GenerateDiadic(op_jal, 0, makereg(regLR), ap);
+				currentFn->doesJAL = true;
+			}
 			GenerateMonadic(op_bex,0,MakeDataLabel(throwlab,regZero));
 			LinkAutonew(node);
 		}
@@ -1836,13 +1839,13 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 void ANY1CodeGenerator::GenerateUnlink(int64_t amt)
 {
 	if (cpu.SupportsLeave) {
-		GenerateMonadic(op_leave, 0, MakeImmediate(Compiler::GetReturnBlockSize()+amt,0));
+		GenerateMonadic(currentFn->IsFar ? op_leave_far : op_leave, 0, MakeImmediate(amt,0));
 	}
 	else if (cpu.SupportsUnlink)
 		GenerateZeradic(op_unlk);
 	else
 	{
-		GenerateDiadic(cpu.mov_op, 0, makereg(regSP), makereg(regFP));
-		GenerateDiadic(cpu.ldo_op, 0, makereg(regFP), MakeIndirect(regSP));
+		//GenerateDiadic(cpu.mov_op, 0, makereg(regSP), makereg(regFP));
+		//GenerateDiadic(cpu.ldo_op, 0, makereg(regFP), MakeIndirect(regSP));
 	}
 }
