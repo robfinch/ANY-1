@@ -52,23 +52,23 @@ TYP *forcefit(ENODE **srcnode, TYP *srctp, ENODE **dstnode, TYP *dsttp, bool pro
 		case bt_void:
 			return (srctp);
 		case bt_bit:
-			*dstnode = *srcnode; return (dsttp);
+			return (dsttp);
 			break;
 		case bt_byte:
 		case bt_ubyte:
 			switch (srctp->type) {
-			case bt_ubyte: *dstnode = *srcnode; return (dsttp);
-			case bt_byte:	 *dstnode = *srcnode; return (dsttp);
+			case bt_ubyte: return (dsttp);
+			case bt_byte:	 return (dsttp);
 			case bt_iuchar:
 			case bt_uchar: return (dsttp);
 			case bt_ichar:
 			case bt_char:  return (dsttp);
 				// value will be truncated
 			case bt_short:
-			case bt_ushort:	*dstnode = *srcnode; return (dsttp);
+			case bt_ushort:	return (dsttp);
 			case bt_exception:
 			case bt_long:
-			case bt_ulong:	*dstnode = *srcnode; return (dsttp);
+			case bt_ulong:	return (dsttp);
 			case bt_ubitfield:
 			case bt_bitfield: goto j1;
 			case bt_float:	nt = en_d2i; break;

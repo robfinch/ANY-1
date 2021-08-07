@@ -36,13 +36,14 @@ void CFG::Create()
 
 	for (ip = currentFn->pl.head; ip; ip = ip->fwd) {
 		if (ip->leader) {
-		if (ip->back) {
-		// if not unconditional control transfer
-			if (ip->back->opcode != op_ret && ip->back->opcode != op_bra && ip->back->opcode!=op_jmp) {
-				ip->back->bb->MakeOutputEdge(ip->bb);
-				ip->bb->MakeInputEdge(ip->back->bb);
+			if (ip->back) {
+			// if not unconditional control transfer
+				if (ip->back->opcode != op_ret && ip->back->opcode != op_bra && ip->back->opcode!=op_jmp &&
+					ip->back->opcode != op_leave && ip->back->opcode!=op_leave_far) {
+					ip->back->bb->MakeOutputEdge(ip->bb);
+					ip->bb->MakeInputEdge(ip->back->bb);
+				}
 			}
-		}
 		}
 		//}
 		switch(ip->opcode) {
@@ -56,6 +57,8 @@ void CFG::Create()
 				}
 			}
 			break;
+		case op_beqz:
+		case op_bnez:
 		case op_beq:
 		case op_bne:
 		case op_blt:

@@ -96,8 +96,8 @@ Operand* ANY1CodeGenerator::GenerateSafeLand(ENODE *node, int flags, int op)
 
 	lab0 = nextlabel++;
 
-	ap1 = GenerateExpression(node->p[0], am_reg|am_creg, node->p[0]->GetNaturalSize());
-	ap2 = GenerateExpression(node->p[1], am_reg|am_creg, node->p[1]->GetNaturalSize());
+	ap1 = GenerateExpression(node->p[0], am_reg|am_creg, node->p[0]->GetNaturalSize(), 0);
+	ap2 = GenerateExpression(node->p[1], am_reg|am_creg, node->p[1]->GetNaturalSize(), 1);
 
 	if (!ap1->isBool)
 		ap4 = MakeBoolean(ap1);
@@ -175,14 +175,14 @@ void ANY1CodeGenerator::GenerateBitfieldInsert(Operand* ap1, Operand* ap2, ENODE
 		ap2->MakeLegal(am_reg, sizeOfWord);
 		ip = currentFn->pl.tail;
 		// Try and get immediate operands for both offset and width
-		ap3 = GenerateExpression(offset, am_reg | am_imm | am_imm0, sizeOfWord);
-		ap4 = GenerateExpression(width, am_reg | am_imm | am_imm0, sizeOfWord);
+		ap3 = GenerateExpression(offset, am_reg | am_imm | am_imm0, sizeOfWord, 1);
+		ap4 = GenerateExpression(width, am_reg | am_imm | am_imm0, sizeOfWord, 1);
 		if (ap3->mode != ap4->mode) {
 			ReleaseTempReg(ap4);
 			ReleaseTempReg(ap3);
 			currentFn->pl.tail = ip;
-			ap3 = GenerateExpression(offset, am_reg, sizeOfWord);
-			ap4 = GenerateExpression(width, am_reg, sizeOfWord);
+			ap3 = GenerateExpression(offset, am_reg, sizeOfWord, 1);
+			ap4 = GenerateExpression(width, am_reg, sizeOfWord, 1);
 		}
 		Generate4adic(op_dep, 0, ap1, ap2, ap3, ap4);
 		ReleaseTempReg(ap4);
@@ -190,8 +190,8 @@ void ANY1CodeGenerator::GenerateBitfieldInsert(Operand* ap1, Operand* ap2, ENODE
 		return;
 	}
 	
-	ap3 = GenerateExpression(offset, am_reg | am_imm | am_imm0, sizeOfWord);
-	ap4 = GenerateExpression(width, am_reg | am_imm | am_imm0, sizeOfWord);
+	ap3 = GenerateExpression(offset, am_reg | am_imm | am_imm0, sizeOfWord, 1);
+	ap4 = GenerateExpression(width, am_reg | am_imm | am_imm0, sizeOfWord, 1);
 	for (mask = nn = 0; nn < ap4->offset->i; nn++)
 		mask = (mask << 1) | 1;
 	mask = ~mask;
@@ -241,14 +241,14 @@ Operand* ANY1CodeGenerator::GenerateBitfieldExtract(Operand* ap, ENODE* offset, 
 
 	ap1 = GetTempRegister();
 	ip = currentFn->pl.tail;
-	ap2 = GenerateExpression(offset, am_reg | am_imm | am_imm0, sizeOfWord);
-	ap3 = GenerateExpression(width, am_reg | am_imm | am_imm0, sizeOfWord);
+	ap2 = GenerateExpression(offset, am_reg | am_imm | am_imm0, sizeOfWord, 1);
+	ap3 = GenerateExpression(width, am_reg | am_imm | am_imm0, sizeOfWord, 1);
 	if (ap2->mode != ap3->mode) {
 		currentFn->pl.tail = ip;
 		ReleaseTempReg(ap3);
 		ReleaseTempReg(ap2);
-		ap2 = GenerateExpression(offset, am_reg, sizeOfWord);
-		ap3 = GenerateExpression(width, am_reg, sizeOfWord);
+		ap2 = GenerateExpression(offset, am_reg, sizeOfWord, 1);
+		ap3 = GenerateExpression(width, am_reg, sizeOfWord, 1);
 	}
 	if (cpu.SupportsBitfield) {
 		if (isSigned)
@@ -283,8 +283,8 @@ Operand* ANY1CodeGenerator::GenerateEq(ENODE *node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize(), 1);
 	if (isRiscv) {
 		GenerateTriadic(op_xor, 0, ap3, ap1, ap2);
 		GenerateTriadic(op_slt, 0, ap3, ap3, MakeImmediate(1LL));
@@ -303,8 +303,8 @@ Operand* ANY1CodeGenerator::GenerateNe(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize(), 1);
 	if (isRiscv) {
 		GenerateTriadic(op_xor, 0, ap3, ap1, ap2);
 		GenerateTriadic(op_slt, 0, ap3, ap3, MakeImmediate(1LL));
@@ -324,8 +324,8 @@ Operand* ANY1CodeGenerator::GenerateLt(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize(), 1);
 	GenerateTriadic(op_slt, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -339,8 +339,8 @@ Operand* ANY1CodeGenerator::GenerateLe(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize(), 1);
 	if (ap2->mode == am_reg)
 		GenerateTriadic(op_sgt, 0, ap3, ap2, ap1);
 	else
@@ -357,8 +357,8 @@ Operand* ANY1CodeGenerator::GenerateGt(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size);
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, size, 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size, 1);
 	if (ap2->mode == am_reg)
 		GenerateTriadic(op_slt, 0, ap3, ap2, ap1);
 	else
@@ -376,8 +376,8 @@ Operand* ANY1CodeGenerator::GenerateGe(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize(), 1);
 	GenerateTriadic(op_sge, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -391,8 +391,8 @@ Operand* ANY1CodeGenerator::GenerateLtu(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize(), 1);
 	GenerateTriadic(op_sltu, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -406,8 +406,8 @@ Operand* ANY1CodeGenerator::GenerateLeu(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, node->p[1]->GetNaturalSize(), 1);
 	if (ap2->mode == am_reg)
 		GenerateTriadic(op_sgtu, 0, ap3, ap2, ap1);
 	else
@@ -424,8 +424,8 @@ Operand* ANY1CodeGenerator::GenerateGtu(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size);
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, size, 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size, 1);
 	if (ap2->mode == am_reg)
 		GenerateTriadic(op_sltu, 0, ap3, ap2, ap1);
 	else
@@ -443,8 +443,8 @@ Operand* ANY1CodeGenerator::GenerateGeu(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size);
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, size, 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size, 1);
 	GenerateTriadic(op_sgeu, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -458,8 +458,8 @@ Operand* ANY1CodeGenerator::GenerateFeq(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize(), 1);
 	GenerateTriadic(op_fseq, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -473,8 +473,8 @@ Operand* ANY1CodeGenerator::GenerateFne(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize(), 1);
 	GenerateTriadic(op_fsne, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -488,8 +488,8 @@ Operand* ANY1CodeGenerator::GenerateFlt(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize(), 1);
 	GenerateTriadic(op_fslt, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -503,8 +503,8 @@ Operand* ANY1CodeGenerator::GenerateFle(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize(), 1);
 	GenerateTriadic(op_fsle, 0, ap3, ap1, ap2);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -518,8 +518,8 @@ Operand* ANY1CodeGenerator::GenerateFgt(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize(), 1);
 	GenerateTriadic(op_fslt, 0, ap3, ap2, ap1);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -533,8 +533,8 @@ Operand* ANY1CodeGenerator::GenerateFge(ENODE* node)
 
 	size = node->GetNaturalSize();
 	ap3 = GetTempRegister();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize());
-	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize());
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, node->p[0]->GetNaturalSize(), 1);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg, node->p[1]->GetNaturalSize(), 1);
 	GenerateTriadic(op_fsle, 0, ap3, ap2, ap1);
 	ReleaseTempRegister(ap2);
 	ReleaseTempRegister(ap1);
@@ -572,8 +572,8 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	case en_veq:
 		size = node->GetNaturalSize();
 		ap3 = GetTempVectorRegister();         
-		ap1 = cg.GenerateExpression(node->p[0],am_reg,size);
-		ap2 = cg.GenerateExpression(node->p[1],am_reg,size);
+		ap1 = cg.GenerateExpression(node->p[0],am_reg,size,1);
+		ap2 = cg.GenerateExpression(node->p[1],am_reg,size,1);
 		GenerateTriadic(op_vseq,0,ap3,ap1,ap2);
 		ReleaseTempReg(ap2);
 		ReleaseTempReg(ap1);
@@ -581,8 +581,8 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	case en_vne:
 		size = node->GetNaturalSize();
 		ap3 = GetTempVectorRegister();         
-		ap1 = cg.GenerateExpression(node->p[0],am_reg,size);
-		ap2 = cg.GenerateExpression(node->p[1],am_reg,size);
+		ap1 = cg.GenerateExpression(node->p[0],am_reg,size,1);
+		ap2 = cg.GenerateExpression(node->p[1],am_reg,size,1);
 		GenerateTriadic(op_vsne,0,ap3,ap1,ap2);
 		ReleaseTempReg(ap2);
 		ReleaseTempReg(ap1);
@@ -590,8 +590,8 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	case en_vlt:
 		size = node->GetNaturalSize();
 		ap3 = GetTempVectorRegister();         
-		ap1 = cg.GenerateExpression(node->p[0],am_reg,size);
-		ap2 = cg.GenerateExpression(node->p[1],am_reg,size);
+		ap1 = cg.GenerateExpression(node->p[0],am_reg,size,1);
+		ap2 = cg.GenerateExpression(node->p[1],am_reg,size,1);
 		GenerateTriadic(op_vslt,0,ap3,ap1,ap2);
 		ReleaseTempReg(ap2);
 		ReleaseTempReg(ap1);
@@ -599,8 +599,8 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	case en_vle:
 		size = node->GetNaturalSize();
 		ap3 = GetTempVectorRegister();         
-		ap1 = cg.GenerateExpression(node->p[0],am_reg,size);
-		ap2 = cg.GenerateExpression(node->p[1],am_reg,size);
+		ap1 = cg.GenerateExpression(node->p[0], am_reg, size, 1);
+		ap2 = cg.GenerateExpression(node->p[1], am_reg, size, 1);
 		GenerateTriadic(op_vsle,0,ap3,ap1,ap2);
 		ReleaseTempReg(ap2);
 		ReleaseTempReg(ap1);
@@ -608,8 +608,8 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	case en_vgt:
 		size = node->GetNaturalSize();
 		ap3 = GetTempVectorRegister();         
-		ap1 = cg.GenerateExpression(node->p[0],am_reg,size);
-		ap2 = cg.GenerateExpression(node->p[1],am_reg,size);
+		ap1 = cg.GenerateExpression(node->p[0],am_reg,size,1);
+		ap2 = cg.GenerateExpression(node->p[1],am_reg,size,1);
 		GenerateTriadic(op_vsgt,0,ap3,ap1,ap2);
 		ReleaseTempReg(ap2);
 		ReleaseTempReg(ap1);
@@ -617,8 +617,8 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	case en_vge:
 		size = node->GetNaturalSize();
 		ap3 = GetTempVectorRegister();         
-		ap1 = cg.GenerateExpression(node->p[0],am_reg,size);
-		ap2 = cg.GenerateExpression(node->p[1],am_reg,size);
+		ap1 = cg.GenerateExpression(node->p[0],am_reg,size,1);
+		ap2 = cg.GenerateExpression(node->p[1],am_reg,size,1);
 		GenerateTriadic(op_vsge,0,ap3,ap1,ap2);
 		ReleaseTempReg(ap2);
 		ReleaseTempReg(ap1);
@@ -626,8 +626,8 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	case en_land_safe:
 		size = node->GetNaturalSize();
 		ap3 = GetTempVectorRegister();
-		ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
-		ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size);
+		ap1 = cg.GenerateExpression(node->p[0], am_reg, size,1);
+		ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm, size,1);
 		GenerateTriadic(op_and, 0, ap3, ap1, ap2);
 		ReleaseTempReg(ap2);
 		ReleaseTempReg(ap1);
@@ -635,8 +635,8 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	case en_lor_safe:
 		size = node->GetNaturalSize();
 		ap3 = GetTempVectorRegister();
-		ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
-		ap2 = cg.GenerateExpression(node->p[1], am_reg, size);
+		ap1 = cg.GenerateExpression(node->p[0], am_reg, size,1);
+		ap2 = cg.GenerateExpression(node->p[1], am_reg, size,1);
 		GenerateTriadic(op_or, 0, ap3, ap1, ap2);
 		ReleaseTempReg(ap2);
 		ReleaseTempReg(ap1);
@@ -677,9 +677,9 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	case en_chk:
 		size = node->GetNaturalSize();
         ap4 = GetTempRegister();         
-		ap1 = cg.GenerateExpression(node->p[0],am_reg,size);
-		ap2 = cg.GenerateExpression(node->p[1],am_reg,size);
-		ap3 = cg.GenerateExpression(node->p[2],am_reg|am_imm0,size);
+		ap1 = cg.GenerateExpression(node->p[0],am_reg,size,1);
+		ap2 = cg.GenerateExpression(node->p[1],am_reg,size,1);
+		ap3 = cg.GenerateExpression(node->p[2],am_reg|am_imm0,size,1);
 		if (ap3->mode == am_imm) {  // must be a zero
 		   ap3->mode = am_reg;
 		   ap3->preg = 0;
@@ -692,8 +692,8 @@ Operand *ANY1CodeGenerator::GenExpr(ENODE *node)
 	}
 	size = node->GetNaturalSize();
   ap3 = GetTempRegister();         
-	ap1 = cg.GenerateExpression(node->p[0],am_reg,size);
-	ap2 = cg.GenerateExpression(node->p[1],am_reg|am_imm,size);
+	ap1 = cg.GenerateExpression(node->p[0],am_reg,size,1);
+	ap2 = cg.GenerateExpression(node->p[1],am_reg|am_imm,size,1);
 	GenerateTriadic(op,0,ap3,ap1,ap2);
   ReleaseTempRegister(ap2);
   ReleaseTempRegister(ap1);
@@ -990,12 +990,12 @@ bool ANY1CodeGenerator::GenerateBranch(ENODE *node, int op, int label, int predr
 	size = node->GetNaturalSize();
 	ip = currentFn->pl.tail;
   if (op==op_flt || op==op_fle || op==op_fgt || op==op_fge || op==op_feq || op==op_fne) {
-    ap1 = cg.GenerateExpression(node->p[0],am_reg,size);
-	  ap2 = cg.GenerateExpression(node->p[1],am_reg,size);
+    ap1 = cg.GenerateExpression(node->p[0],am_reg,size,1);
+	  ap2 = cg.GenerateExpression(node->p[1],am_reg,size,1);
   }
   else {
-		ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
-		ap2 = cg.GenerateExpression(node->p[1], isRiscv ? am_reg : am_reg | am_imm, size);
+		ap1 = cg.GenerateExpression(node->p[0], am_reg, size,1);
+		ap2 = cg.GenerateExpression(node->p[1], isRiscv ? am_reg : am_reg | am_imm, size,1);
   }
 	if (limit && currentFn->pl.Count(ip) > 10) {
 		currentFn->pl.tail = ip;
@@ -1311,24 +1311,24 @@ int ANY1CodeGenerator::PushArgument(ENODE *ep, int regno, int stkoffs, bool *isF
 	}
 	if (ep->tp) {
 		if (ep->tp->IsFloatType())
-			ap = cg.GenerateExpression(ep,am_reg,sizeOfFP);
+			ap = cg.GenerateExpression(ep,am_reg,sizeOfFP,1);
 		else if (ep->tp->IsPositType())
-			ap = cg.GenerateExpression(ep, am_preg, sizeOfPosit);
+			ap = cg.GenerateExpression(ep, am_preg, sizeOfPosit,1);
 		else
-			ap = cg.GenerateExpression(ep,am_reg|am_imm,ep->GetNaturalSize());
+			ap = cg.GenerateExpression(ep,am_reg|am_imm,ep->GetNaturalSize(),1);
 	}
 	else if (ep->etype==bt_quad)
-		ap = cg.GenerateExpression(ep,am_reg,sz);
+		ap = cg.GenerateExpression(ep,am_reg,sz,1);
 	else if (ep->etype==bt_double)
-		ap = cg.GenerateExpression(ep,am_reg,sz);
+		ap = cg.GenerateExpression(ep,am_reg,sz,1);
 	else if (ep->etype==bt_triple)
-		ap = cg.GenerateExpression(ep,am_reg,sz);
+		ap = cg.GenerateExpression(ep,am_reg,sz,1);
 	else if (ep->etype==bt_float)
-		ap = cg.GenerateExpression(ep,am_reg,sz);
+		ap = cg.GenerateExpression(ep,am_reg,sz,1);
 	else if (ep->etype == bt_posit)
-		ap = cg.GenerateExpression(ep, am_reg, sz);
+		ap = cg.GenerateExpression(ep, am_reg, sz,1);
 	else
-		ap = cg.GenerateExpression(ep,am_reg|am_imm,ep->GetNaturalSize());
+		ap = cg.GenerateExpression(ep,am_reg|am_imm,ep->GetNaturalSize(),1);
 	switch(ap->mode) {
 	case am_fpreg:
 		*isFloat = true;
@@ -1585,7 +1585,7 @@ void ANY1CodeGenerator::LinkAutonew(ENODE *node)
 
 Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 { 
-	Operand *ap;
+	Operand *ap, *ap2;
 	Function *sym;
 	Function *o_fn;
 	SYM *s;
@@ -1596,6 +1596,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 	int ps;
 	TypeArray *ta = nullptr;
 	CSet *mask, *fmask, *pmask;
+	char buf[300];
 
 	sym = nullptr;
 
@@ -1648,18 +1649,28 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 			psave_mask = pmask;
 		}
 		else {
+			if (sym && sym->IsFar) {
+				GenerateDiadic(op_mfbase, 0, makereg(regRS), makereg(regCS));
+				ap2 = GetTempRegister();
+				sprintf_s(buf, sizeof(buf), "#%s_cs", sym->sym->name->c_str());
+				GenerateDiadic(cpu.ldi_op, 0, ap2, MakeStringAsNameConst(buf, codeseg));
+				GenerateDiadic(op_mtbase, 0, makereg(regCS), ap2);
+				ReleaseTempRegister(ap2);
+			}
 			if (sym && sym->IsLeaf) {
 				if (isRiscv)
 					GenerateMonadic(op_call, 0, MakeDirect(node->p[0]));
-				else
-					GenerateDiadic(op_bal, 0, makereg(regLR), MakeDirect(node->p[0]));
+				else {
+					sprintf_s(buf, sizeof(buf), "#%s_ip", sym->sym->name->c_str());
+					GenerateDiadic(sym->IsFar ? op_jal : op_bal, 0, makereg(regLR), MakeDirect(node->p[0]));
+				}
 				currentFn->doesJAL = true;
 			}
 			else {
 				if (isRiscv)
 					GenerateMonadic(op_call, 0, MakeDirect(node->p[0]));
 				else
-					GenerateDiadic(op_bal, 0, makereg(regLR), MakeDirect(node->p[0]));
+					GenerateDiadic(op_jal, 0, makereg(regLR), MakeDirect(node->p[0]));
 				currentFn->doesJAL = true;
 			}
 			GenerateMonadic(op_bex,0,MakeDataLabel(throwlab,regZero));
@@ -1683,7 +1694,7 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
             i = 1;
         }
      */
-		ap = cg.GenerateExpression(node->p[0],am_reg,sizeOfWord);
+		ap = cg.GenerateExpression(node->p[0],am_reg,sizeOfWord,0);
 		if (ap->offset) {
 			if (ap->offset->sym)
 				sym = ap->offset->sym->fi;
@@ -1722,6 +1733,14 @@ Operand *ANY1CodeGenerator::GenerateFunctionCall(ENODE *node, int flags)
 			psave_mask = pmask;
 		}
 		else {
+			if (sym && sym->IsFar) {
+				GenerateDiadic(op_mfbase, 0, makereg(regRS), makereg(regCS));
+				ap2 = GetTempRegister();
+				sprintf_s(buf, sizeof(buf), "#%s_cs", sym->sym->name->c_str());
+				GenerateDiadic(cpu.ldi_op, 0, ap2, MakeStringAsNameConst(buf, codeseg));
+				GenerateDiadic(op_mtbase, 0, makereg(regCS), ap2);
+				ReleaseTempRegister(ap2);
+			}
 			if (sym && sym->IsLeaf) {
 				GenerateDiadic(op_jal, 0, makereg(regLR), ap);
 				currentFn->doesJAL = true;

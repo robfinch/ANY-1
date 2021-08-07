@@ -50,7 +50,7 @@ Operand* ENODE::GenerateBitfieldDereference(int flags, int size, int opt)
 	Operand* tmpo = nullptr;
 
 	isSigned = !isUnsigned;
-	ap = cg.GenerateDereference(this, flags, esize, isSigned,1);
+	ap = cg.GenerateDereference(this, flags, esize, isSigned,0,1);
 	ap->MakeLegal(flags, esize);
 	if (this->tp->type == bt_bit) {
 		ap->offset->bit_offset = nullptr;
@@ -111,9 +111,9 @@ Operand *ENODE::GenerateBitfieldAssign(int flags, int size)
 
 	// we don't want a bitfield dereference operation here.
 	// We want all the bits.
-	ap1 = cg.GenerateExpression(p[0],am_reg|am_mem|am_bf_assign,size);
+	ap1 = cg.GenerateExpression(p[0],am_reg|am_mem|am_bf_assign,size,0);
 	if (ap1->mode == am_reg) {
-		ap2 = cg.GenerateExpression(p[1], am_reg, size);
+		ap2 = cg.GenerateExpression(p[1], am_reg, size,1);
 		GenerateBitfieldInsert(ap1, ap2, ap1->bit_offset, ap1->bit_width);
 		if (ap1->memref) {
 			GenStore(ap1, ap1->memop, size);
@@ -124,7 +124,7 @@ Operand *ENODE::GenerateBitfieldAssign(int flags, int size)
 	else {
 		ap3 = GetTempRegister();
 		GenerateLoad(ap3,ap1,size,size);
-		ap2 = cg.GenerateExpression(p[1], am_reg, size);
+		ap2 = cg.GenerateExpression(p[1], am_reg, size,1);
 		GenerateBitfieldInsert(ap3, ap2, ap1->bit_offset, ap1->bit_width);
 		ReleaseTempRegister(ap2);
 		/*
@@ -159,7 +159,7 @@ Operand* ENODE::GenerateBitfieldAssignAdd(int flags, int size, int op)
 	ap1 = cg.GenerateBitfieldDereference(p[0], am_reg | am_mem, size, 1);
 	//		GenerateDiadic(op_mov, 0, ap3, ap1);
 	//ap1 = cg.GenerateExpression(p[0], am_reg | am_mem, size);
-	ap2 = cg.GenerateExpression(p[1], am_reg | am_imm, size);
+	ap2 = cg.GenerateExpression(p[1], am_reg | am_imm, size, 1);
 	if (ap1->mode == am_reg) {
 		GenerateTriadic(op, 0, ap1, ap1, ap2);
 		if (ap1->offset->bit_offset == nullptr)
@@ -210,7 +210,7 @@ Operand* ENODE::GenerateBitfieldAssignLogic(int flags, int size, int op)
 		GenerateDiadic(cpu.mov_op, 0, ap3, ap1);
 		break;
 	}
-	ap2 = cg.GenerateExpression(p[1], am_reg | am_imm, size);
+	ap2 = cg.GenerateExpression(p[1], am_reg | am_imm, size, 1);
 	GenerateTriadic(op, 0, ap3, ap3, ap2);
 	cg.GenerateBitfieldInsert(ap3, ap3, ap1->offset->bit_offset, ap1->offset->bit_width);
 	GenStore(ap3, ap1, ssize);

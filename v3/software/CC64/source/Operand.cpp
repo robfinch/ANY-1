@@ -638,7 +638,7 @@ void Operand::store(txtoStream& ofs)
 			if (preg == regFP) {
 				if (offset->sym) {
 					if (offset->sym->IsParameter) {	// must be an parameter
-						offset->i += 2 * sizeOfWord;	// The frame pointer is the second word of the return block.
+						offset->i += compiler.GetReturnBlockSize();	// The frame pointer is the second word of the return block.
 					}
 				}
 			}
@@ -646,7 +646,7 @@ void Operand::store(txtoStream& ofs)
 			if (preg == regFP) {
 				if (offset->sym) {
 					if (offset->sym->IsParameter) {
-						offset->i -= 2 * sizeOfWord;
+						offset->i -= compiler.GetReturnBlockSize();
 					}
 				}
 			}

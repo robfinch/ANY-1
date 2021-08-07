@@ -1736,6 +1736,7 @@ void Declaration::ParseAssign(SYM *sp)
 		ep1 = exp.MakeAutoNameNode(sp);
 		if (ep1 == nullptr)
 			return;
+		ep1->constflag = false;
 		ep1->sym = sp;
 		tp1 = exp.CondDeref(&ep1, sp->tp);
 		//tp1 = exp.nameref(&ep1, TRUE);
@@ -2178,7 +2179,7 @@ int Declaration::declare(SYM* parent, int ilc, int ztype, SYM** symo)
 				}
 				//isTypedef = FALSE;
 			}
-			if (!sp->IsTypedef())
+			if (!sp->IsTypedef() && !sp->tp->IsFunc() && nbytes > 0)
 				nbytes = GenerateStorage(nbytes, al, ilc);
 			dfs.printf("G");
 			// Why the follwing???

@@ -568,6 +568,7 @@ public:
 		if (this == nullptr)
 			return (false);
 		return (type == bt_posit); };
+	bool IsFunc() const { if (this == nullptr) return (false); return (type == bt_func || type == bt_ifunc); };
 	bool IsVectorType() const { if (this == nullptr) return (false);  return (type == bt_vector); };
 	bool IsUnion() const { if (this == nullptr) return (false); return (type == bt_union); };
 	bool IsStructType() const { if (this == nullptr) return false; return (type == bt_struct || type == bt_class || type == bt_union); };
@@ -680,11 +681,12 @@ public:
 	bool IsVectorType() { return (etype == bt_vector); };
 	bool IsAutocon() { return (nodetype == en_autocon || nodetype == en_autofcon || nodetype == en_autopcon || nodetype == en_autovcon || nodetype == en_classcon); };
 	bool IsUnsignedType() { return (etype == bt_ubyte || etype == bt_uchar || etype == bt_ushort || etype == bt_ulong || etype == bt_pointer || nodetype==en_addrof || nodetype==en_autofcon || nodetype==en_autocon); };
+	// ??? Use of this method is dubious
 	bool IsRefType() {
 		if (this) {
 			// This hack to get exit() to work, which uses an array of function pointers.
 			if (nodetype == en_ref)
-				return (tp->type != bt_void);
+				return (tp->type != bt_void && p[0]->nodetype != en_regvar);
 			return (nodetype == en_ref || etype == bt_struct || etype == bt_union || etype == bt_class);
 		}
 		else return (false);
@@ -1124,7 +1126,7 @@ public:
 	Operand* GenerateRegvarDereference(ENODE* node, TYP* tp, bool isRefType, int flags, int64_t size);
 	Operand* GenerateFPRegvarDereference(ENODE* node, TYP* tp, bool isRefType, int flags, int64_t size);
 	Operand* GeneratePositRegvarDereference(ENODE* node, TYP* tp, bool isRefType, int flags, int64_t size);
-	Operand *GenerateDereference(ENODE *node, int flags, int size, int su, int opt);
+	Operand *GenerateDereference(ENODE *node, int flags, int size, int su, int opt, int rhs);
 	Operand* GenerateDereference2(ENODE* node, TYP* tp, bool isRefType, int flags, int64_t size, int64_t siz1, int su, int opt);
 	Operand *GenerateAssignMultiply(ENODE *node, int flags, int size, int op);
 	Operand *GenerateAssignModiv(ENODE *node, int flags, int size, int op);
@@ -1142,7 +1144,7 @@ public:
 	Operand* GenerateRegToRegAssign(ENODE* node, Operand* ap1, Operand* ap2, int ssize);
 	Operand* GenerateImmToRegAssign(Operand* ap1, Operand* ap2, int ssize);
 	Operand* GenerateMemToRegAssign(Operand* ap1, Operand* ap2, int size, int ssize);
-	Operand *GenerateExpression(ENODE *node, int flags, int64_t size);
+	Operand *GenerateExpression(ENODE *node, int flags, int64_t size, int rhs);
 	void GenerateTrueJump(ENODE *node, int label, unsigned int prediction);
 	void GenerateFalseJump(ENODE *node, int label, unsigned int prediction);
 	virtual Operand *GenExpr(ENODE *node) { return (nullptr); };
@@ -1335,6 +1337,7 @@ public:
 	static int nBasicBlocks;
 	CSet *color;
 public:
+	static bool AllCodeHasBasicBlock(OCODE* start);
 	static BasicBlock *MakeNew();
 	static BasicBlock *Blockize(OCODE *start);
 	Edge *MakeOutputEdge(BasicBlock *dst);

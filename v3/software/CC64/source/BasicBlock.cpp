@@ -33,14 +33,19 @@ bool IsBasicBlockSeparater(OCODE *ip)
 	if (ip->opcode==op_label)
 		return (false);
 	switch(ip->opcode) {
+	case op_leave: return (true);
+	case op_leave_far: return (true);
 	case op_rte:	return (true);
 	case op_ret:	return true;
 	case op_rts:	return true;
+	case op_bal:	return (true);
 	case op_jal:	return true;
 	case op_call: return true;
 	case op_jsr:  return true;
 	case op_jmp:	return true;
 	case op_bra:	return true;
+	case op_beqz: return (true);
+	case op_bnez: return (true);
 	case op_beq:	return true;
 	case op_bne:	return true;
 	case op_blt:	return true;
@@ -67,6 +72,17 @@ bool IsBasicBlockSeparater(OCODE *ip)
 	return (false);
 }
 
+bool BasicBlock::AllCodeHasBasicBlock(OCODE* start)
+{
+	OCODE* ip;
+
+	for (ip = start; ip; ip = ip->fwd) {
+		if (ip->bb == nullptr)
+			return (false);
+	}
+	return (true);
+}
+
 // Break the program down into basic blocks
 
 BasicBlock *BasicBlock::Blockize(OCODE *start)
@@ -74,6 +90,7 @@ BasicBlock *BasicBlock::Blockize(OCODE *start)
 	OCODE *ip, *ip2;
 	BasicBlock *bbs, *pb;
 	int num;
+	bool all = false;
 
 	num = 0;
 	currentFn->RootBlock = bbs = BasicBlock::MakeNew();
@@ -90,7 +107,7 @@ BasicBlock *BasicBlock::Blockize(OCODE *start)
 		ip2 = ip->fwd;
 		if (ip->opcode != op_label && ip->opcode != op_remark && ip->opcode != op_rem2 && ip->opcode != op_hint && ip->opcode != op_hint2)
 			pb->length++;
-		if (ip->opcode == op_ret || ip->opcode == op_rti) {
+		if (ip->opcode == op_ret || ip->opcode == op_rti || ip->opcode==op_leave || ip->opcode==op_leave_far) {
 			pb->isRetBlock = true;
 			currentFn->ReturnBlock = pb;
 		}
@@ -116,6 +133,7 @@ BasicBlock *BasicBlock::Blockize(OCODE *start)
 	pb->next = nullptr;
 	dfs.printf("%s: ", (char *)currentFn->sym->name->c_str());
 	dfs.printf("%d basic blocks\n", num);
+	all = AllCodeHasBasicBlock(start);
 	return (bbs);
 }
 
@@ -132,6 +150,7 @@ Edge *BasicBlock::MakeOutputEdge(BasicBlock *dst)
 	edge = (Edge *)allocx(sizeof(Edge));
 	edge->src = this;
 	edge->dst = dst;
+//	edge->backedge = dst ? dst->num < num : true;
 	edge->backedge = dst->num < num;
 	if (otail) {
 		otail->next = edge;

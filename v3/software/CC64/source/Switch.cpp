@@ -526,7 +526,7 @@ void Statement::GenerateLinearSwitch()
 		error(ERR_BAD_SWITCH_EXPR);
 		return;
 	}
-	ap = cg.GenerateExpression(exp, am_reg, exp->GetNaturalSize());
+	ap = cg.GenerateExpression(exp, am_reg, exp->GetNaturalSize(), 0);
 	is_unsigned = ap->isUnsigned;
 	//        if( ap->preg != 0 )
 	//                GenerateDiadic(op_mov,0,makereg(1),ap);
@@ -799,7 +799,7 @@ void Statement::GenerateSwitch()
 		qsort(&casetab[0], maxcasevals+1, sizeof(struct scase), casevalcmp);
 		tablabel = caselit(casetab, maxcasevals+1);
 		initstack();
-		ap = cg.GenerateExpression(exp, am_reg, exp->GetNaturalSize());
+		ap = cg.GenerateExpression(exp, am_reg, exp->GetNaturalSize(), 0);
 		is_unsigned = ap->isUnsigned;
 		if (nkd)
 			GenerateNakedTabularSwitch(minv, ap, tablabel);

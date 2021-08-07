@@ -28,7 +28,7 @@
 #include <stdlib.h>
 #include <malloc.h>
 
-#define BLKSIZE		4000
+#define BLKSIZE		8000
 
 struct blk {
 	char name[8];			// string overwrite area

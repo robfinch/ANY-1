@@ -885,6 +885,7 @@ static void opt0(ENODE **node)
 							if (ep->p[0]->nodetype == en_tempref) {
 								//(*node)->nodetype = ep->p[1]->nodetype;
 								*node = ep->p[1];
+								(*node)->tp = ep->p[0]->tp;
 								(*node)->nodetype = ep->p[0]->nodetype;
 							}
 							break;

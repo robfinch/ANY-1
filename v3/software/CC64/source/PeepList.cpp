@@ -83,6 +83,7 @@ void PeepList::InsertBefore(OCODE *an, OCODE *cd)
 {
 	cd->fwd = an;
 	cd->back = an->back;
+	cd->bb = an->bb;
 	if (an->back)
 		an->back->fwd = cd;
 	else
@@ -94,6 +95,7 @@ void PeepList::InsertAfter(OCODE *an, OCODE *cd)
 {
 	cd->fwd = an->fwd;
 	cd->back = an;
+	cd->bb = an->bb;
 	if (an->fwd)
 		an->fwd->back = cd;
 	else
@@ -262,6 +264,8 @@ void PeepList::EliminateUnreferencedLabels()
 			p->remove = false;
 		if (p->opcode == op_label && !p->isReferenced) {
 			p->MarkRemove();
+			// Must nullify the label entry so FindLabel() does not find a deleted label.
+			LabelTable[(int)p->oper1] = nullptr;
 			optimized++;
 		}
 	}

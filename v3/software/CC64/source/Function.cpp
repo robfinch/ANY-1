@@ -875,11 +875,11 @@ void Function::GenerateReturn(Statement* stmt)
 		isFloat = sym->tp->btpp && sym->tp->btpp->IsFloatType();
 		isPosit = sym->tp->btpp && sym->tp->btpp->IsPositType();
 		if (isFloat)
-			ap = cg.GenerateExpression(stmt->exp, am_reg, sizeOfFP);
+			ap = cg.GenerateExpression(stmt->exp, am_reg, sizeOfFP, 1);
 		else if (isPosit)
-			ap = cg.GenerateExpression(stmt->exp, am_reg, sizeOfPosit);
+			ap = cg.GenerateExpression(stmt->exp, am_reg, sizeOfPosit, 1);
 		else
-			ap = cg.GenerateExpression(stmt->exp, am_reg | am_imm, sizeOfWord);
+			ap = cg.GenerateExpression(stmt->exp, am_reg | am_imm, sizeOfWord, 1);
 		GenerateMonadic(op_hint, 0, MakeImmediate(2));
 		if (ap->mode == am_imm)
 			GenerateDiadic(cpu.ldi_op, 0, makereg(regFirstArg), ap);

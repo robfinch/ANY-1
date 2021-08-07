@@ -1228,7 +1228,7 @@ void Statement::GenerateFor()
 	initstack();
 	if (initExpr != NULL)
 		ReleaseTempRegister(cg.GenerateExpression(initExpr, am_all | am_novalue
-			, initExpr->GetNaturalSize()));
+			, initExpr->GetNaturalSize(),0));
 	loophead = currentFn->pl.tail;
 	if (!opt_nocgo && !opt_size) {
 		if (exp != NULL) {
@@ -1255,7 +1255,7 @@ void Statement::GenerateFor()
 	GenerateLabel(contlab);
 	if (incrExpr != NULL) {
 		initstack();
-		ReleaseTempRegister(cg.GenerateExpression(incrExpr, am_all | am_novalue, incrExpr->GetNaturalSize()));
+		ReleaseTempRegister(cg.GenerateExpression(incrExpr, am_all | am_novalue, incrExpr->GetNaturalSize(),0));
 	}
 	if (opt_nocgo||opt_size)
 		GenerateMonadic(op_bra, 0, cg.MakeCodeLabel(loop_label));
@@ -1621,7 +1621,7 @@ void Statement::GenerateThrow()
 		if (compiler.ipoll)
 			GenerateZeradic(op_pfi);
 		initstack();
-		ap = cg.GenerateExpression(exp, am_all, 8);
+		ap = cg.GenerateExpression(exp, am_all, 8, 0);
 		if (ap->mode == am_imm)
 			GenerateDiadic(cpu.ldi_op, 0, makereg(regFirstArg), ap);
 		else if (ap->mode != am_reg)
@@ -1701,7 +1701,7 @@ void Statement::GenerateCatch(int opt, int oldthrow, int olderthrow)
 		// move the throw expression result in '$a0' into the catch variable.
 		node = stmt->exp;
 		if (node) {
-			ap2 = cg.GenerateExpression(node, am_reg | am_mem, node->GetNaturalSize());
+			ap2 = cg.GenerateExpression(node, am_reg | am_mem, node->GetNaturalSize(), 0);
 			if (ap2->mode == am_reg)
 				GenerateDiadic(cpu.mov_op, 0, ap2, makereg(regFirstArg));
 			else
@@ -1769,9 +1769,9 @@ void Statement::GenerateCheck()
 		return;
 	}
 	size = node->GetNaturalSize();
-	ap1 = cg.GenerateExpression(node->p[0], am_reg, size);
-	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm0, size);
-	ap3 = cg.GenerateExpression(node->p[2], am_reg | am_imm, size);
+	ap1 = cg.GenerateExpression(node->p[0], am_reg, size, 0);
+	ap2 = cg.GenerateExpression(node->p[1], am_reg | am_imm0, size, 1);
+	ap3 = cg.GenerateExpression(node->p[2], am_reg | am_imm, size, 1);
 	if (ap2->mode == am_imm) {
 		ap2->mode = am_reg;
 		ap2->preg = 0;
@@ -1790,7 +1790,7 @@ void Statement::GenerateCompound()
 	while (sp) {
 		if (sp->initexp) {
 			initstack();
-			ReleaseTempRegister(cg.GenerateExpression(sp->initexp, am_all, 8));
+			ReleaseTempRegister(cg.GenerateExpression(sp->initexp, am_all, 8, 0));
 		}
 		sp = sp->GetNextPtr();
 	}
@@ -1809,7 +1809,7 @@ void Statement::GenerateFuncBody()
 	while (sp) {
 		if (sp->initexp) {
 			initstack();
-			ReleaseTempRegister(cg.GenerateExpression(sp->initexp, am_all, 8));
+			ReleaseTempRegister(cg.GenerateExpression(sp->initexp, am_all, sizeOfWord, 0));
 		}
 		sp = sp->GetNextPtr();
 	}
@@ -1880,7 +1880,7 @@ void Statement::Generate()
 			if (stmt->exp) {
 				initstack();
 				ap = cg.GenerateExpression(stmt->exp, am_all | am_novalue,
-					stmt->exp->GetNaturalSize());
+					stmt->exp->GetNaturalSize(), 0);
 				ReleaseTempRegister(ap);
 				tmpFreeAll();
 			}

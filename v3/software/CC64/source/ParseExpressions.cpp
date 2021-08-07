@@ -1157,6 +1157,7 @@ j1:
 		}
 		currentSym = symi;
 		pnode = ParseNameRef(symi);
+		pnode->constflag = false;
     break;
 
   case cconst:
