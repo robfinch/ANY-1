@@ -44,9 +44,10 @@ CTRLX	EQU	0x18
 XON		EQU	0x11
 XOFF	EQU	0x13
 
-FILENAME	EQU		0x6C0
-FILEBUF		EQU		0x07F600
-OSSP		EQU		0x700
+FILENAME	EQU		0x006C0
+FILEBUF		EQU		0x7F600
+OSRA			EQU		0x006F8
+OSSP			EQU		0x00700
 TXTUNF		EQU		OSSP+8
 VARBGN		EQU		TXTUNF+8
 VAREND		EQU		VARBGN+8
@@ -77,39 +78,75 @@ CursorFlash	EQU		INPPTR+8
 ;
 ;THRD_AREA	dw	0x04000000	; threading switch area 0x04000000-0x40FFFFF
 ;bitmap dw	0x00100000	; bitmap graphics memory 0x04100000-0x417FFFF
-TXTBGN		EQU		0x001800	;TXT ;beginning of program memory
-ENDMEM		EQU		0x00F000	; end of available memory
-STACKOFFS	EQU		0x07FFFC	; stack offset
+TXTBGN		EQU		0x01800	;TXT ;beginning of program memory
+ENDMEM		EQU		0xF0000	; end of available memory
+STACKOFFS	EQU		0x00FF8		; stack offset
 
+
+TINYBASIC_BASE		equ		$18000*2
+
+	code
+	org	TINYBASIC_BASE
+
+dcb	"TINY_BASIC",0,0,0,0,0,0
+dct	tblib_table,0
 
 		code
-		align	256
+		align	16
 ;
 ; Standard jump table. You can change these addresses if you are
 ; customizing this interpreter for a different environment.
 ;
 TinyBasic:
+	align	16
 GOSTART:	
 		bra	CSTART	;	Cold Start entry point
+	align	16
 GOWARM:	
 		bra	WSTART	;	Warm Start entry point
+	align	16
 GOOUT:	
 		bra	OUTC	;	Jump to character-out routine
+	align	16
 GOIN:	
 		bra	INCH	;Jump to character-in routine
+	align	16
 GOAUXO:	
 		bra	AUXOUT	;	Jump to auxiliary-out routine
+	align	16
 GOAUXI:	
 		bra	AUXIN	;	Jump to auxiliary-in routine
+	align	16
 GOBYE:	
 		bra	BYEBYE	;	Jump to monitor, DOS, etc.
 
 	align	16
-//message "CSTART"
-public CSTART:
-	; First save off the link register and OS sp value
-	sto		$sp,OSSP
+CSTART	.proc
+	; set TinyBasic data segment
+	ldi		$a1,#$0000000000400006	; 4MB boundary
+	ldi		$a0,#$030
+	mtbase	[$a0],$a1
+	; set Read-only segment
+	ldi		$a1,#$FFFFFFFFFFFC0004
+	ldi		$a0,#$03C
+	mtbase	[$a0],$a1
+	sync
+	ldi		$gp,#0
+	ldi		$a0,#$030
+	base	$gp,$gp,$a0
+	ldi		$gp1,#0
+	ldi		$a0,#$03C
+	base	$gp1,$gp1,$a0
+	sync
+	; Save off the link register and OS sp value
+	sto		$ra,OSRA[$gp]
+	sto		$sp,OSSP[$gp]
+	ldi		$a1,#$FFFFFFFFFF40C006
+	ldi		$a0,#$03A						; App#3 SS
+	di		#4
+	mtbase	[$a0],$a1
 	ldi		$sp,#STACKOFFS	; initialize stack pointer
+	base	$sp,$sp,$a0
 	ldi		$a0,#14							; Get current tid
 	brk   #240                ; $a1 = task id
 	ldi   $a0,#18             ; Get task app id
@@ -123,33 +160,39 @@ public CSTART:
 //	ldx		#0x10000020	; black chars, yellow background
 ;	stx		charToPrint
 ;	jsr	_DBGClearScreen[pc]
-	ldi		$a0,#msgInit  ;	tell who we are
+	lea		$a0,msgInit[$gp1]	;	tell who we are
 	call 	PRMESG
+	ldi		$a1,#$030
 	ldi		$a0,#TXTBGN	;	init. end-of-program pointer
-	sto		$a0,TXTUNF
+	base	$a0,$a0,$a1
+	sto		$a0,TXTUNF[$gp]
 	ldi		$a0,#ENDMEM	;	get address of end of memory
-	ldi		$a0,#$7F800 ; 2k stack
-	sto		$a0,STKBOT
+	base	$a0,$a0,$a1
+	sto		$x0,STKBOT[$gp]
 	ldi		$a0,#ENDMEM
-	sto		$a0,VAREND
+	base	$a0,$a0,$a1
+	sto		$a0,VAREND[$gp]
 	sub		$a0,$a0,#800  ;   100 vars
-	sto   $a0,VARBGN
+	sto   $a0,VARBGN[$gp]
 	call  clearVars   	; clear the variable area
-	sto		$x0,IRQROUT
-	ldo   $a0,VARBGN   ; calculate number of bytes free
-	ldo		$a1,TXTUNF
+	sto		$x0,IRQROUT[$gp]
+	ldo   $a0,VARBGN[$gp]   ; calculate number of bytes free
+	ldo		$a1,TXTUNF[$gp]
 	sub   $a0,$a0,$a1
 	ldi		$a1,#6		; max 6 digits
 	ldi		$a2,#10	  ; base 10
 	call  PRTNUM
-	ldi		$a0,#msgBytesFree
+	lea		$a0,msgBytesFree[$gp1]
 	call	PRMESG
 WSTART:
-	stt		$x0,LOPVAR  ; initialize internal variables
-	stt		$x0,STKGOS
-	stt		$x0,CURRNT	;	current line number pointer = 0
+	sto		$x0,LOPVAR[$gp]  ; initialize internal variables
+	sto		$x0,STKGOS[$gp]
+	sto		$x0,CURRNT[$gp]	;	current line number pointer = 0
+	ldi		$a0,#$03A						; App#3 SS
+	di		#3
 	ldi		$sp,#STACKOFFS	;	init S.P. again, just in case
-	ldi		$a0,#msgReady	;	display "Ready"
+	base	$sp,$sp,$a0
+	lea		$a0,msgReady[$gp1]	;	display "Ready"
 	call	PRMESG
 BASPRMPT:
 	ldi		$a0,#14		; get current tid
@@ -159,7 +202,7 @@ BASPRMPT:
 	ldi		$a0,#'>'	; Prompt with a '>' and
 	call	GETLN		  ; read a line.
 	call	TOUPBUF 	; convert to upper case
-	ldi		$t2,#BUFFER	; point to the beginning of line
+	lea		$t2,BUFFER[$gp]	; point to the beginning of line
 	call	TSTNUM		; is there a number there?
 	call	 IGNBLK		; skip trailing blanks
 	ldbu	$s6,[$t2]
@@ -169,7 +212,7 @@ BASPRMPT:
 	ldi		$t1,#$FFFFF
 	sleu  $s8,$t1
 	bt	  ST2	      ; see if line no. is <= 20 bits
-	ldi		$a0,#msgLineRange	; if not, we've overflowed
+	lea		$a0,msgLineRange[$gp1]	; if not, we've overflowed
 	bra		ERROR
 ST2:
   mov		$a0,$s8		; a0 = line number
@@ -197,7 +240,7 @@ INSLINE:
 	call	  OpenSpace
 	tst   $s8
 	bne	  .0001	  ; space available?
-	ldi		$a0,#msgTooBig  ; no space available
+	lea		$a0,msgTooBig[$gp1]  ; no space available
 	bra		ERROR
 .0001:
   mov   $a0,$s5
@@ -207,7 +250,7 @@ INSLINE:
 	mov		$a2,$s4			; length
 	call	  InsertLine
 	bra		BASPRMPT
-..
+.endp CSTART
 
 ;------------------------------------------------------------------------------
 ; Parameters:
@@ -217,11 +260,11 @@ INSLINE:
 ; Returns:
 ;		none
 ;------------------------------------------------------------------------------
-
-DeleteLine:
+	align	16
+DeleteLine .proc
 	ldbu  $t0,[$a0]     ; $t0 = length
 	add		$t0,$t0,$a0		; t0 = pointer to line past line number and length
-	ldo		$t3,TXTUNF		; last text address
+	ldo		$t3,TXTUNF[$gp]	; last text address
 	; pull text after eol overtop
 .0003:
 	ldbu	$t4,[$t0]			; copy from next line
@@ -232,10 +275,10 @@ DeleteLine:
 	bt	  .0003	        ; to end of program
 	; update end of text
 	sub		$a0,$t0,$a0		; difference of pointers = length
-	sub		$t3,$t3,$a0		
-	sto		$t3,TXTUNF
+	sub		$t3,$t3,$a0
+	sto		$t3,TXTUNF[$gp]
 	ret
-..
+.endp DeleteLine
 
 ;------------------------------------------------------------------------------
 ; Parameters:
@@ -247,8 +290,8 @@ DeleteLine:
 ; Returns:
 ;		none
 ;------------------------------------------------------------------------------
-
-InsertLine:
+	align	16
+InsertLine .proc
 	beq	  $a2,$x0,.done   ; zero length? Probably a SW error
 .0001:
 	ldbu	$t1,[$a1]				; get from source text
@@ -259,7 +302,7 @@ InsertLine:
 	bgt	  $a2,$x0,.0001
 .done:
 	ret
-..
+.endp InsertLine
 
 ;------------------------------------------------------------------------------
 ; GetBuflen - get the length of text in a buffer. The length is taken up to
@@ -272,8 +315,8 @@ InsertLine:
 ; Returns:
 ;		s8 = length of data in buffer
 ;------------------------------------------------------------------------------
-
-GetBuflen:
+	align	16
+GetBuflen .proc
 	ldi		$s8,#0
 	ldi		$t3,#CR
 	ldi   $t5,#0
@@ -292,7 +335,7 @@ GetBuflen:
   add     $s8,$t5,$t3
   add     $s8,$s8,#1      ; include CR in length
 	ret
-..
+.endp GetBufLen
 
 ;------------------------------------------------------------------------------
 ; Parameters:
@@ -303,14 +346,14 @@ GetBuflen:
 ; Returns:
 ;		s8 = 1 if successful, 0 if not enough room available
 ;------------------------------------------------------------------------------
-
-OpenSpace:
-	ldo		$t2,TXTUNF
+	align	16
+OpenSpace .proc
+	ldo		$t2,TXTUNF[$gp]
 	mov		$t3,$t2				; t3 = old end of text
 	add		$t2,$t2,$a1		; increment end of text by buffer length
-	ldo		$t1,VARBGN		; compare to start of variables
+	ldo		$t1,VARBGN[$gp]		; compare to start of variables
 	bgeu	$t2,$t1,.noSpace	    ; enough room?
-	sto		$t2,TXTUNF		; yes, set new end of text
+	sto		$t2,TXTUNF[$gp]	; yes, set new end of text
 .0003:
 	ldbu	$t5,[$t3]			; copy old text
 	stb		$t5,[$t2]			; to new text loc
@@ -322,8 +365,2645 @@ OpenSpace:
 .noSpace:
 	ldi		$s8,#0
 	ret	
-..
+.endp OpenSpace
 
+;*
+; r3 = match flag (trashed)
+; r9 = text table
+; r10 = exec table
+; r11 = trashed
+	align	16
+//message "DIRECT"
+DIRECT:
+	lea		$t3,TAB1[$gp1]
+	lea		$t4,TAB1_1[$gp1]
+EXEC:
+	call	IGNBLK		; ignore leading blanks
+	mov		$t5,$t2		; save the pointer
+	mov		$a3,$x0		; clear match flag
+EXLP:
+	ldbu	$a0,[$t2]		; get the program character
+	add		$t2,$t2,#1
+	ldbu	$a1,[$t3]		; get the table character
+	bne	  $a1,$x0,.EXNGO		  ; If end of table,
+	mov		$t2,$t5		;	restore the text pointer and...
+	bra		EXGO		;   execute the default.
+.EXNGO:
+	beq		$a0,$a3,EXGO	  ; Else check for period... if so, execute
+	and		$a1,$a1,#$7f  ; ignore the table's high bit
+	beq		$a1,$a0,EXMAT	  ;		is there a match?
+	add		$t4,$t4,#1	;if not, try the next entry
+	mov		$t2,$t5		; reset the program pointer
+	mov		$a3,$x0		; sorry, no match
+EX1:
+	ldb  	$a0,[$t3]		; get to the end of the entry
+	add		$t3,$t3,#1
+	bge   $a0,$x0,EX1
+;	and		$t1,$a0,#$80
+;	beq		$t1,$r0,EX1	; test for bit 7 set
+	bra		EXLP		; back for more matching
+EXMAT:
+	ldi		$a3,#'.'		; we've got a match so far
+	ldb  	$a0,[$t3]		; end of table entry?
+	add		$t3,$t3,#1
+	bge   $a0,$x0,EXLP
+;	and		$t1,$a0,#$80
+;	beq		$t1,$r0,EXLP		; test for bit 7 set, if not, go back for more
+EXGO:
+	; execute the appropriate routine
+	ldw		$a0,[$t4]	; get the low mid order byte
+	sll		$a0,$a0,#5
+	;or		$a0,$a0,#$FFFFFFFFFFF00000*2	; add in ROM base
+	jmp		[$a0]
+..
+    
+;******************************************************************
+;
+; What follows is the code to execute direct and statement
+; commands. Control is transferred to these points via the command
+; table lookup code of 'DIRECT' and 'EXEC' in the last section.
+; After the command is executed, control is transferred to other
+; sections as follows:
+;
+; For 'LISTX', 'NEW', and 'STOP': go back to the warm start point.
+; For 'RUN': go execute the first stored line if any; else go
+; back to the warm start point.
+; For 'GOTO' and 'GOSUB': go execute the target line.
+; For 'RETURN' and 'NEXT'; go back to saved return line.
+; For all others: if 'CURRNT' is 0, go to warm start; else go
+; execute next command. (This is done in 'FINISH'.)
+;
+;******************************************************************
+;
+; *** NEW *** STOP *** RUN (& friends) *** GOTO ***
+;
+; 'NEW<CR>' sets TXTUNF to point to TXTBGN
+;
+
+	align		16
+NEW .proc
+	call	ENDCHK
+	lea		$s8,TXTBGN[$gp]
+	sto		$s8,TXTUNF[$gp]	;	set the end pointer
+	call  clearVars
+	bra		STOP
+.endp NEW
+
+; 'STOP<CR>' goes back to WSTART
+;
+	align	16
+STOP .proc
+	call  ENDCHK
+	bra		WSTART		; WSTART will reset the stack
+.endp STOP
+
+;------------------------------------------------------------------------------
+;------------------------------------------------------------------------------
+	align	16
+SLEEP .proc
+	call	OREXPR		;evaluate the following expression
+	mov   $s1,$s8
+  call  ENDCHK
+SLEEP1:
+  ldi   $a0,#22   ; FMTK release I/O focus
+  brk   #240
+  ldi   $a0,#5    ; FMTK sleep function
+  mov   $a1,$s1
+  brk   #240
+  ldi   $a0,#14   ; FMTK get current tid
+  brk   #240
+  ldi   $a0,#24   ; FMTK request I/O focus
+  brk   #240
+  bra   FINISH
+.endp SLEEP
+
+;------------------------------------------------------------------------------
+; YIELD suspends execution of TinyBasic by switching to the next ready task.
+;------------------------------------------------------------------------------
+	align	16
+YIELD0 .proc
+  ldi   $s1,#0
+  bra   SLEEP1
+.endp YIELD0
+
+;------------------------------------------------------------------------------
+; 'RUN<CR>' finds the first stored line, stores its address
+; in CURRNT, and starts executing it. Note that only those
+; commands in TAB2 are legal for a stored program.
+;
+; There are 3 more entries in 'RUN':
+; 'RUNNXL' finds next line, stores it's address and executes it.
+; 'RUNTSL' stores the address of this line and executes it.
+; 'RUNSML' continues the execution on same line.
+;
+	align	16
+RUN	.proc
+	call	ENDCHK
+	lea		$t2,TXTBGN[$gp]	;	set pointer to beginning
+	sto		$t2,CURRNT[$gp]
+	call   clearVars
+	bra		RUNNXL
+.endp RUN
+
+	align	16
+RUNNXL .proc					; RUN <next line>
+	ldo		$t2,CURRNT[$gp]	; executing a program?
+	bnez  $t2,RUN3	  ; if not, we've finished a direct stat.
+RUN2:
+	bra		WSTART
+RUN3:
+  sto   $t2,SRCHLN[$gp]
+  ldbu  $t3,[$t2]
+  add   $t2,$t2,$t3
+	ldt		$a0,IRQROUT[$gp]	; are we handling IRQ's ?
+	beqz  $a0,RUN1
+	ldi   $a0,#35       ; Get IRQ flag, was there an IRQ?
+	brk   #240
+	tst   $a0
+	beq 	RUN1
+	ldi   $a0,#36       ; Set IRQ flag
+	ldi   $a1,#0        ; set the flag to zero
+	brk   #240
+	call	  PUSHA_		; the same code as a GOSUB
+	sub		$sp,$sp,#24
+	ldo		$a0,STKGOS[$gp]
+	sto		$a0,[$sp]
+	ldo		$a0,CURRNT[$gp]
+	sto		$a0,8[$sp]
+	sto		$t2,16[$sp]
+	sto		$x0,LOPVAR[$gp]		; load new values
+	sto		$sp,STKGOS[$gp]
+	ldt		$t3,IRQROUT[$gp]
+	bra		RUNTSL
+RUN1:
+	mov		$t3,$t2
+	mov		$a0,$x0
+	call	FNDNXT  		; else find the next line number
+	ldo		$t1,TXTUNF[$gp]	; if we've fallen off the end, stop
+	bgeu	$t3,$t1,RUN2
+
+RUNTSL:					; RUN <this line>
+	sto		$t3,CURRNT[$gp]	; set CURRNT to point to the line no.
+	add		$t2,$t3,#5	; set the text pointer to
+
+RUNSML:                 ; RUN <same line>
+	call	CHKIO						; see if a control-C was pressed
+	lea		$t3,TAB2[$gp1]	; find command in TAB2
+	lea		$t4,TAB2_1[$gp1]
+	bra		EXEC		; and execute it
+.endp RUNNXL
+
+;******************************************************************
+; 'GOTO expr<CR>' evaluates the expression, finds the target
+; line, and jumps to 'RUNTSL' to do it.
+;******************************************************************
+;
+	align	16
+GOTO .proc
+	call	OREXPR		;evaluate the following expression
+	mov   $t0,$s8
+	call 	ENDCHK		;must find end of line
+	mov   $a0,$t0
+	call 	FNDLN		; find the target line
+	tst   $s8
+	bne 	RUNTSL  ; go do it
+	lea		$a0,msgBadGotoGosub[$gp1]
+	bra		ERROR		; no such line no.
+.endp GOTO
+
+	align	16
+_clr .proc
+  call    clearVars
+  bra     FINISH
+.endp _clr
+
+; Clear the variable area of memory
+	align	16
+clearVars .proc
+	sub		$sp,$sp,#8
+	sto		$a3,[$sp]
+  ldi   $a3,#100    	; number of word pairs to clear
+  ldo   $s8,VARBGN[$gp]
+.cv1:
+  sto		$x0,[$s8]		; variable name
+  sto		$x0,8[$s8]		; and value
+  add		$s8,$s8,#16
+  sub.	$a3,$a3,#1
+	bgt		.cv1
+  ldo		$a3,[$sp]
+  ret   #8
+.endp clearVars
+
+;******************************************************************
+; ONIRQ <line number>
+; ONIRQ sets up an interrupt handler which acts like a specialized
+; subroutine call. ONIRQ is coded like a GOTO that never executes.
+;******************************************************************
+	align	16
+ONIRQ .proc
+	call	OREXPR		;evaluate the following expression
+	mov   $t0,$s8
+	call 	ENDCHK		;must find end of line
+	mov   $a0,$t0
+	call 	FNDLN		; find the target line
+	tst   $s8
+	bne	  ONIRQ1
+	stt		$x0,IRQROUT[$gp]
+	bra		FINISH
+ONIRQ1:
+	stt		$t3,IRQROUT[$gp]
+	bra		FINISH
+.endp ONIRQ
+
+	align	16
+WAITIRQ .proc
+	call	CHKIO		; see if a control-C was pressed
+	ldi   $a0,#35
+	brk   #240
+	beqz	$a0,WAITIRQ
+	bra		FINISH
+.endp WAITIRQ
+
+;******************************************************************
+; LIST
+;
+; LISTX has two forms:
+; 'LIST<CR>' lists all saved lines
+; 'LIST #<CR>' starts listing at the line #
+; Control-S pauses the listing, control-C stops it.
+;******************************************************************
+;
+	align	16
+LISTX .proc
+	call	TSTNUM		; see if there's a line no.
+	mov   $a3,$s8
+	call	ENDCHK		; if not, we get a zero
+	mov   $a0,$a3
+	call	FNDLN			; find this or next line
+LS1:
+	bnez	$s8,LS4
+LS5:
+	ldo		$t1,TXTUNF[$gp]
+	bgeu	$t3,$t1,WSTART	; warm start if we passed the end
+LS4:
+	mov		$a0,$t3
+	call	PRTLN		; print the line
+	ldbu  $t3,[$a0]
+	add   $t3,$t3,$a0 ; set pointer for next
+;	mov		$t3,$s8		
+	call	  CHKIO		; check for listing halt request
+	beq 	LS3
+	ldi		$t1,#CTRLS
+	sne   $a0,$t1
+	bt		LS3     ; pause the listing?
+LS2:
+	call 	CHKIO		; if so, wait for another keypress
+	beq	  LS2
+LS3:
+;	mov		$s8,$x0
+	bra		LS5
+.endp LISTX
+;	mov		a0,r0
+;	call	FNDSKP	;FNDLNP		; find the next line
+;	bra		LS1
+
+
+;******************************************************************
+; PRINT command is 'PRINT ....:' or 'PRINT ....<CR>'
+; where '....' is a list of expressions, formats, back-arrows,
+; and strings.	These items a separated by commas.
+;
+; A format is a pound sign followed by a number.  It controls
+; the number of spaces the value of an expression is going to
+; be printed in.  It stays effective for the rest of the print
+; command unless changed by another format.  If no format is
+; specified, 11 positions will be used.
+;
+; A string is quoted in a pair of single- or double-quotes.
+;
+; An underline (back-arrow) means generate a <CR> without a <LF>
+;
+; A <CR LF> is generated after the entire list has been printed
+; or if the list is empty.  If the list ends with a semicolon,
+; however, no <CR LF> is generated.
+;******************************************************************
+;
+	align	16
+PRINT .proc
+	ldi	  $a3,#11		; D4 = number of print spaces
+	ldi		$a0,#';'
+	call  TSTC		; if null list and ":"
+	bra		PR2
+	call	CRLF		; give CR-LF and continue
+	bra		RUNSML		;		execution on the same line
+PR2:
+	ldi		$a0,#CR
+	call  TSTC		;if null list and <CR>
+	bra		PR0
+	call	CRLF		;also give CR-LF and
+	bra		RUNNXL		;execute the next line
+PR0:
+	ldi		$a0,#'#'
+	call 	TSTC		;else is it a format?
+	bra		PR1
+	call	OREXPR		; yes, evaluate expression
+	mov		$a3,$s8	; and save it as print width
+	bra		PR3		; look for more to print
+PR1:
+	ldi		$a0,#'$'
+	call   TSTC	;	is character expression? (MRL)
+	bra		PR4
+	call	OREXPR	;	yep. Evaluate expression (MRL)
+	call	GOOUT	;	print low byte (MRL)
+	bra		PR3		;look for more. (MRL)
+PR4:
+	call	QTSTG	;	is it a string?
+	; the following branch must occupy only 1 word!
+	bra		PR8		;	if not, must be an expression
+PR3:
+	ldi		$a0,#','
+	call  TSTC	;	if ",", go find next
+	bra		PR6
+	call	FIN		;in the list.
+	bra		PR0
+PR6:
+	call	CRLF		;list ends here
+	bra		FINISH
+PR8:
+	call	OREXPR		; evaluate the expression
+	mov		$a0,$s8
+	ldi		$a1,#5		; set the width
+	ldi		$a2,#10
+	call	PRTNUM		; print its value
+	bra		PR3			; more to print?
+.endp PRINT
+
+	align	16
+FINISH .proc
+	call  FIN		; Check end of command
+	bra		QWHAT	; print "What?" if wrong
+.endp FINISH
+
+;*******************************************************************
+;
+; *** GOSUB *** & RETURN ***
+;
+; 'GOSUB expr:' or 'GOSUB expr<CR>' is like the 'GOTO' command,
+; except that the current text pointer, stack pointer, etc. are
+; saved so that execution can be continued after the subroutine
+; 'RETURN's.  In order that 'GOSUB' can be nested (and even
+; recursive), the save area must be stacked.  The stack pointer
+; is saved in 'STKGOS'.  The old 'STKGOS' is saved on the stack.
+; If we are in the main routine, 'STKGOS' is zero (this was done
+; in the initialization section of the interpreter), but we still
+; save it as a flag for no further 'RETURN's.
+;******************************************************************
+;
+	align	16
+GOSUB .proc
+	call	PUSHA_		; save the current 'FOR' parameters
+	call	OREXPR		; get line number
+	mov		$a0,$s8
+	call	FNDLN		; find the target line
+	tst   $s8
+	bne	  .gosub1
+	lea		$a0,msgBadGotoGosub[$gp1]
+	bra		ERROR		; if not there, say "How?"
+.gosub1:
+	sub		$sp,$sp,#24
+	ldo		$a0,STKGOS[$gp]	; 'STKGOS'
+	sto		$a0,[$sp]
+	ldo		$a0,CURRNT[$gp]	; found it, save old 'CURRNT'...
+	sto		$a0,8[$sp]
+	sto		$t2,16[$sp]
+	sto		$x0,LOPVAR[$gp]		; load new values
+	sto		$sp,STKGOS[$gp]
+	bra		RUNTSL
+.endp GOSUB
+
+;******************************************************************
+; 'RETURN<CR>' undoes everything that 'GOSUB' did, and thus
+; returns the execution to the command after the most recent
+; 'GOSUB'.  If 'STKGOS' is zero, it indicates that we never had
+; a 'GOSUB' and is thus an error.
+;******************************************************************
+;
+	align	16
+RETURN .proc
+	call	ENDCHK		; there should be just a <CR>
+	ldo		$a1,STKGOS[$gp]		; get old stack pointer
+	bnez	$a1,.return1
+	lea		$a0,msgRetWoGosub[$gp1]
+	bra		ERROR		; if zero, it doesn't exist
+.return1:
+	mov		$sp,a1		; else restore it
+	ldo		$a0,[$sp]
+	add		$sp,$sp,#8
+	sto		$a0,STKGOS[$gp]	; and the old 'STKGOS'
+	ldo		$a0,[$sp]
+	add		$sp,$sp,#8
+	sto		$a0,CURRNT[$gp]	; and the old 'CURRNT'
+	ldo		$t2,[$sp]	; and the old text pointer
+	add		$sp,$sp,#8
+	call	POPA_			;and the old 'FOR' parameters
+	bra		FINISH		;and we are back home
+.endp RETURN
+
+;******************************************************************
+; *** FOR *** & NEXT ***
+;
+; 'FOR' has two forms:
+; 'FOR var=exp1 TO exp2 STEP exp1' and 'FOR var=exp1 TO exp2'
+; The second form means the same thing as the first form with a
+; STEP of positive 1.  The interpreter will find the variable 'var'
+; and set its value to the current value of 'exp1'.  It also
+; evaluates 'exp2' and 'exp1' and saves all these together with
+; the text pointer, etc. in the 'FOR' save area, which consists of
+; 'LOPVAR', 'LOPINC', 'LOPLMT', 'LOPLN', and 'LOPPT'.  If there is
+; already something in the save area (indicated by a non-zero
+; 'LOPVAR'), then the old save area is saved on the stack before
+; the new values are stored.  The interpreter will then dig in the
+; stack and find out if this same variable was used in another
+; currently active 'FOR' loop.  If that is the case, then the old
+; 'FOR' loop is deactivated. (i.e. purged from the stack)
+;******************************************************************
+;
+	align	16
+FOR .proc
+	call	PUSHA_		; save the old 'FOR' save area
+	call	SETVAL		; set the control variable
+	sto		$s8,LOPVAR[$gp]		; save its address
+	lea		$t3,TAB5[$gp1]
+	lea		$t4,TAB5_1[$gp1]	; use 'EXEC' to test for 'TO'
+	bra		EXEC
+FR1:
+	call	OREXPR		; evaluate the limit
+	sto		$s8,LOPLMT[$gp]	; save that
+	lea		$t3,TAB6[$gp1]
+	lea		$t4,TAB6_1[$gp1]	; use 'EXEC' to test for the word 'STEP
+	bra		EXEC
+FR2:
+	call	OREXPR		; found it, get the step value
+	bra		FR4
+FR3:
+	ldi		$s8,#1		; not found, step defaults to 1
+FR4:
+	sto		$s8,LOPINC[$gp]	; save that too
+FR5:
+	ldo		$a1,CURRNT[$gp]
+	sto		$a1,LOPLN[$gp]	; save address of current line number
+	sto		$t2,LOPPT[$gp]	; and text pointer
+	mov		$a3,$sp		; dig into the stack to find 'LOPVAR'
+	ldo		$a6,LOPVAR[$gp]
+	bra		FR7
+FR6:
+	add		$a3,$a3,#40	; look at next stack frame
+FR7:
+	ldo		$a1,[$a3]		; is it zero?
+	beqz	$a1,FR8	    ; if so, we're done
+	bne		$a1,$a6,FR6	    ; same as current LOPVAR? nope, look some more
+
+  mov		$a0,$a3	   ; Else remove 5 words from...
+	mov		$a1,$sp
+	add		$a2,$a3,#40  ; inside the stack.
+	call	MVDOWN
+	add		$sp,$sp,#40	; set the SP 5 long words up
+;	lw		a0,[$sp]		; ???
+;	add		$sp,$sp,#4
+FR8:
+  bra	    FINISH		; and continue execution
+.endp FOR
+
+;******************************************************************
+; 'NEXT var' serves as the logical (not necessarily physical) end
+; of the 'FOR' loop.  The control variable 'var' is checked with
+; the 'LOPVAR'.  If they are not the same, the interpreter digs in
+; the stack to find the right one and purges all those that didn't
+; match.  Either way, it then adds the 'STEP' to that variable and
+; checks the result with against the limit value.  If it is within
+; the limit, control loops back to the command following the
+; 'FOR'.  If it's outside the limit, the save area is purged and
+; execution continues.
+;******************************************************************
+;
+	align	16
+NEXT .proc
+	mov		$a0,$x0		; don't allocate it
+	call	TSTV		; get address of variable
+	bnez	$s8,.NX4
+	lea		$a0,msgNextVar[$gp1]
+	bra		ERROR		; if no variable, say "What?"
+.NX4:
+	mov		$t3,$s8	; save variable's address
+.NX0:
+	ldo		$a0,LOPVAR	; If 'LOPVAR' is zero, we never...
+	bnez	$a0,.NX5			; had a FOR loop
+	lea		$a0,msgNextFor[$gp1]
+	bra		ERROR
+.NX5:
+	beq		$a0,$t3,.NX2	; else we check them OK, they agree
+	call	POPA_				; nope, let's see the next frame
+	bra		.NX0
+.NX2:
+	ldo		$a0,[$t3]		; get control variable's value
+	ldo		$a1,LOPINC[$gp]
+	add		$a0,$a0,$a1	; add in loop increment
+;	BVS.L	QHOW		say "How?" for 32-bit overflow
+	sto		$a0,[$t3]		; save control variable's new value
+	ldo		$a3,LOPLMT[$gp]	; get loop's limit value
+	bge		$a1,$x0,.NX1 ; check loop increment, branch if loop increment is positive
+	blt		$a0,$a3,.NXPurge	; test against limit
+	bra   .NX3
+.NX1:
+	bgt		$a0,$a3,.NXPurge
+.NX3:
+	ldo		$t2,LOPLN[$gp]	; Within limit, go back to the...
+	sto		$t2,CURRNT[$gp]
+	ldo		$t2,LOPPT[$gp]	; saved 'CURRNT' and text pointer.
+	bra		FINISH
+.NXPurge:
+  call  POPA_        ; purge this loop
+  bra   FINISH
+.endp NEXT
+
+;******************************************************************
+; *** REM *** IF *** INPUT *** LET (& DEFLT) ***
+;
+; 'REM' can be followed by anything and is ignored by the
+; interpreter.
+;
+;REM
+;    br	    IF2		    ; skip the rest of the line
+; 'IF' is followed by an expression, as a condition and one or
+; more commands (including other 'IF's) separated by colons.
+; Note that the word 'THEN' is not used.  The interpreter evaluates
+; the expression.  If it is non-zero, execution continues.  If it
+; is zero, the commands that follow are ignored and execution
+; continues on the next line.
+;******************************************************************
+;
+	align 16
+IF0 .proc
+  call	OREXPR		; evaluate the expression
+;IF1:
+  beqz 	$s8,.IF2	; is it zero? if not, continue
+  bra		RUNSML
+.IF2:
+  mov		$t3,$t2	; set lookup pointer
+	mov		$a0,$x0		; find line #0 (impossible)
+	ldo   $a0,CURRNT[$gp]  ; move to the next line
+	ldbu  $a1,[$a0]
+	add   $a1,$a1,$a0
+	sto   $a1,CURRNT[$gp]
+	ldo   $a0,TXTUNF[$gp]  ; do a warm start if past end
+	bltu  $a1,$a0,.IF3
+	bra		WSTART
+.IF3:
+  mov   $t3,$a1
+	bra		RUNTSL		; run the next line
+.endp IF0
+
+;******************************************************************
+; INPUT is called first and establishes a stack frame
+	align	16
+INPERR .proc
+	ldo		$sp,STKINP[$gp]		; restore the old stack pointer
+	ldo		$a0,[$sp]
+	add		$sp,$sp,#8
+	sto		$a0,CURRNT[$gp]		; and old 'CURRNT'
+	ldo		$t2,[$sp]		; and old text pointer
+	add		$sp,$sp,#8
+	add		$sp,$sp,#40	; fall through will subtract 40
+	bra		INPUT
+.endp INPERR
+
+; 'INPUT' is like the 'PRINT' command, and is followed by a list
+; of items.  If the item is a string in single or double quotes,
+; or is an underline (back arrow), it has the same effect as in
+; 'PRINT'.  If an item is a variable, this variable name is
+; printed out followed by a colon, then the interpreter waits for
+; an expression to be typed in.  The variable is then set to the
+; value of this expression.  If the variable is preceeded by a
+; string (again in single or double quotes), the string will be
+; displayed followed by a colon.  The interpreter the waits for an
+; expression to be entered and sets the variable equal to the
+; expression's value.  If the input expression is invalid, the
+; interpreter will print "What?", "How?", or "Sorry" and reprint
+; the prompt and redo the input.  The execution will not terminate
+; unless you press control-C.  This is handled in 'INPERR'.
+;
+	align	16
+INPUT .proc
+	sub		$sp,$sp,#40	; allocate five words on stack
+	sto		$a5,32[$sp]	; save off r5 into stack var
+IP6:
+	sto		$t2,[$sp]	; save in case of error
+	call	QTSTG		; is next item a string?
+	bra		IP2			; nope - this branch must take only 1 word
+	ldi		$a0,#1		; allocate var
+	call	TSTV		; yes, but is it followed by a variable?
+	beqz  $a0,IP4     ; if not, brnch
+	mov		$t4,$a0		; put away the variable's address
+	bra		IP3			; if so, input to variable
+IP2:
+	sto		$t2,8[$sp]	; save off in stack var for 'PRTSTG'
+	ldi		$a0,#1
+	call	TSTV		; must be a variable now
+	bnez	$a0,IP7
+	lea		$a0,msgInputVar[$gp1]
+	add		$sp,$sp,#40	; cleanup stack
+	bra		ERROR		; "What?" it isn't?
+IP7:
+	mov		$t4,$a0		; put away the variable's address
+	ldbu	a5,[$t2]		; get ready for 'PRTSTG' by null terminating
+	stb		$x0,[$t2]
+	mov		$a1,$x0
+	ldo		$a0,8[$sp]	; get back text pointer
+	call	PRTSTG		; print string as prompt
+	stb		$a5,[$t2]		; un-null terminate
+IP3
+	sto		$t2,8[$sp]	; save in case of error
+	ldo		$a0,CURRNT[$gp]
+	sto		$a0,16[$sp]	; also save 'CURRNT'
+	ldi		$a0,#-1
+	sto		$a0,CURRNT[$gp]	; flag that we are in INPUT
+	sto		$sp,STKINP[$gp]	; save the stack pointer too
+	sto		$t4,24[$sp]	; save the variable address
+	ldi		a0,#':'		; print a colon first
+	call	GETLN		; then get an input line
+	lea		$t2,BUFFER[$gp]	; point to the buffer
+	call	OREXPR		; evaluate the input
+	ldo		$t4,24[$sp]	; restore the variable address
+	sto		$a0,[$t4]	; save value in variable
+	ldo		$a0,16[$sp]	; restore old 'CURRNT'
+	sto		$a0,CURRNT[$gp]
+	ldo		$t2,8[$sp]	; and the old text pointer
+IP4:
+	ldi		$a0,#','
+	call   TSTC
+	bra		IP5
+	bra		IP6			; yes, more items
+IP5:
+	ldo		$a5,32[$sp]
+	add		$sp,$sp,#40	; cleanup stack
+ 	bra		FINISH
+.endp INPUT
+
+	align	16
+DEFLT .proc
+  ldbu   	$a0,[$t2]
+  ldi			$t1,#CR
+	beq	    $a0,$t1,FINISH	    ; empty line is OK else it is 'LET'
+	bra			LET
+.endp DEFLT
+
+;******************************************************************
+; 'LET' is followed by a list of items separated by commas.
+; Each item consists of a variable, an equals sign, and an
+; expression.  The interpreter evaluates the expression and sets
+; the variable to that value.  The interpreter will also handle
+; 'LET' commands without the word 'LET'.  This is done by 'DEFLT'.
+;******************************************************************
+;
+	align	16
+LET .proc
+  call	SETVAL		; do the assignment
+  ldi		$a0,#','
+	call   TSTC		; check for more 'LET' items
+	bra		FINISH
+	bra   LET
+LT1:
+  bra   FINISH		; until we are finished.
+.endp LET
+
+;******************************************************************
+; *** LOAD *** & SAVE ***
+;
+; These two commands transfer a program to/from an auxiliary
+; device such as a cassette, another computer, etc.  The program
+; is converted to an easily-stored format: each line starts with
+; a colon, the line no. as 4 hex digits, and the rest of the line.
+; At the end, a line starting with an '@' sign is sent.  This
+; format can be read back with a minimum of processing time by
+; the RTF65002
+;******************************************************************
+;
+	align	16
+LOAD	.proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+	lea		$t2,TXTBGN[$gp]	; set pointer to start of prog. area
+	ldi		$a0,#CR		; For a CP/M host, tell it we're ready...
+	call  GOAUXO		; by sending a CR to finish PIP command.
+LOD1:
+	call  GOAUXI		; look for start of line
+	ble		$a0,$x0,LOD1
+	seq		$a0,#'@'    ; end of program?
+	seq.or	$a0,#$1A  ; or EOF marker
+	bt		LODEND
+	sne		$a0,#':'
+	bt		LOD1	    ; if not, is it start of line? if not, wait for it
+	call	  GCHAR		  ; get line number
+	stt		$a0,[$t2]		; store it
+	add		$t2,$t2,#4
+LOD2:
+	call	  GOAUXI		; get another text char.
+	tst   $a0
+	ble	  LOD2
+	stb		$a0,[$t2]		; store it
+	add		$t2,$t2,#1
+	sne		$a0,#CR
+	bt		LOD2		; is it the end of the line? if not, go back for more
+	bra		LOD1		; if so, start a new line
+LODEND:
+	sto		$t2,TXTUNF[$gp]	; set end-of program pointer
+	ldo		$ra,[$sp]
+	add		$sp,$sp,#8
+	bra		WSTART		; back to direct mode
+.endp LOAD
+
+
+; get character from input (32 bit value)
+	align	16
+GCHAR .proc
+	enter	#48
+	sto		$a5,[$sp]
+	sto		$a6,8[$sp]
+	ldi		$a6,#8       ; repeat ten times
+	ldi		$a5,#0
+.GCHAR1:
+	call	GOAUXI		; get a char
+	ble		$a0,$x0,.GCHAR1
+	call  asciiToHex
+	sll		$a5,$a5,#4
+	or		$a5,$a5,$a0
+	sub		$a6,$a6,#1
+	bgtu	$a6,$x0,.GCHAR1
+	mov		$a0,$a5
+	ldo		$a5,[$sp]
+	ldo		$a6,8[$sp]
+	leave	#32
+.endp GCHAR
+
+; convert an ascii char to hex code
+; input
+;	a0 = char to convert
+	align	16
+asciiToHex .proc
+	sleu	$a1,$a0,#'9'
+	bne  	$a1,.a2h1   ; less than '9'
+	sub		$a0,$a0,#7	; shift 'A' to '9'+1
+.a2h1:
+	sub		$a0,$a0,#'0'
+	and		$a0,$a0,#15	; make sure a nybble
+	ret
+.endp asciiToHex
+
+	align	16
+GetFilename .proc
+	enter	#0
+	ldi		$a0,#'"'
+	call  TSTC
+	bra		.gfn1
+	mov		$a3,$x0
+.gfn2:
+	ldbu	$a0,[$t2]		; get text character
+	add		$t2,$t2,#1
+	seq		$a1,$a0,#'"'
+	bnez	$a1,.gfn3
+	beqz	$a0,.gfn3
+	lea		$a2,FILENAME[$gp]
+	stb		$a0,[$a2+$a3]
+	add		$a3,$a3,#1
+	sltu	$a1,$a3,#64
+	bnez	$a1,.gfn2
+	leave	#0
+.gfn3:
+	ldi		$a0,#' '
+	lea		$a2,FILENAME[$gp]
+	stb		$a0,[$a2+$a3]
+	add		$a3,$a3,#1
+	sltu	$a1,$a3,#64
+	bnez	$a1,.gfn3
+	leave	#0
+.gfn1:
+	bra		WSTART
+.endp GetFilename
+
+	align	16
+LOAD3 .proc
+	call	GetFilename
+	call	AUXIN_INIT
+	bra		LOAD
+
+;	call		OREXPR		;evaluate the following expression
+;	ld		a0,#5000
+	ldi		$a1,#$E00
+	call	SDReadSector
+	add		$a0,$a0,#1
+	ldi		$a1,#TXTBGN
+.LOAD4:
+	sub		$sp,$sp,#8
+	sto		$a0,[$sp]
+	call	SDReadSector
+	add		$a1,$a1,#512
+	ldo		$a0,[$sp]
+	add		$sp,$sp,#8
+	add		$a0,$a0,#1
+	lea		$a4,TXTBGN[$gp]
+	add		$a4,$a4,#65536
+	slt   $t0,$a1,$a4
+	bnez	$t0,.LOAD4
+LOAD5:
+	bra		WSTART
+.endp LOAD3
+
+	align	16
+SAVE3 .proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+	call	GetFilename
+	call	AUXOUT_INIT
+	ldo		$ra,[$sp]
+	add		$sp,$sp,#8
+	bra		SAVE
+
+	; dead code follows
+	call	OREXPR		;evaluate the following expression
+;	lda		#5000		; starting sector
+	ldi		$a1,#$E00	; starting address to write
+	call	SDWriteSector
+	add		$a0,$a0,#1
+	lea		$a1,TXTBGN[$gp]
+.SAVE4:
+	sub		$sp,$sp,#8
+	sto		$a0,[$sp]
+	call	SDWriteSector
+	add		$a1,$a1,#512
+	ldo		$a0,[$sp]
+	add		$sp,$sp,#8
+	add		$a0,$a0,#1
+	lea		$a4,TXTBGN[$gp]
+	add		$a4,$a4,#65536
+	slt   $t0,$a1,$a4
+	bnez	$t0,.SAVE4
+	bra		WSTART
+.endp SAVE3
+
+	align	16
+SAVE .proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+	ldi		$t2,#TXTBGN	;set pointer to start of prog. area
+	ldo		$t3,TXTUNF	;set pointer to end of prog. area
+SAVE1:
+	call	AUXOCRLF    ; send out a CR & LF (CP/M likes this)
+	bgt		$t2,$t3,SAVEND; are we finished?
+	ldi		$a0,#':'		; if not, start a line
+	call	GOAUXO
+	ldt		$a0,1[$t2]		; get line number (skip over line length)
+	add		$t2,$t2,#4
+	call	PWORD       ; output line number as 5-digit hex
+SAVE2:
+	ldbu	$a0,[$t2]		; get a text char.
+	add		$t2,$t2,#1
+	beq		$a0,#CR,SAVE1	; is it the end of the line? if so, send CR & LF and start new line
+	call	GOAUXO		; send it out
+	bra		SAVE2		; go back for more text
+SAVEND:
+	ldi		$a0,#'@'		; send end-of-program indicator
+	call	GOAUXO
+	call	AUXOCRLF    ; followed by a CR & LF
+	ldi		$a0,#$1A		; and a control-Z to end the CP/M file
+	call	GOAUXO
+	call	AUXOUT_FLUSH
+	ldo		$ra,[$sp]
+	add		$sp,$sp,#8
+	bra		WSTART		; then go do a warm start
+.endp SAVE
+
+; output a CR LF sequence to auxillary output
+; Registers Affected
+;   r3 = LF
+	align	16
+AUXOCRLF .proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+  ldi		$a0,#CR
+  call	GOAUXO
+  ldi		$a0,#LINEFD
+  ldo		$ra,[$sp]
+  add		$sp,$sp,#8
+  bra	  GOAUXO
+.endp AUXOCRLF
+
+; output a word in hex format
+; tricky because of the need to reverse the order of the chars
+	align	16
+PWORD .proc
+	enter	#40
+	sto		$a5,[$sp]
+	ldi		$a5,#NUMWKA+14
+	mov		$a4,$a0		; r4 = value
+.pword1:
+  mov   $a0,$a4	    ; a0 = value
+  srl		$a4,$a4,#4	; shift over to next nybble
+  call	toAsciiHex  ; convert LS nybble to ascii hex
+  stb   $a0,[$a5]		; save in work area
+  sub		$a5,$a5,#1
+  sge		$a1,$a5,#NUMWKA
+	bnez	$a1,.pword1
+.pword2:
+  add		$a5,$a5,#1
+  ldbu  $a0,[$a5]     ; get char to output
+	call	GOAUXO		; send it
+	slt   $a5,#NUMWKA+14
+	bt		.pword2
+	ldo		$a5,[$sp]
+	leave	#32
+.endp PWORD
+
+; convert nybble in a1 to ascii hex chaa1
+; a1 = character to convert
+	align	16
+toAsciiHex .proc
+	and		$a0,$a0,#15	; make sure it's a nybble
+	slt   $a1,$a0,#10
+	sll		$a1,$a1,#3	; *8
+	sub		$a1,$a1,#1	; *7
+	add		$a0,$a0,$a1	; bump it up to the letter 'A'
+	add		$a0,$a0,#'0'	; bump up to ascii '0'
+	ret
+.endp toAsciiHex
+
+;******************************************************************
+; *** POKE ***
+;
+; 'POKE expr1,expa1' stores the byte from 'expa1' into the memory
+; address specified by 'expr1'.
+; 'POKEW expr1,expa1' stores the word from 'expa1' into the memory
+; address specified by 'expr1'.
+; 'POKEH expr1,expa1' stores the half-word from 'expa1' into the memory
+; address specified by 'expr1'.
+;******************************************************************
+;
+	align	16
+POKE .proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+	call	OREXPR		; get the memory address
+	mov		$a1,$a0
+	ldi		$a0,#','
+	call  TSTC		; it must be followed by a comma
+	bra		PKER
+	sub		$sp,$sp,#8
+	sto		$a1,[$sp]	; save the address
+	call	OREXPR		; get the byte to be POKE'd
+	ldo		$a1,[$sp]	; get the address back
+	add		$sp,$sp,#8
+	stb		$a0,[$a1]		; store the byte in memory
+	ldo		$ra,[$sp]
+	add		$sp,$sp,#8
+	bra		FINISH
+.endp POKE
+
+	align	16
+POKEW .proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+	call	OREXPR		; get the memory address
+	mov		$a1,$a0
+	ldi		$a0,#','
+	call  TSTC		; it must be followed by a comma
+	bra		PKER
+	sub		$sp,$sp,#8
+	sto		$a1,[$sp]	; save the address
+	call	OREXPR		; get the byte to be POKE'd
+	ldo		$a1,[$sp]	; get the address back
+	add		$sp,$sp,#8
+	stw		$a0,[$a1]		; store the byte in memory
+	ldo		$ra,[$sp]
+	add		$sp,$sp,#8
+	bra		FINISH
+.endp POKEW
+
+	align	16
+POKET .proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+	call	 OREXPR		; get the memory address
+	mov		$a1,$a0
+	ldi		$a0,#','
+	call  TSTC		; it must be followed by a comma
+	bra		PKER
+	sub		$sp,$sp,#8
+	sto		$a1,[$sp]	; save the address
+	call	OREXPR		; get the byte to be POKE'd
+	ldo		$a1,[$sp]	; get the address back
+	add		$sp,$sp,#8
+	stt		$a0,[$a1]		; store the byte in memory
+	ldo		$ra,[$sp]
+	add		$sp,$sp,#8
+	bra		FINISH
+.endp POKET
+
+	align	16
+POKEO .proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+	call	OREXPR		; get the memory address
+	mov		$a1,$a0
+	ldi		$a0,#','
+	call  TSTC		; it must be followed by a comma
+	bra		PKER
+	sub		$sp,$sp,#8
+	sto		$a1,[$sp]	; save the address
+	call	OREXPR		; get the byte to be POKE'd
+	ldo		$a1,[$sp]	; get the address back
+	add		$sp,$sp,#8
+	sto		$a0,[$a1]		; store the byte in memory
+	ldo		$ra,[$sp]
+	add		$sp,$sp,#8
+	bra		FINISH
+.endp POKEO
+
+	align	16
+PKER .proc
+	add		$sp,$sp,#8	; discard ret address
+	lea		$a0,msgComma[$gp1]
+	bra		ERROR		; if no comma, say "What?"
+.endp PKER
+
+;******************************************************************
+; 'SYSX expr' jumps to the machine language subroutine whose
+; starting address is specified by 'expr'.  The subroutine can use
+; all registers but must leave the stack the way it found it.
+; The subroutine returns to the interpreter by executing an RTS.
+;******************************************************************
+	align	16
+SYSX .proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+	call	OREXPR		; get the subroutine's address
+	bnez	$s8,.sysx1; make sure we got a valid address
+	lea		$a0,msgSYSBad[$gp1]
+	add		$sp,$sp,#8
+	bra		ERROR
+.sysx1:
+	sub		$sp,$sp,#8
+	sto		$t2,[$sp]	; save the text pointer
+	call	[$s8]			; jump to the subroutine
+	ldo		$t2,[$sp]	; restore the text pointer
+	add		$sp,$sp,#8
+	ldo		$ra,[$sp]
+	add		$sp,$sp,#8
+	bra		FINISH
+.endp SYSX
+
+;******************************************************************
+; *** EXPR ***
+;
+; 'EXPR' evaluates arithmetical or logical expressions.
+; <OREXPR>::= <ANDEXPR> OR <ANDEXPR> ...
+; <ANDEXPR>::=<EXPR> AND <EXPR> ...
+; <EXPR>::=<ADDEXPR>
+;	   <ADDEXPR><rel.op.><ADDEXPR>
+; where <rel.op.> is one of the operators in TAB8 and the result
+; of these operations is 1 if true and 0 if false.
+; <ADDEXPR>::=(+ or -)<MULEXPR>(+ or -)<MULEXPR>(...
+; where () are optional and (... are optional repeats.
+; <MULEXPR>::=<FUNCEXPR>( <* or /><FUNCEXPR> )(...
+; <FUNCEXPR>::=<variable>
+;	    <function>
+;	    (<EXPR>)
+; <EXPR> is recursive so that the variable '@' can have an <EXPR>
+; as an index, functions can have an <EXPR> as arguments, and
+; <FUNCEXPR> can be an <EXPR> in parenthesis.
+;
+
+; <OREXPR>::=<ANDEXPR> OR <ANDEXPR> ...
+;
+	align	16
+OREXPR .proc
+	enter #48
+	call	ANDEXPR		; get first <ANDEXPR>
+XP_OR1:
+	sto		$s8,[$sp]		; save <ANDEXPR> value
+	sto		$s9,8[$sp]	; save type
+	lea		$t3,TAB10[$gp1]	; look up a logical operator
+	lea		$t4,TAB10_1[$gp1]
+	bra		EXEC		; go do it
+XP_OR:
+  call	ANDEXPR
+  ldo		$a0,[$sp]
+  or    $s8,$s8,$a0
+  bra   XP_OR1
+XP_ORX:
+  ldo		$s8,[$sp]
+  ldo		$s9,8[$sp]
+  leave	#32
+.endp OREXPR
+
+; <ANDEXPR>::=<EXPR> AND <EXPR> ...
+;
+	align	16
+ANDEXPR .proc
+	enter	#48
+	call	EXPR		; get first <EXPR>
+XP_AND1:
+	sto		$s8,[$sp]		; save <EXPR> value
+	sto		$s9,8[$sp]	; save type
+	lea		$t3,TAB9[$gp1]		; look up a logical operator
+	lea		$t4,TAB9_1[$gp1]
+	bra		EXEC		; go do it
+XP_AND:
+  call	  EXPR
+  ldo		$a0,[$sp]
+  and   $s8,$s8,$a0
+  bra   XP_AND1
+XP_ANDX:
+  ldo		$s8,[$sp]
+  ldo		$s9,8[$sp]
+  leave	#32
+.endp ANDEXPR
+
+	align	16
+FORCEFIT .proc
+	beq		$a1,$s9,.0001				; types match
+	beqz	$a1,.intAnd
+;	itof	$f1,$s8
+	ldi		$a0,#1
+	ret
+.intAnd:
+	bne		$s9,#1,.0001
+;	itof	$f2,$a1
+	ldi		$a1,#1
+	ret
+.0001:
+	ret
+.endp FORCEFIT
+
+	align	16
+EXPR .proc
+	enter	#48
+	call	ADDEXPR
+	sto		$s8,[$sp]		; save <ADDEXPR> value
+	sto		$s9,8[$sp]	; save type
+	lea		$t3,TAB8[$gp1]		; look up a relational operator
+	lea		$t4,TAB8_1[$gp1]
+	bra		EXEC		; go do it
+.endp EXPR
+
+	align	16
+XP11 .proc
+	ldo		$s8,[$sp]
+	ldo		$s9,8[$sp]
+	add		$sp,$sp,#16
+	call	XP18	; is it ">="?
+	sge   $s8,$a0,$s8
+	bra		XPRTI
+.endp XP11
+
+	align	16
+XP12 .proc
+	ldo		$s8,[$sp]
+	ldo		$s9,8[$sp]
+	add		$sp,$sp,#16
+	call	XP18	; is it "<>"?
+  sne   $s8,$a0,$s8
+	bra		XPRTI
+.endp XP12
+
+	align	16
+XP13 .proc
+	ldo		$s8,[$sp]
+	ldo		$s9,8[$sp]
+	add		$sp,$sp,#16
+	call	XP18	; is it ">"?
+  sgt   $s8,$a0,$s8
+	bra		XPRTI
+.endp XP13
+
+	align	16
+XP14 .proc
+	ldo		$s8,[$sp]
+	ldo		$s9,8[$sp]
+	add		$sp,$sp,#16
+	call	XP18	; is it "<="?
+	sle   $s8,$a0,$s8
+	bra		XPRTI
+.endp XP14
+
+	align	16
+XP15 .proc
+	ldo		$s8,[$sp]
+	ldo		$s9,8[$sp]
+	add		$sp,$sp,#16
+	call	XP18	; is it "="?
+  seq   $s8,$a0,$s8
+	bra		XPRTI
+.endp XP15
+
+	align	16
+XP16 .proc
+	ldo		$s8,[$sp]
+	ldo		$s9,8[$sp]
+	add		$sp,$sp,#16
+	call	XP18	; is it "<"?
+  slt   $s8,$a0,$s8
+	bra		XPRTI
+.endp XP16
+
+	align	16
+XPRTI .proc
+	ldi		$s9,#0	; type = int
+	leave	#32
+.endp XPRTI
+
+	align	16
+XP17 .proc				; it's not a rel. operator
+	ldo		$s8,[$sp] ; return a1=<ADDEXPR>
+	ldo		$s9,8[$sp]
+	leave	#32
+.endp XP17
+
+	align	16
+XP18 .proc
+	enter	#48
+	sto		$s8,[$sp]
+	sto		$s9,8[$sp]
+	call	ADDEXPR		; do a second <ADDEXPR>
+	ldo		$a0,[$sp]
+	ldo		$a1,8[$sp]
+	leave	#32
+.endp EX18
+
+; <ADDEXPR>::=(+ or -)<MULEXPR>(+ or -)<MULEXPR>(...
+//message "ADDEXPR"
+	align	16
+ADDEXPR .proc
+	enter	#32
+	ldi		$a0,#'-'
+	call  TSTC		; negative sign?
+	bra		.XP21
+	mov		$s8,$x0		; yes, fake '0-'
+	sub		$sp,$sp,#16
+	sto		$s8,[$sp]
+	sto		$s9,8[$sp]
+	bra		.XP26
+.XP21:
+	ldi		$a0,#'+'
+	call  TSTC		; positive sign? ignore it
+	nop
+	call	MULEXPR		; first <MULEXPR>
+.XP23:
+	sub		$sp,$sp,#16; yes, save the value
+	sto		$s8,[$sp]
+	sto	  $s9,8[$sp]	; and type
+	ldi		$a0,#'+'
+	call  TSTC		; add?
+	bra		.XP25
+	call	MULEXPR		; get the second <MULEXPR>
+.XP24:
+	ldo		$a0,[$sp]
+	ldo		$a1,8[$sp]
+	add		$sp,$sp,#16
+	add		$s8,$s8,$a0	; add it to the first <MULEXPR>
+;	BVS.L	QHOW		brnch if there's an overflow
+	bra		.XP23		; else go back for more operations
+.XP25:
+	ldi		$a0,#'-'
+	call  TSTC		; subtract?
+	bra		.XP45
+.XP26:
+	call	MULEXPR		; get second <MULEXPR>
+	sub		$s8,$x0,$s8	; change its sign
+	bra		.XP24		; and do an addition
+.XP45:
+	ldo		$s8,[$sp]
+	ldo		$s9,8[$sp]
+	leave	#32
+.endp ADDEXPR
+
+; <MULEXPR>::=<FUNCEXPR>( <* or /><FUNCEXPR> )(...
+	align	16
+MULEXPR .proc
+	enter	#32
+	call	FUNCEXPR		; get first <FUNCEXPR>
+.XP31:
+	sub		$sp,$sp,#16
+	sto		$s8,[$sp]  ; yes, save that first result
+	sto		$s9,8[$sp]
+	ldi		$a0,#'*'
+	call  TSTC		; multiply?
+	bra		.XP34
+	call	FUNCEXPR		; get second <FUNCEXPR>
+	ldo		$a0,[$sp]
+	ldo		$a1,8[$sp]
+	add		$sp,$sp,#16
+	mul		$s8,$s8,$a0	; multiply the two
+	bra		.XP31        ; then look for more terms
+.XP34:
+	ldi		$a0,#'/'
+	call   TSTC		; divide?
+	bra		.XP35
+	call	FUNCEXPR		; get second <FUNCEXPR>
+	ldo		$a0,[$sp]
+	ldo		$a1,8[$sp]
+	add		$sp,$sp,#16
+	div		$s8,$s8,$a0	; do the division
+	bra		.XP31		; go back for any more terms
+.XP35:
+	ldi		$a0,#'%'
+	call  TSTC
+	bra		.XP47
+	call	FUNCEXPR
+	ldo		$a0,[$sp]
+	ldo		$a1,8[$sp]
+	add		$sp,$sp,#16
+	rem		$s8,$s8,$a0
+	bra		.XP31
+.XP47:
+	ldo		$s8,[$sp]
+	ldo		$s9,8[$sp]
+	leave	#32
+.endp MULEXPR
+
+; Functions are called through FUNCEXPR
+; <FUNCEXPR>::=<variable>
+;	    <function>
+;	    (<EXPR>)
+	align	16
+FUNCEXPR .proc
+	enter	#32
+  ldi		$t3,#TAB4		; find possible function
+  ldi		$t4,#TAB4_1
+	bra		EXEC        ; branch to function which does subsequent ret for FUNCEXPR
+.XP40:                   ; we get here if it wasn't a function
+	mov		$a0,$x0
+	call	TSTV
+	beqz  $s8,.XP41	  ; not a variable
+	ldo		$s8,[$s8]		; if a variable, return its value in s8
+	leave	#32
+.XP41:
+	call	TSTNUM		; or is it a number?
+	bnez	$s9,.XP46	; (if not, # of digits will be zero) if so, return it in s8
+	call	PARN        ; check for (EXPR)
+.XP46:
+	leave	#32
+.endp FUNCEPXR
+
+; Check for a parenthesized expression
+	align	16
+PARN .proc
+	enter	#32
+	ldi		$a0,#'('
+	call  TSTC		; else look for ( OREXPR )
+	bra		.XP43
+	call	OREXPR
+	ldi		$a0,#')'
+	call   TSTC
+	bra		.XP43
+.XP42:
+	leave	#32
+.XP43:
+	add		$sp,$sp,#8		; get rid of return address
+	ldi		$a0,#msgWhat
+	bra		ERROR
+.endp PARN
+
+
+; ===== Test for a valid variable name.  Returns Z=1 if not
+;	found, else returns Z=0 and the address of the
+;	variable in a0.
+; Parameters
+;		a0 = 1 = allocate if not found
+; Returns
+;		s8 = address of variable, zero if not found
+	align	16
+TSTV .proc
+	enter	#40
+	sto		$a5,[$sp]
+	mov		$a5,$a0		; r5=allocate flag
+	call	IGNBLK
+	ldbu	$a0,[$t2]		; look at the program text
+	slt		$a1,$a0,#'@'
+	bnez	$a1,tstv_notfound	; C=1: not a variable
+	ldi		$a1,#'@'
+	bne		$a0,$a1,TV1	; brnch if not "@" array
+	add		$t2,$t2,#1	; If it is, it should be
+	call	  PARN		; followed by (EXPR) as its index.
+;	BCS.L	QHOW		say "How?" if index is too big
+	bra		TV3
+TV3:
+	sub		$sp,$sp,#8	; save the index
+	sto		$s8,[$sp]
+	call	SIZEX			; get amount of free memory
+	ldo		$a1,[$sp]
+	add		$sp,$sp,#8	; get back the index
+	slt   $t1,$a1,$s8
+	bnez	$t1,TV2		  ; see if there's enough memory
+	add		$sp,$sp,#16
+	bra   QSORRY		; if not, say "Sorry"
+TV2:
+	ldo		$a0,VARBGN[$gp]	; put address of array element...
+	sub   $s8,$a0,$a1    ; into a0 (neg. offset is used)
+	bra   TSTVRT
+TV1:	
+  call	getVarName      ; get variable name
+  beqz  $s8,TSTVRT    ; if not, return s8=0
+  mov		$a0,$s8
+  mov		$a1,$a5
+  call	findVar     ; find or allocate
+TSTVRT:
+	ldo		$a5,[$sp]
+	leave	#32						; s8<>0 (if found)
+tstv_notfound:
+	mov		$s8,$x0				; s8=0 if not found
+	ldo		$a5,[$sp]
+  leave	#32
+.endp TSTV
+
+; Get a variable name. Called after blanks have been ignored.
+;
+; Returns
+;   s8 = 7 character variable name + type
+;
+	align	16
+getVarName .proc
+	enter	#40
+	sto		$a5,[$sp]
+  ldbu  $a0,[$t2]			; get first character
+  sto		$a0,16[$sp]		; save off current name
+  call	_isalpha
+  beqz  $a0,.gvn1
+  ldi	  $a5,#6       	; loop six more times
+
+	; check for second/third character
+.gvn4:
+	add		$t2,$t2,#1
+	ldbu  $a0,[$t2]			; do we have another char ?
+	call	_isalnum
+	beqz  $a0,.gvn2	   	; nope
+	ldo		$a0,16[$sp]		; get varname
+	sll		$a0,$a0,#8
+	ldbu  $a1,[$t2]
+	or    $a0,$a0,$a1  	; add in new char
+  sto		$a0,16[$sp]		; save off current name again
+  sub		$a5,$a5,#1
+  bgt		$a5,$x0,.gvn4
+
+ 	; now ignore extra variable name characters
+.gvn6:
+	add		$t2,$t2,#1
+	ldbu  $a0,[$t2]		; do we have another char ?
+  call  _isalnum
+  bne   .gvn6	; keep looping as long as we have identifier chars
+
+  ; check for a variable type
+.gvn2:
+	ldbu    $a1,[$t2]
+	seq		  $t1,$a1,#'%'	; integer?
+	seq			$t3,$a1,#'$'	; string?
+	or			$t1,$t1,$t3
+	bnez		$t1,.gvn3
+  sub		  $t2,$t2,#1
+  ldi		  $a1,#'.'		; if no variable type assume float
+
+  ; insert variable type indicator and return
+.gvn3:
+	add		$t2,$t2,#1
+	ldo		$a0,16[$sp]		; get varname
+	sll		$a0,$a0,#8
+  or    $s8,$a0,$a1   ; add in variable type
+  ldo		$a5,[$sp]
+  leave	#32						; return s8 = varname
+
+  ; not a variable name
+.gvn1:
+  mov		$s8,$x0       ; return s8 = 0 if not a varname
+	ldo		$a5,[$sp]
+	leave	#32
+.endp getVarName
+
+; Find variable
+;   a0 = varname
+;		a1 = allocate flag
+; Returns
+;   s8 = variable address, Z =0 if found / allocated, Z=1 if not found
+	align	16
+findVar	.proc
+	sub		$sp,$sp,#24
+	sto		$s0,[$sp]
+	sto		$a3,8[$sp]
+	sto		$s1,16[$sp]
+  ldo   $a3,VARBGN[$gp]
+  ldo		$s1,VAREND[$gp]
+.fv4:
+  ldo  	$s0,[$a3]     ; get varname / type
+  beqz 	$s0,.fv3		  ; no more vars ?
+  beq   $a0,$s0,.fv1	; match ?
+	add		$a3,$a3,#16		; move to next var
+  blt   $a3,$s1,.fv4	; loop back to look at next var
+
+  ; variable not found
+  ; no more memory
+  ldo		$s0,[$sp]
+  ldo		$a3,8[$sp]
+  add		$sp,$sp,#16
+  lea		$a0,msgVarSpace[$gp1]
+  bra   ERROR
+
+  ; variable not found
+  ; allocate new ?
+.fv3:
+	beqz	$a1,.fv2
+  sto   $a0,[$a3]     ; save varname / type
+  ; found variable
+  ; return address
+.fv1:
+  add		$s8,$a3,#8
+  ldo		$s0,[$sp]
+  ldo		$a3,8[$sp]
+  ldo		$s1,16[$sp]
+  add		$sp,$sp,#24
+  ret									; s8 = address
+
+  ; didn't find var and not allocating
+.fv2:
+	mov		$s8,$x0				; s8 = nullptr
+  ldo		$s0,[$sp]
+  ldo		$a3,8[$sp]
+  ldo		$s1,16[$sp]
+  add		$sp,$sp,#24
+  ret
+.endp findVar
+
+; The following functions are entered via a jump instruction with
+; the return address already saved.
+
+; ===== The PEEK function returns the byte stored at the address
+;	contained in the following expression.
+;
+	align	16
+PEEK .proc
+	enter	#32
+	call	PARN			; get the memory address
+	ldb		$s8,[$s8]	; get the addressed byte
+	mov		$s9,$x0		; type = int
+	leave	#32
+.endp PEEK
+
+	align	16
+PEEKW .proc
+	enter	#32
+	call	PARN			; get the memory address
+	ldw		$s8,[$s8]	; get the addressed word
+	mov		$s9,$x0		; type = int
+	leave	#32
+.endp PEEKW
+
+	align	16
+PEEKT .proc
+	enter	#32
+	call	PARN			; get the memory address
+	ldt		$s8,[$s8]	; get the addressed byte
+	mov		$s9,$x0		; type = int
+	leave	#32
+.endp PEEKT
+
+	align	16
+PEEKO .proc
+	enter	#32
+	call	PARN			; get the memory address
+	ldo		$s8,[$s8]	; get the addressed byte
+	mov		$s9,$x0		; type = int
+	leave	#32
+.endp PEEKO
+
+; user function call
+; call the user function with argument in a0, type in a1
+	align	16
+USRX .proc
+	enter	#32
+	sub		$sp,$sp,#8
+	sto		$t0,[$sp]
+	call	PARN				; get expression value
+	mov		$a0,$s8
+	mov		$a1,$s9
+	sub		$sp,$sp,#8	; save the text pointer
+	sto		$t2,[$sp]
+	ldo		$t3,usrJmp
+	call	[$t3]				; get usr vector, jump to the subroutine
+	ldo		$t2,[$sp]		; restore the text pointer
+	add		$sp,$sp,#8
+	ldo		$t0,[$sp]
+	leave	#32
+.endp USRX
+
+; ===== The RND function returns a random number from 1 to
+;	the value of the following expression in D0.
+;
+	align	16
+RND .proc
+	enter #32
+	call	PARN				; get the upper limit
+	beqz	$s8,.rnd2		; it must be positive and non-zero
+	blt		$s8,$x0,.rnd1
+	mov		$a1,$s8
+	mov		$s9,$s8
+	call	gen_rand		; generate a random number
+	rem		$s8,$s8,$s9
+	add		$s8,$s8,#1
+	mov		$s9,$x0
+	leave	#32
+.rnd1:
+	ldi		$a0,#msgRNDBad
+	add		$sp,$sp,#8
+	bra		ERROR
+.rnd2:
+	call	gen_rand		; generate a random number
+	mov		$s9,$x0
+	leave	#32
+.endp RND
+
+; ===== The ABS function returns an absolute value in a1.
+;
+	align	16
+ABS .proc
+	enter	#32
+	call	PARN		; get the following expr.'s value
+	blt		$s8,$x0,.ABS1
+	leave	#32
+.ABS1:
+	neg		$s8,$s8
+	leave	#32
+.endp ABS
+
+;==== The TICK function returns the cpu tick value in a0.
+;
+	align	16
+TICKX .proc
+	csrrw	s8,#$C00,x0
+	mov		s9,x0
+	ret
+.endp TICKX
+
+; ===== The SGN function returns the sign in a0. +1,0, or -1
+;
+	align	16
+SGN .proc
+	enter	#32
+	call	PARN		; get the following expr.'s value
+	mov		$s9,$x0
+	beqz	$s8,.SGN1
+	blt		$s8,$x0,.SGN2
+	ldi		$s8,#1
+	leave	#32
+.SGN2:
+	ldi		$s8,#-1
+.SGN1:
+	leave	#32
+.endp SGN
+
+; ===== The SIZE function returns the size of free memory in s8.
+; does not consider memory used by @()
+;
+	align	16
+SIZEX .proc
+	ldo		$s8,VARBGN	; get the number of free bytes...
+	ldo		$s9,TXTUNF	; between 'TXTUNF' and 'VARBGN'
+	sub		$s8,$s8,$s9
+	mov		$s9,$x0			; type = int
+	ret				; return the number in s8
+.endp SIZEX
+
+;******************************************************************
+;
+; *** SETVAL *** FIN *** ENDCHK *** ERROR (& friends) ***
+;
+; 'SETVAL' expects a variable, followed by an equal sign and then
+; an expression.  It evaluates the expression and sets the variable
+; to that value.
+;
+; returns
+; a1 = variable's address
+;
+	align	16
+SETVAL .proc
+	enter	#32
+  ldi		$a0,#1		; allocate var
+  call	TSTV			; variable name?
+  bnez	$s8,.sv2
+ 	lea		$a0,msgVar[$gp1]
+	add		$sp,$sp,#32
+ 	bra		ERROR 
+.sv2:
+	sub		$sp,$sp,#8
+	sto		$s8,[$sp]		; save the variable's address
+	ldi		$a0,#'='
+	call  TSTC				; get past the "=" sign
+	bra		SV1
+	call	OREXPR			; evaluate the expression
+	ldo		$a1,[$sp]		; get back the variable's address
+	add		$sp,$sp,#8
+	sto   $s8,[$a1]   ; and save value in the variable
+	mov		$s8,$a1			; return s8 = variable address
+	ldo	  $s9,-8[$a1]
+	and		$s9,$s9,#$FF	; get type indicator
+	leave	#32
+SV1:
+	add		$sp,$sp,#40
+  bra	  QWHAT		; if no "=" sign
+.endp SETVAL
+
+; 'FIN' checks the end of a command.  If it ended with ":",
+; execution continues.	If it ended with a CR, it finds the
+; the next line and continues from there.
+;
+	align	16
+FIN .proc
+	enter	#32
+	ldi		$a0,#':'
+	call  TSTC				;		 *** FIN ***
+	bra		.FI1
+	add		$sp,$sp,#32	; if ":", discard return address
+	bra		RUNSML			; continue on the same line
+.FI1:
+	ldi		$a0,#CR
+	call  TSTC				; not ":", is it a CR?
+	bra		.FI2
+										; else return to the caller
+	add		$sp,$sp,#32	; yes, purge return address
+	bra		RUNNXL			; execute the next line
+.FI2:
+	leave	#32					; else return to the caller
+.endp FIN
+
+; 'ENDCHK' checks if a command is ended with a CR. This is
+; required in certain commands, such as GOTO, RETURN, STOP, etc.
+;
+; Check that there is nothing else on the line
+; Registers Affected
+;   a0
+;
+	align	16
+ENDCHK .proc
+	call	IGNBLK
+	ldbu	$a0,[$t2]
+	beq		$a0,#CR,.ec1	; does it end with a CR?
+	lea		$a0,msgExtraChars[$gp1]
+	bra		ERROR
+.ec1:
+	ret
+.endp ENDCHK
+
+; 'ERROR' prints the string pointed to by a0. It then prints the
+; line pointed to by CURRNT with a "?" inserted at where the
+; old text pointer (should be on top of the stack) points to.
+; Execution of Tiny BASIC is stopped and a warm start is done.
+; If CURRNT is zero (indicating a direct command), the direct
+; command is not printed. If CURRNT is -1 (indicating
+; 'INPUT' command in progress), the input line is not printed
+; and execution is not terminated but continues at 'INPERR'.
+;
+; Related to 'ERROR' are the following:
+; 'QWHAT' saves text pointer on stack and gets "What?" message.
+; 'AWHAT' just gets the "What?" message and jumps to 'ERROR'.
+; 'QSORRY' and 'ASORRY' do the same kind of thing.
+; 'QHOW' and 'AHOW' also do this for "How?".
+;
+	align	16
+TOOBIG .proc
+	lea		$a0,msgTooBig[$gp1]
+	bra		ERROR
+.endp TOOBIG
+	align	16
+QSORRY .proc
+  lea		$a0,SRYMSG[$gp1]
+	bra   ERROR
+.endp QSORRY
+	align	16
+QWHAT:
+	lea		$a0,msgWhat[$gp1]
+	bra		ERROR
+.endp QWHAT
+	align	16
+ERROR .proc
+	call	PRMESG		; display the error message
+	ldo		$a0,CURRNT[$gp]	; get the current line pointer
+	beqz	$a0,.ERROR1	; if zero, do a warm start
+	beq		$a0,#-1,INPERR	; is the line no. pointer = -1? if so, redo input
+	ldbu	$a5,[$t2]		; save the char. pointed to
+	stb		$x0,[$t2]		; put a zero where the error is
+	ldo		$a0,CURRNT[$gp]	; point to start of current line
+	call	PRTLN				; display the line in error up to the 0
+	mov   $a6,$a0	    ; save off end pointer
+	stb		$a5,[$t2]		; restore the character
+	ldi		$a0,#'?'		; display a "?"
+	call	GOOUT
+	mov		$a1,$x0			; stop char = 0
+	sub		$a0,$a6,#1	; point back to the error char.
+	call	PRTSTG			; display the rest of the line
+.ERROR1:
+	bra	  WSTART		; and do a warm start
+.endp ERROR
+
+;******************************************************************
+;
+; *** GETLN *** FNDLN (& friends) ***
+;
+; 'GETLN' reads in input line into 'BUFFER'. It first prompts with
+; the character in r3 (given by the caller), then it fills the
+; buffer and echos. It ignores LF's but still echos
+; them back. Control-H is used to delete the last character
+; entered (if there is one), and control-X is used to delete the
+; whole line and start over again. CR signals the end of a line,
+; and causes 'GETLN' to return.
+;
+;
+	align	16
+GETLN .proc
+	enter	#32
+	sub		$sp,$sp,#8
+	sto		$a5,[$sp]
+	call 	GOOUT		; display the prompt
+	ldi		$a0,#1
+;	sw		a0,CursorFlash	; turn on cursor flash
+	ldi		$a0,#' '		; and a space
+	call	GOOUT
+	lea		$t2,BUFFER[$gp]	; $t2 is the buffer pointer
+.GL1:
+	call	CHKIO			; check keyboard
+	beqz	$a0,.GL1	; wait for a char. to come in
+	beq		$a0,#CTRLH,.delchar	; delete last character? if so
+	beq		$a0,#CTRLX,.delline	; delete the whole line?
+	beq		$a0,#CR,.GL2	; accept a CR
+	bltu	$a0,#' ',.GL1	; if other control char., discard it
+.GL2:
+	stb		$a0,[$t2]			; save the char.
+	add		$t2,$t2,#1
+	sub		$sp,$sp,#8
+	sto		$a0,[$sp]
+	call	GOOUT		  		; echo the char back out
+	ldo		$a0,[$sp] 		; get char back (GOOUT destroys a0)
+	add		$sp,$sp,#8
+	beq		$a0,#CR,.GL7	; if it's a CR, end the line
+	lea		$t3,BUFFER+BUFLEN-1[$gp]
+	slt		$t1,$t2,$t3
+	bnez	$t1,.GL1			; any more room? ; yes: get some more, else delete last char.
+.delchar:
+	ldi		$a0,#CTRLH		; delete a char. if possible
+	call	GOOUT
+	ldi		$a0,#' '
+	call	GOOUT
+	lea		$t3,BUFFER[$gp]
+	sle   $t1,$t2,$t3
+	bnez	$t1,.GL1      ; any char.'s left?	; if not
+	ldi		$a0,#CTRLH		; if so, finish the BS-space-BS sequence
+	call	GOOUT
+	sub		$t2,$t2,#1		; decrement the text pointer
+	bra		.GL1		    	; back for more
+.delline:
+	mov		$a0,$t2				; delete the whole line
+	lea		$t3,BUFFER[$gp]
+	sub		$a5,$a0,$t3   ; figure out how many backspaces we need
+	beqz	$a5,.GL6		  ; if none needed, branch
+	sub		$a5,$a5,#1		; loop count is one less
+.GL5:
+	ldi		$a0,#CTRLH		; and display BS-space-BS sequences
+	call	GOOUT
+	ldi		$a0,#' '
+	call	GOOUT
+	ldi		$a0,#CTRLH
+	call	GOOUT
+	sub		$a5,$a5,#1
+	bnez	$a5,.GL5
+.GL6:
+	lea		$t2,BUFFER[$gp]		; reinitialize the text pointer
+	bra		.GL1					; and go back for more
+.GL7:
+	stb		$x0,[$t2]		; null terminate line
+;	sw		x0,CursorFlash	; turn off cursor flash
+	ldi		$a0,#LINEFD	; echo a LF for the CR
+	call	GOOUT
+	ldo		$a5,[$sp]
+	leave	#32
+.endp GETLN
+
+
+; 'FNDLN' finds a line with a given line no. (in a0) in the
+; text save area.  $t3 is used as the text pointer. If the line
+; is found, $t3 will point to the beginning of that line
+; (i.e. the high byte of the line no.), and $s8 = 1.
+; If that line is not there and a line with a higher line no.
+; is found, $t3 points there and $s8 = 0. If we reached
+; the end of the text save area and cannot find the line, flags
+; $t3 = 0, $s8 = 0.
+; $s8=1 if line found
+; r0 = 1	<= line is found
+;	$t3 = pointer to line
+; r0 = 0    <= line is not found
+;	r9 = zero, if end of text area
+;	r9 = otherwise higher line number
+;
+; 'FNDLN' will initialize $t3 to the beginning of the text save
+; area to start the search. Some other entries of this routine
+; will not initialize $t3 and do the search.
+; 'FNDLNP' will start with $t3 and search for the line no.
+; 'FNDNXT' will bump $t3 by 4, find a CR and then start search.
+; return Z=1 if line is found, r9 = pointer to line
+;
+; Parameters
+;	a0 = line number to find
+;
+	align	16
+FNDLNT .proc
+  ldo   $t3,CURRNT
+  sto   $t3,SRCHLN
+  bra		FNDLNP
+.endp FNDLNT
+
+	align	16
+FNDLN .proc
+	slt   $t0,$a0,#$FFFFF
+	bnez	$t0,.fl1        ; line no. must be < 1048576
+	lea		$a0,msgLineRange[$gp1]
+	bra		ERROR
+.fl1:
+	lea		$t3,TXTBGN[$gp]	; init. the text save pointer
+	sto   $t3,SRCHLN[$gp]
+FNDLNP:
+	ldo		$t4,TXTUNF[$gp]	; check if we passed the end
+	bgeu  $t3,$t4,FNDRET1     ; if so, return with r9=0,a0=0
+	ldt   $s8,1[$t3]	; get line number
+;	gcsub $sp,$sp,#16
+;	stt   $ra,[$sp]
+;	stt   $a0,4[$sp]
+;	mov   $a0,$s8
+;	call  PutHexWord
+;	ldt   $ra,[$sp]
+;	ldt   $a0,4[$sp]
+;	add   $sp,$sp,#16
+	beq	  $s8,$a0,FNDRET2
+	bltu  $s8,$s0,FNDNXT	; is this the line we want? no, not there yet
+FNDRET1:
+	mov		$s8,$x0	; line not found, but $t3=next line pointer
+	ret
+FNDRET2:
+	ldi		$s8,#1	; line found
+	ret
+.endp FNDLN
+
+; Move from the current line to the next one.
+	align	16
+FNDNXT .proc
+  ldo   $s8,SRCHLN[$gp]	
+	ldbu	$s9,[$s8]			; first byte of line is line length
+	add		$t3,$s8,$s9		; add to current pos
+	sto   $t3,SRCHLN[$gp]
+	bra   FNDLNP
+.endp FNDNXT
+
+;******************************************************************
+; 'MVUP' moves a block up from where a0 points to where a1 points
+; until a0=a2
+;
+	align	16
+MVUP1 .proc
+  sub   $a5,$a2,$a0 ; get number of bytes to move
+.MVUP2:
+  sub  	$a5,$a5,#1
+	ldb		$a4,[$a0+$a5]
+	stb		$a4,[$a1+$a5]
+	bnez	$a5,.MVUP2
+	ret
+.endp MVUP1
+
+; 'MVDOWN' moves a block down from where a0 points to where a1
+; points until a0=a2
+;
+	align	16
+MVDOWN1 .proc
+	sub		$a0,$a0,#1
+	sub		$a1,$a1,#1
+	ldb		$a4,[$a0]
+	stb		$a4,[$a1]
+.MVDOWN:
+	bne		$a0,$a2,.MVDOWN1
+	ret
+.endp MVDOWN1
+
+; 'POPA_' restores the 'FOR' loop variable save area from the stack
+;
+; 'PUSHA_' stacks for 'FOR' loop variable save area onto the stack
+;
+; Note: a single zero word is stored on the stack in the
+; case that no FOR loops need to be saved. This needs to be
+; done because PUSHA_ / POPA_ is called all the time.
+//message "POPA_"
+	align	16
+POPA_ .proc
+	ldo		$a0,[$sp]
+	add		$sp,$sp,#8
+	sto	  $a0,LOPVAR[$gp]	; restore LOPVAR, but zero means no more
+	beqz	$a0,.PP1
+	ldo		$a0,[$sp]
+	sto		$a0,LOPPT[$gp]
+	ldo		$a0,8[$sp]
+	sto		$a0,LOPLN[$gp]
+	ldo		$a0,16[$sp]
+	sto		$a0,LOPLMT[$gp]
+	ldo		$a0,24[$sp]
+	sto		$a0,LOPINC[$gp]
+	add		$sp,$sp,#32
+.PP1:
+	ret
+.endp POPA_
+
+	align	16
+PUSHA_ .proc
+	ldo		$a0,STKBOT[$gp]			; Are we running out of stack room?
+	add		$a0,$a0,#40			; we might need this many bytes
+	blt		$sp,$a0,QSORRY	; out of stack space
+	ldo		$a1,LOPVAR[$gp]			; save loop variables
+	beqz	$a1,.PU1				; if LOPVAR is zero, that's all
+	sub		$sp,$sp,#32
+	ldo		$a0,LOPPT[$gp]
+	sto		$a0,[$sp]
+	ldo		$a0,LOPLN[$gp]
+	sto		$a0,8[$sp]
+	ldo		$a0,LOPLMT[$gp]
+	sto		$a0,16[$sp]
+	ldo		$a0,LOPINC[$gp]
+	sto		$a0,24[$sp]
+.PU1:
+	sub		$sp,$sp,#8
+	sto		$a1,[$sp]
+	ret
+.endp PUSHA_
+
+;******************************************************************
+;
+; 'PRTSTG' prints a string pointed to by a0. It stops printing
+; and returns to the caller when either a CR is printed or when
+; the next byte is the same as what was passed in a1 by the
+; caller.
+;
+; 'PRTLN' prints the saved text line pointed to by r3
+; with line no. and all.
+;
+
+; a0 = pointer to string
+; a1 = stop character
+; return s8 = pointer to end of line + 1
+	align	16
+PRTSTG .proc
+	enter	#64
+	sto		$a5,[$sp]
+	sto		$a6,8[$sp]
+	sto		$s0,16[$sp]
+	sto		$a0,24[$sp]
+	mov   $a5,$a0	    	; r5 = pointer
+	mov   $a6,$a1	    	; r6 = stop char
+.PS1:
+  ldbu  $s0,[$a5]     ; get a text character
+	add		$a5,$a5,#1
+	beq	  $s0,$a6,.PRTRET	; same as stop character? if so, return
+	mov   $a0,$s0
+	call	GOOUT					; display the char.
+	bne   $s0,#CR,.PS1	; is it a C.R.? no, go back for more
+	ldi		$a0,#LINEFD  	; yes, add a L.F.
+	call	  GOOUT
+.PRTRET:
+  mov   $s9,$s0	    ; return a1 = stop char
+	mov		$s8,$a5			; return a0 = line pointer
+	ldo		$a5,[$sp]
+	ldo		$a6,8[$sp]
+	ldo		$s0,16[$sp]
+	ldo		$a0,24[$sp]
+	leave	#32
+.endp PRTSTG
+
+; 'QTSTG' looks for an underline (back-arrow on some systems),
+; single-quote, or double-quote.  If none of these are found, returns
+; to the caller.  If underline, outputs a CR without a LF.  If single
+; or double quote, prints the quoted string and demands a matching
+; end quote.  After the printing, the next i-word of the caller is
+; skipped over (usually a branch instruction).
+;
+	align	16
+QTSTG .proc
+	sub		$sp,$sp,#8
+	sto		$ra,[$sp]
+	ldi		$a0,#'"'
+	call   TSTC		; *** QTSTG ***
+	bra		.QT3
+	ldi		$a1,#'"'		; it is a "
+.QT1:
+	mov		$a0,$t2
+	call	PRTSTG		; print until another
+	mov		$t2,$s8
+	bne		$s9,#CR,.QT2	; was last one a CR?
+	bra		RUNNXL		; if so run next line
+.QT3:
+	ldi		$a0,#'\''	; '
+	call   TSTC		; is it a single quote?
+	bra		.QT4
+	ldi		$a1,#'\''  ; ' if so, do same as above
+	bra		.QT1
+.QT4:
+	ldi		$a0,#'_'
+	call   TSTC		; is it an underline?
+	bra		.QT5
+	ldi		$a0,#CR		; if so, output a CR without LF
+	call	GOOUT
+.QT2:
+	ldo		$ra,[$sp]		; get return address
+	add		$sp,$sp,#8
+	jmp		9[$ra]	    ; skip following branch
+.QT5:					      ; not " ' or _
+	ldo		$ra,[$sp]		; get return address
+	add		$sp,$sp,#8
+	ret
+.endp QTSTG
+
+; Output a CR LF sequence
+;
+	align	16
+prCRLF .proc
+	enter	#32
+	ldi		$a0,#CR
+	call	GOOUT
+	ldi		$a0,#LINEFD
+	call	GOOUT
+	leave	#32
+.endp prCRLF
+
+;-------------------------------------------------------------------------------
+; 'PRTNUM' prints the 64 bit number in a0, leading blanks are added if
+; needed to pad the number of spaces to the number in a1.
+; However, if the number of digits is larger than the no. in
+; a1, all digits are printed anyway. Negative sign is also
+; printed and counted in, positive sign is not.
+;
+; Parameters
+; 	a0 = number to print
+; 	a1 = number of digits
+;		a2 = base (eg 10, 16)
+; Register Usage
+;		s2 = number of padding spaces
+; Modifies:
+;		a0,a1,t1,t2
+; Returns:
+;		none
+;-------------------------------------------------------------------------------
+	.global	PRTNUM
+	align	16
+PRTNUM .proc
+	enter	#40
+	sto		$s1,[$sp]
+	sto		$s2,8[$sp]
+	sto		$s3,16[$sp]
+	sto		$s4,24[$sp]
+	sto		$gp,32[$sp]
+	ldi		$gp,#0			; Set global pointer to TinyBasic area
+	ldi		$s1,#$030
+	base	$gp,$gp,$s1
+	lea		$s4,NUMWKA[$gp]	; r7 = pointer to numeric work area
+	mov		$s3,$a0			; save number for later
+	mov		$s2,$a1			; s2 = min number of chars
+	bge		$s3,$x0,.PN2	      ; is it negative? if not
+	neg		$a0,$a0	    ; else make it positive
+	sub		$s2,$s2,#1	; one less for width count
+.PN2:
+	ldi		$t1,#10
+.PN1:
+	rem		$a1,$a0,$a2	; a1 = a0 mod base
+	div		$a0,$a0,$a2	; a0 /= divide by base
+	bleu  $a1,$a2,.PN7
+	add		$a1,$a1,#'A'-10-'0'
+.PN7:
+	add		$a1,$a1,#'0'	; convert remainder to ascii
+	stb		$a1,[$s4]		; and store in buffer
+	add		$s4,$s4,#1
+	sub		$s2,$s2,#1	; decrement width
+	bnez	$a0,.PN1
+	ble		$s2,$x0,.PN4	; test pad count, skip padding if not needed
+.PN3:
+	ldi		$a0,#' '		; display the required leading spaces
+	call	GOOUT
+	sub		$s2,$s2,#1
+	bgt		$s2,$x0,.PN3
+.PN4:
+	bge		$s3,$x0,.PN5	      ; is number negative?
+	ldi		$a0,#'-'		; if so, display the sign
+	call	GOOUT
+.PN5:
+	lea		$t1,NUMWKA[$gp]
+.PN6:
+	sub		$s4,$s4,#1
+	ldbu	$a0,[$s4]		; now unstack the digits and display
+	call	GOOUT
+	bgtu	$s4,$t1,.PN6
+
+	ldo		$s1,[$sp]
+	ldo		$s2,8[$sp]
+	ldo		$s3,16[$sp]
+	ldo		$s4,24[$sp]
+	ldo		$gp,32[$sp]
+	leave	#0
+.endp
+
+;-------------------------------------------------------------------------------
+; Parameters:
+; 	$a0 = pointer to line
+; Returns:
+;		$s8 = pointer to end of line + 1
+;-------------------------------------------------------------------------------
+	align	16
+PRTLN .proc
+	enter	#24
+	sto		$t0,[$sp]
+	sto		$a0,8[$sp]
+	sto		$a1,16[$sp]
+  mov		$t0,$a0		; $t0 = pointer
+  ; get the line number stored as binary
+  ; assume unaligned loads not allowed
+  ;call	LoadWord
+  ldt   $s8,1[$t0]    ; we can do unaligned loads
+	add		$t0,$t0,#5
+  mov		$a0,$s8
+  ldi		$a1,#5       ; display a 0 or more digit line no.
+  ldi		$a2,#10
+	call	PRTNUM
+	ldi		$a0,#' '     ; followed by a blank
+	call	GOOUT
+	mov		$a1,$x0     ; stop char. is a zero
+	mov		$a0,$t0
+	call  PRTSTG		  ; display the rest of the line
+	ldo		$t0,[$sp]
+	ldo		$a0,8[$sp]
+	ldo		$a1,16[$sp]
+	leave	#0
+.endp PRTLN
+
+; ===== Test text byte following the call to this subroutine. If it
+;	equals the byte pointed to by t2, return to the code following
+;	the call. 
+;
+; Parameters:
+;		a0 = char to look for
+;		<static> branch if not found
+; Registers Affected
+;   none
+; Returns
+;		t2 = updated text pointer
+;
+	align	16
+TSTC .proc
+	sub		$sp,$sp,#24
+	sto		$a0,[$sp]
+	sto		$ra,8[$sp]
+	sto		$a1,16[$sp]
+	call	IGNBLK			; ignore leading blanks
+	ldo		$ra,8[$sp]	; get return address, it's needed for a reference
+	ldbu	$a1,[$t2]
+	beq		$a0,$a1,.TC1	; is it = to what t2 points to? if so
+	ldo		$a0,[$sp]
+	ldo		$ra,8[$sp]
+	ldo		$a1,16[$sp]
+	add		$sp,$sp,#24
+	ret								; return to branch
+.TC1:
+	add		$t2,$t2,#1	; if equal, bump text pointer
+	ldo		$a0,[$sp]
+	ldo		$ra,8[$sp]
+	ldo		$a1,16[$sp]
+	add		$sp,$sp,#24
+	jal		9[$ra]			; jump back, skip parm and branch
+.endp TSTC
+
+; ===== See if the text pointed to by $t2 is a number. If so,
+;	return the number in $s8 and the number of digits in $s9,
+;	else return zero in $s8 and $s9.
+; Registers Affected
+;   a0,a1,r3,r4
+; Returns
+; 	s8 = number
+;		s9 = number of digits in number
+;	t2 = updated text pointer
+;
+	align	16
+TSTNUM .proc
+	sub		$sp,$sp,#16
+	sto		$ra,[$sp]
+	sto		$t0,8[$sp]
+	call	IGNBLK		; skip over blanks
+	mov		$s8,$x0		; initialize return parameters
+	mov		$s9,$x0
+.TN1:
+	ldbu	$t0,[$t2]
+	ldi		$a0,#'0'	; is it less than zero? or is it greater than nine?
+	bltu	$t0,$a0,.TSNMRET
+	ldi		$a0,#'9'+1
+	bgeu	$t0,$a0,.TSNMRET
+	sleu	$a0,$s8,#$7FFFFFFFFFFFFFF
+	bnez  $a0,.TN2  		; see if there's room for new digit
+	lea		$a0,msgNumTooBig[$gp1]	; if not, we've overflowd
+	ldo		$t0,8[$sp]
+	add		$sp,$sp,#16		; dump return address
+	bra		ERROR				
+.TN2:
+	add		$t2,$t2,#1		; adjust text pointer
+	sll		$a0,$s8,#1		; *2
+	sll		$s8,$s8,#3		; *8
+	add   $s8,$s8,$a0 	; quickly multiply result by 10
+	sub   $t0,$t0,#'0'  ; convert ascii to binary
+	add		$s8,$s8,$t0 	; add in the new digit
+	add		$s9,$s9,#1		; increment the no. of digits
+	bra		.TN1
+.TSNMRET:
+	ldo		$ra,[$sp]
+	ldo		$t0,8[$sp]
+	add		$sp,$sp,#16
+	ret
+.endp TSTNUM
+
+;===== Skip over blanks in the text pointed to by $t2.
+;
+; Registers Affected:
+;	$t2
+; Returns
+;	$t2 = pointer updateded past any spaces or tabs
+;
+	align	16
+IGNBLK .proc
+	sub		$sp,$sp,#8
+	sto	  $a0,[$sp]
+.IGB2:
+	ldbu  $a0,[$t2]				; get char
+	beq		$a0,#' ',.0001	; space
+	beq		$a0,#'\t',.0001	; or tab
+	ldo		$a0,[$sp]
+	add		$sp,$sp,#8
+	ret
+.0001:
+	add	  $t2,$t2,#1		; increment the text pointer
+	bra	  .IGB2
+.endp IGNBLK
+
+; ===== Convert the line of text in the input buffer to upper
+;	case (except for stuff between quotes).
+;
+; Registers Affected
+;   a0,r3
+; Returns
+;	r8 = pointing to end of text in buffer
+;
+	align	16
+TOUPBUF .proc
+	lea		  $t2,BUFFER[$gp]	; set up text pointer
+	mov		  $a3,$x0		; clear quote flag
+.TOUPB1:
+	ldbu	  $a0,[$t2]		; get the next text char.
+	add		  $t2,$t2,#1
+	beq		  $a0,#CR,.TOUPBRT	; is it end of line?
+	beq		  $a0,#'"',.DOQUO
+	beq			$a0,#'\'',.DOQUO     ; '; a single/double quote?
+	bnez		$a3,.TOUPB1	; inside quotes?
+	call	  _toupper 		; convert to upper case
+	stb		  $a0,-1[$t2]	; store it
+	bra		  .TOUPB1			; and go back for more
+.DOQUO:
+	bnez	$a3,.DOQUO1; are we inside quotes?
+	mov		$a3,$a0		; if not, toggle inside-quotes flag
+	bra		.TOUPB1
+.DOQUO1:
+	bne		$a3,$a0,.TOUPB1	; make sure we're ending proper quote
+	mov		$a3,$x0					; else clear quote flag
+	bra		.TOUPB1
+.TOUPBRT:
+	ret
+.endp TOUPBUF
+
+; 'CHKIO' checks the input. If there's no input, it will return
+; to the caller with the a0=0. If there is input, the input byte is in a0.
+; However, if a control-C is read, 'CHKIO' will warm-start BASIC and will
+; not return to the caller.
+;
+//message "CHKIO"
+	align	16
+CHKIO .proc
+	enter	#32
+	call	INCH		    				; get input if possible
+	beqz	$a0,.CHKRET  				; if Zero, no input
+	bne   $a0,#CTRLC,.CHKRET	; is it control-C?
+	bra		WSTART		  				; if so, do a warm start
+.CHKRET:
+	leave	#32
+.endp CHKIO
+
+; ===== Display a CR-LF sequence
+;
+	align	32
+CRLF .proc
+	lea		$a0,CLMSG[$gp1]
+	bra		PutString
+.endp CRLF
+
+; ===== Display a zero-ended string pointed to by register a0
+; Registers Affected
+;   a0,a1,r4
+;
+	align	16
+PRMESG .proc
+	bra	  PutString
+.endp PRMESG
+
+;------------------------------------------------------------------------------
+;	erc = ALLOCMBX (<handle var>)
+;------------------------------------------------------------------------------
+	align	32
+ALLOCMBX .proc
+	enter	#32
+	ldi		$a0,#'('
+	call  TSTC		; else look for ( OREXPR )
+	bra		.paren
+	ldi		$a0,#1
+	call	TSTV
+	bnez	$s8,.0001
+	lea		$a0,msgVar[$gp1]
+	bra		ERROR
+.0001:
+	ldi		$a0,#')'
+	call	TSTC		; else look for ( OREXPR )
+	bra		.paren
+	mov		$s1,$s8
+	ldi		$a0,#14			; get current tid
+	brk   #240
+	mov		$a2,$s1
+	ldi		$a0,#6
+	brk   #240
+	bnez	$a0,.0002
+	sto		$s9,[$s1]				; save handle in variable
+.0002:
+	mov		$s9,$x0
+	leave	#32
+.paren:
+	lea		$a0,msgParen[$gp1]
+	bra		ERROR
+.endp ALLOCMBX
+
+;------------------------------------------------------------------------------
+; erc = SENDMSG (<handle var>, <msg data 1>, <msg data 2>, <msg data 3>)
+;------------------------------------------------------------------------------
+	align	16
+SENDMSG .proc
+	enter	#32
+	ldi		$a0,#'('
+	call	TSTC		; else look for ( OREXPR )
+	bra		.paren
+	call	OREXPR	; get the mailbox handle
+	mov		$s1,$s8
+	ldi		$a0,#','
+	call	TSTC		; it must be followed by a comma
+	bra		.err
+	call	OREXPR	; get the memory address
+	mov		$s2,$s8
+	ldi		$a0,#','
+	call	TSTC		; it must be followed by a comma
+	bra		.err
+	call	OREXPR	; get the memory address
+	mov		$s3,$s8
+	ldi		$a0,#','
+	call	TSTC		; it must be followed by a comma
+	bra		.err
+	call	OREXPR	; get the memory address
+	mov		$s4,$s8
+	ldi		$a0,#')'
+	call	TSTC		; else look for ( OREXPR )
+	bra		.paren
+	ldi		$a0,#9		; SendMsg
+	mov		$a1,$s1
+	mov		$a2,$s2
+	mov		$a3,$s3
+	mov		$a4,$s4
+	brk   #240
+	mov		$s9,$x0
+	leave	#32
+.err:
+	lea		$a0,msgComma[$gp1]
+	bra		ERROR
+.paren:
+	lea		$a0,msgParen[$gp1]
+	bra		ERROR
+.endp SENDMSG
+
+;------------------------------------------------------------------------------
+; WAITMSG <handle var>, <var for data 1>, <var for data 2>, <var for data 3>,
+;		<expr>
+;------------------------------------------------------------------------------
+	align	16
+WAITMSG .proc
+	enter	#32
+	ldi		$a0,#'('
+	call	TSTC		; else look for ( OREXPR )
+	bra		.paren
+	call	OREXPR	; get the mailbox handle
+	mov		$s1,$s8
+	ldi		$a0,#','
+	call	TSTC		; it must be followed by a comma
+	bra		.err
+	ldi		$a0,#1
+	call	TSTV
+	bnez	$s8,.0001
+.0002:
+	lea		$a0,msgVar[$gp1]
+	bra		ERROR
+.0001:
+	ldi		$a0,#','
+	call	TSTC		; it must be followed by a comma
+	bra		.err
+	mov		$s2,$s8
+	ldi		$a0,#1
+	call	TSTV
+	beqz	$s8,.0002
+	ldi		$a0,#','
+	call	TSTC		; it must be followed by a comma
+	bra		.err
+	mov		$s3,$s8
+	ldi		$a0,#1
+	call	TSTV
+	beqz	$s8,.0002
+	mov		$s4,$s8
+	ldi		$a0,#','
+	call	TSTC		; it must be followed by a comma
+	bra		.err
+	call	OREXPR	; get queue remove flag
+	mov		$a5,$s8
+	mov		$s4,$s8
+	ldi		$a0,#')'
+	call   TSTC		; else look for ( OREXPR )
+	bra		.paren
+	ldi		$a0,#10		; WaitMsg
+	mov		$a1,$s1
+	mov		$a2,$s2
+	mov		$a3,$s3
+	mov		$a4,$s4
+	brk   #240
+	mov		$s9,$x0
+	leave	#32
+.err:
+	lea		$a0,msgComma[$gp1]
+	bra		ERROR
+.paren:
+	lea		$a0,msgParen[$gp1]
+	bra		ERROR
+.endp WAITMSG
+
+;*****************************************************
+; The following routines are the only ones that need *
+; to be changed for a different I/O environment.     *
+;*****************************************************
+
+; ===== Output character to the console (Port 1) from register a0
+;	(Preserves all registers.)
+;
+	align	16
+OUTC .proc
+	bra		Putch
+.endp OUTC
+
+; ===== Input a character from the console into register s8 (or
+;	return Zero status if there's no character available).
+;
+	align	16
+INCH .proc
+	call  Getch
+	add		$a0,$a0,#1			; prepare test -1
+	beqz	$a0,.INCH1			; was = -1
+	sub		$a0,$a0,#1			; get char back
+.INCH1:
+	ret
+.endp INCH
+
+; ===== Return to the resident monitor, operating system, etc.
+;
+;message "BYEBYE"
+	align	16
+BYEBYE	.proc
+;	call	ReleaseIOFocus
+  ldi   $a0,#22     ; release I/O focus
+  brk   #240
+	ldo		$sp,OSSP[$gp]
+	ldo		$ra,OSRA[$gp]
+	ldi   $a0,#34     ; activate Monitor
+	brk   #240
+.endp
+
+	rodata
+	align	64
 ;******************************************************************
 ;
 ; *** Tables *** DIRECT *** EXEC ***
@@ -380,10 +3060,10 @@ TAB2:
 	dcb	"BY",'E'+0x80
 	dcb	"SY",'S'+0x80
 	dcb	"CL",'S'+0x80
-    dcb  "CL",'R'+0x80
-    dcb	"RDC",'F'+0x80
-    dcb	"ONIR",'Q'+0x80
-    dcb	"WAI",'T'+0x80
+  dcb "CL",'R'+0x80
+  dcb	"RDC",'F'+0x80
+  dcb	"ONIR",'Q'+0x80
+  dcb	"WAI",'T'+0x80
 	dcb	0
 TAB4:
 	dcb	"PEE",'K'+0x80         ;Functions
@@ -414,11 +3094,11 @@ TAB8:
 	dcb	'<'+0x80
 	dcb	0
 TAB9:
-    dcb  "AN",'D'+0x80
-    dcb  0
+  dcb  "AN",'D'+0x80
+  dcb  0
 TAB10:
-    dcb  "O",'R'+0x80
-    dcb  0
+  dcb  "O",'R'+0x80
+  dcb  0
 
 ;* Execution address tables:
 ; We save some bytes by specifiying only the low order 16 bits of the address
@@ -490,2608 +3170,6 @@ TAB10_1
     dcw  XP_OR>>5
     dcw  XP_ORX>>5
 
-;*
-; r3 = match flag (trashed)
-; r9 = text table
-; r10 = exec table
-; r11 = trashed
-	align	16
-//message "DIRECT"
-DIRECT:
-	ldi		$t3,#TAB1
-	ldi		$t4,#TAB1_1
-EXEC:
-	call	IGNBLK		; ignore leading blanks
-	mov		$t5,$t2		; save the pointer
-	mov		$a3,$x0		; clear match flag
-EXLP:
-	ldbu	$a0,[$t2]		; get the program character
-	add		$t2,$t2,#1
-	ldbu	$a1,[$t3]		; get the table character
-	bne	  $a1,$x0,EXNGO		  ; If end of table,
-	mov		$t2,$t5		;	restore the text pointer and...
-	bra		EXGO		;   execute the default.
-EXNGO:
-	beq		$a0,$a3,EXGO	  ; Else check for period... if so, execute
-	and		$a1,$a1,#$7f  ; ignore the table's high bit
-	beq		$a1,$a0,EXMAT	  ;		is there a match?
-	add		$t4,$t4,#1	;if not, try the next entry
-	mov		$t2,$t5		; reset the program pointer
-	mov		$a3,$x0		; sorry, no match
-EX1:
-	ldb  	$a0,[$t3]		; get to the end of the entry
-	add		$t3,$t3,#1
-	bge   $a0,$x0,EX1
-;	and		$t1,$a0,#$80
-;	beq		$t1,$r0,EX1	; test for bit 7 set
-	bra		EXLP		; back for more matching
-EXMAT:
-	ldi		$a3,#'.'		; we've got a match so far
-	ldb  	$a0,[$t3]		; end of table entry?
-	add		$t3,$t3,#1
-	bge   $a0,$x0,EXLP
-;	and		$t1,$a0,#$80
-;	beq		$t1,$r0,EXLP		; test for bit 7 set, if not, go back for more
-EXGO:
-	; execute the appropriate routine
-	ldw		$a0,[$t4]	; get the low mid order byte
-	sll		$a0,$a0,#5
-	;or		$a0,$a0,#$FFFFFFFFFFF00000*2	; add in ROM base
-	jmp		[$a0]
-..
-    
-;******************************************************************
-;
-; What follows is the code to execute direct and statement
-; commands. Control is transferred to these points via the command
-; table lookup code of 'DIRECT' and 'EXEC' in the last section.
-; After the command is executed, control is transferred to other
-; sections as follows:
-;
-; For 'LISTX', 'NEW', and 'STOP': go back to the warm start point.
-; For 'RUN': go execute the first stored line if any; else go
-; back to the warm start point.
-; For 'GOTO' and 'GOSUB': go execute the target line.
-; For 'RETURN' and 'NEXT'; go back to saved return line.
-; For all others: if 'CURRNT' is 0, go to warm start; else go
-; execute next command. (This is done in 'FINISH'.)
-;
-;******************************************************************
-;
-; *** NEW *** STOP *** RUN (& friends) *** GOTO ***
-;
-; 'NEW<CR>' sets TXTUNF to point to TXTBGN
-;
-
-	align		16
-NEW:
-	call	ENDCHK
-	ldi		$s8,#TXTBGN
-	sto		$s8,TXTUNF	;	set the end pointer
-	call  clearVars
-	bra		STOP
-..
-
-; 'STOP<CR>' goes back to WSTART
-;
-	align	16
-STOP:
-	call  ENDCHK
-	bra		WSTART		; WSTART will reset the stack
-..
-
-;------------------------------------------------------------------------------
-;------------------------------------------------------------------------------
-	align	16
-SLEEP:
-	call	  OREXPR		;evaluate the following expression
-	mov   $s1,$s8
-  call   ENDCHK
-SLEEP1:
-  ldi   $a0,#22   ; FMTK release I/O focus
-  brk   #240
-  ldi   $a0,#5    ; FMTK sleep function
-  mov   $a1,$s1
-  brk   #240
-  ldi   $a0,#14   ; FMTK get current tid
-  brk   #240
-  ldi   $a0,#24   ; FMTK request I/O focus
-  brk   #240
-  bra   FINISH
-
-;------------------------------------------------------------------------------
-; YIELD suspends execution of TinyBasic by switching to the next ready task.
-;------------------------------------------------------------------------------
-	align	16
-YIELD0:
-  ldi   $s1,#0
-  bra   SLEEP1
-	
-;------------------------------------------------------------------------------
-; 'RUN<CR>' finds the first stored line, stores its address
-; in CURRNT, and starts executing it. Note that only those
-; commands in TAB2 are legal for a stored program.
-;
-; There are 3 more entries in 'RUN':
-; 'RUNNXL' finds next line, stores it's address and executes it.
-; 'RUNTSL' stores the address of this line and executes it.
-; 'RUNSML' continues the execution on same line.
-;
-	align	16
-RUN:
-	call	  ENDCHK
-	ldi		$t2,#TXTBGN	;	set pointer to beginning
-	sto		$t2,CURRNT
-	call   clearVars
-	bra		RUNNXL
-
-	align	16
-RUNNXL:					; RUN <next line>
-	ldo		$t2,CURRNT	; executing a program?
-	bnez  $t2,RUN3	  ; if not, we've finished a direct stat.
-RUN2:
-	bra		WSTART
-RUN3:
-  sto   $t2,SRCHLN
-  ldbu  $t3,[$t2]
-  add   $t2,$t2,$t3
-	ldt		$a0,IRQROUT		; are we handling IRQ's ?
-	beqz  $a0,RUN1
-	ldi   $a0,#35       ; Get IRQ flag, was there an IRQ?
-	brk   #240
-	tst   $a0
-	beq 	RUN1
-	ldi   $a0,#36       ; Set IRQ flag
-	ldi   $a1,#0        ; set the flag to zero
-	brk   #240
-	call	  PUSHA_		; the same code as a GOSUB
-	sub		$sp,$sp,#24
-	ldo		$a0,STKGOS
-	sto		$a0,[$sp]
-	ldo		$a0,CURRNT
-	sto		$a0,8[$sp]
-	sto		$t2,16[$sp]
-	sto		$x0,LOPVAR		; load new values
-	sto		$sp,STKGOS
-	ldo		$t3,IRQROUT
-	bra		RUNTSL
-RUN1:
-	mov		$t3,$t2
-	mov		$a0,$x0
-	call	FNDNXT  		; else find the next line number
-	ldt		$t1,TXTUNF	; if we've fallen off the end, stop
-	bgeu	$t3,$t1,RUN2
-
-RUNTSL:					; RUN <this line>
-	sto		$t3,CURRNT	; set CURRNT to point to the line no.
-	add		$t2,$t3,#5	; set the text pointer to
-
-RUNSML:                 ; RUN <same line>
-	call	CHKIO						; see if a control-C was pressed
-	ldi		$t3,#TAB2				; find command in TAB2
-	ldi		$t4,#TAB2_1
-	bra		EXEC		; and execute it
-..
-
-;******************************************************************
-; 'GOTO expr<CR>' evaluates the expression, finds the target
-; line, and jumps to 'RUNTSL' to do it.
-;******************************************************************
-;
-	align	16
-GOTO:
-	call	OREXPR		;evaluate the following expression
-	mov   $t0,$s8
-	call 	ENDCHK		;must find end of line
-	mov   $a0,$t0
-	call 	FNDLN		; find the target line
-	tst   $s8
-	bne 	RUNTSL  ; go do it
-	ldi		$a0,#msgBadGotoGosub
-	bra		ERROR		; no such line no.
-..
-
-	align	16
-_clr:
-  call    clearVars
-  bra     FINISH
-..
-
-; Clear the variable area of memory
-	align	16
-clearVars:
-	sub		$sp,$sp,#8
-	sto		$a3,[$sp]
-  ldi   $a3,#100    	; number of word pairs to clear
-  ldo   $s8,VARBGN
-.cv1:
-  sto		$x0,[$s8]		; variable name
-  sto		$x0,8[$s8]		; and value
-  add		$s8,$s8,#16
-  sub.	$a3,$a3,#1
-	bgt		.cv1
-  ldo		$a3,[$sp]
-  ret   #8
-..
-
-;******************************************************************
-; ONIRQ <line number>
-; ONIRQ sets up an interrupt handler which acts like a specialized
-; subroutine call. ONIRQ is coded like a GOTO that never executes.
-;******************************************************************
-	align	16
-ONIRQ:
-	call	  OREXPR		;evaluate the following expression
-	mov   $t0,$s8
-	call 	ENDCHK		;must find end of line
-	mov   $a0,$t0
-	call 	FNDLN		; find the target line
-	tst   $s8
-	bne	  ONIRQ1
-	stt		$x0,IRQROUT
-	bra		FINISH
-ONIRQ1:
-	stt		$t3,IRQROUT
-	bra		FINISH
-..
-
-	align	16
-WAITIRQ:
-	call	CHKIO		; see if a control-C was pressed
-	ldi   $a0,#35
-	brk   #240
-	beqz	$a0,WAITIRQ
-	bra		FINISH
-..
-
-;******************************************************************
-; LIST
-;
-; LISTX has two forms:
-; 'LIST<CR>' lists all saved lines
-; 'LIST #<CR>' starts listing at the line #
-; Control-S pauses the listing, control-C stops it.
-;******************************************************************
-;
-	align	16
-LISTX:
-	call	TSTNUM		; see if there's a line no.
-	mov   $a3,$s8
-	call	ENDCHK		; if not, we get a zero
-	mov   $a0,$a3
-	call	FNDLN			; find this or next line
-LS1:
-	bnez	$s8,LS4
-LS5:
-	ldt		$t1,TXTUNF
-	bgeu	$t3,$t1,WSTART	; warm start if we passed the end
-LS4:
-	mov		$a0,$t3
-	call	PRTLN		; print the line
-	ldbu  $t3,[$a0]
-	add   $t3,$t3,$a0 ; set pointer for next
-;	mov		$t3,$s8		
-	call	  CHKIO		; check for listing halt request
-	beq 	LS3
-	ldi		$t1,#CTRLS
-	sne   $a0,$t1
-	bt		LS3     ; pause the listing?
-LS2:
-	call 	CHKIO		; if so, wait for another keypress
-	beq	  LS2
-LS3:
-;	mov		$s8,$x0
-	bra		LS5
-..
-;	mov		a0,r0
-;	call	FNDSKP	;FNDLNP		; find the next line
-;	bra		LS1
-
-
-;******************************************************************
-; PRINT command is 'PRINT ....:' or 'PRINT ....<CR>'
-; where '....' is a list of expressions, formats, back-arrows,
-; and strings.	These items a separated by commas.
-;
-; A format is a pound sign followed by a number.  It controls
-; the number of spaces the value of an expression is going to
-; be printed in.  It stays effective for the rest of the print
-; command unless changed by another format.  If no format is
-; specified, 11 positions will be used.
-;
-; A string is quoted in a pair of single- or double-quotes.
-;
-; An underline (back-arrow) means generate a <CR> without a <LF>
-;
-; A <CR LF> is generated after the entire list has been printed
-; or if the list is empty.  If the list ends with a semicolon,
-; however, no <CR LF> is generated.
-;******************************************************************
-;
-	align	16
-PRINT:
-	ldi	  $a3,#11		; D4 = number of print spaces
-	ldi		$a0,#';'
-	call  TSTC		; if null list and ":"
-	bra		PR2
-	call	CRLF		; give CR-LF and continue
-	bra		RUNSML		;		execution on the same line
-PR2:
-	ldi		$a0,#CR
-	call  TSTC		;if null list and <CR>
-	bra		PR0
-	call	CRLF		;also give CR-LF and
-	bra		RUNNXL		;execute the next line
-PR0:
-	ldi		$a0,#'#'
-	call 	TSTC		;else is it a format?
-	bra		PR1
-	call	OREXPR		; yes, evaluate expression
-	mov		$a3,$s8	; and save it as print width
-	bra		PR3		; look for more to print
-PR1:
-	ldi		$a0,#'$'
-	call   TSTC	;	is character expression? (MRL)
-	bra		PR4
-	call	OREXPR	;	yep. Evaluate expression (MRL)
-	call	GOOUT	;	print low byte (MRL)
-	bra		PR3		;look for more. (MRL)
-PR4:
-	call	QTSTG	;	is it a string?
-	; the following branch must occupy only 1 word!
-	bra		PR8		;	if not, must be an expression
-PR3:
-	ldi		$a0,#','
-	call  TSTC	;	if ",", go find next
-	bra		PR6
-	call	FIN		;in the list.
-	bra		PR0
-PR6:
-	call	CRLF		;list ends here
-	bra		FINISH
-PR8:
-	call	OREXPR		; evaluate the expression
-	mov		$a0,$s8
-	ldi		$a1,#5		; set the width
-	ldi		$a2,#10
-	call	PRTNUM		; print its value
-	bra		PR3			; more to print?
-..
-
-	align	16
-FINISH:
-	call  FIN		; Check end of command
-	bra		QWHAT	; print "What?" if wrong
-..
-
-;*******************************************************************
-;
-; *** GOSUB *** & RETURN ***
-;
-; 'GOSUB expr:' or 'GOSUB expr<CR>' is like the 'GOTO' command,
-; except that the current text pointer, stack pointer, etc. are
-; saved so that execution can be continued after the subroutine
-; 'RETURN's.  In order that 'GOSUB' can be nested (and even
-; recursive), the save area must be stacked.  The stack pointer
-; is saved in 'STKGOS'.  The old 'STKGOS' is saved on the stack.
-; If we are in the main routine, 'STKGOS' is zero (this was done
-; in the initialization section of the interpreter), but we still
-; save it as a flag for no further 'RETURN's.
-;******************************************************************
-;
-	align	16
-GOSUB:
-	call	PUSHA_		; save the current 'FOR' parameters
-	call	OREXPR		; get line number
-	mov		$a0,$s8
-	call	FNDLN		; find the target line
-	tst   $s8
-	bne	  gosub1
-	ldi		$a0,#msgBadGotoGosub
-	bra		ERROR		; if not there, say "How?"
-gosub1:
-	sub		$sp,$sp,#24
-	ldo		$a0,STKGOS	; 'STKGOS'
-	sto		$a0,[$sp]
-	ldo		$a0,CURRNT	; found it, save old 'CURRNT'...
-	sto		$a0,8[$sp]
-	sto		$t2,16[$sp]
-	sto		$x0,LOPVAR		; load new values
-	sto		$sp,STKGOS
-	bra		RUNTSL
-..
-
-;******************************************************************
-; 'RETURN<CR>' undoes everything that 'GOSUB' did, and thus
-; returns the execution to the command after the most recent
-; 'GOSUB'.  If 'STKGOS' is zero, it indicates that we never had
-; a 'GOSUB' and is thus an error.
-;******************************************************************
-;
-	align	16
-RETURN:
-	call	ENDCHK		; there should be just a <CR>
-	ldo		$a1,STKGOS		; get old stack pointer
-	bnez	$a1,return1
-	ldi		$a0,#msgRetWoGosub
-	bra		ERROR		; if zero, it doesn't exist
-return1:
-	mov		$sp,a1		; else restore it
-	ldo		$a0,[$sp]
-	add		$sp,$sp,#8
-	sto		$a0,STKGOS	; and the old 'STKGOS'
-	ldo		$a0,[$sp]
-	add		$sp,$sp,#8
-	sto		$a0,CURRNT	; and the old 'CURRNT'
-	ldo		$t2,[$sp]	; and the old text pointer
-	add		$sp,$sp,#8
-	call	POPA_			;and the old 'FOR' parameters
-	bra		FINISH		;and we are back home
-..
-
-;******************************************************************
-; *** FOR *** & NEXT ***
-;
-; 'FOR' has two forms:
-; 'FOR var=exp1 TO exp2 STEP exp1' and 'FOR var=exp1 TO exp2'
-; The second form means the same thing as the first form with a
-; STEP of positive 1.  The interpreter will find the variable 'var'
-; and set its value to the current value of 'exp1'.  It also
-; evaluates 'exp2' and 'exp1' and saves all these together with
-; the text pointer, etc. in the 'FOR' save area, which consists of
-; 'LOPVAR', 'LOPINC', 'LOPLMT', 'LOPLN', and 'LOPPT'.  If there is
-; already something in the save area (indicated by a non-zero
-; 'LOPVAR'), then the old save area is saved on the stack before
-; the new values are stored.  The interpreter will then dig in the
-; stack and find out if this same variable was used in another
-; currently active 'FOR' loop.  If that is the case, then the old
-; 'FOR' loop is deactivated. (i.e. purged from the stack)
-;******************************************************************
-;
-	align	16
-FOR:
-	call	PUSHA_		; save the old 'FOR' save area
-	call	SETVAL		; set the control variable
-	sto		$s8,LOPVAR		; save its address
-	ldi		$t3,#TAB5
-	ldi		$t4,#TAB5_1	; use 'EXEC' to test for 'TO'
-	bra		EXEC
-FR1:
-	call	OREXPR		; evaluate the limit
-	sto		$s8,LOPLMT	; save that
-	ldi		$t3,#TAB6
-	ldi		$t4,#TAB6_1	; use 'EXEC' to test for the word 'STEP
-	bra		EXEC
-FR2:
-	call	OREXPR		; found it, get the step value
-	bra		FR4
-FR3:
-	ldi		$s8,#1		; not found, step defaults to 1
-FR4:
-	sto		$s8,LOPINC	; save that too
-FR5:
-	ldo		$a1,CURRNT
-	sto		$a1,LOPLN	; save address of current line number
-	sto		$t2,LOPPT	; and text pointer
-	mov		$a3,$sp		; dig into the stack to find 'LOPVAR'
-	ldo		$a6,LOPVAR
-	bra		FR7
-FR6:
-	add		$a3,$a3,#40	; look at next stack frame
-FR7:
-	ldo		$a1,[$a3]		; is it zero?
-	beqz	$a1,FR8	    ; if so, we're done
-	bne		$a1,$a6,FR6	    ; same as current LOPVAR? nope, look some more
-
-  mov		$a0,$a3	   ; Else remove 5 words from...
-	mov		$a1,$sp
-	add		$a2,$a3,#40  ; inside the stack.
-	call	MVDOWN
-	add		$sp,$sp,#40	; set the SP 5 long words up
-;	lw		a0,[$sp]		; ???
-;	add		$sp,$sp,#4
-FR8:
-  bra	    FINISH		; and continue execution
-..
-
-;******************************************************************
-; 'NEXT var' serves as the logical (not necessarily physical) end
-; of the 'FOR' loop.  The control variable 'var' is checked with
-; the 'LOPVAR'.  If they are not the same, the interpreter digs in
-; the stack to find the right one and purges all those that didn't
-; match.  Either way, it then adds the 'STEP' to that variable and
-; checks the result with against the limit value.  If it is within
-; the limit, control loops back to the command following the
-; 'FOR'.  If it's outside the limit, the save area is purged and
-; execution continues.
-;******************************************************************
-;
-	align	16
-NEXT:
-	mov		$a0,$x0		; don't allocate it
-	call	TSTV		; get address of variable
-	bnez	$s8,NX4
-	ldi		$a0,#msgNextVar
-	bra		ERROR		; if no variable, say "What?"
-NX4:
-	mov		$t3,$s8	; save variable's address
-NX0:
-	ldo		$a0,LOPVAR	; If 'LOPVAR' is zero, we never...
-	bnez	$a0,NX5			; had a FOR loop
-	ldi		$a0,#msgNextFor
-	bra		ERROR
-NX5:
-	beq		$a0,$t3,NX2	; else we check them OK, they agree
-	call	POPA_				; nope, let's see the next frame
-	bra		NX0
-NX2:
-	ldo		$a0,[$t3]		; get control variable's value
-	ldo		$a1,LOPINC
-	add		$a0,$a0,$a1	; add in loop increment
-;	BVS.L	QHOW		say "How?" for 32-bit overflow
-	sto		$a0,[$t3]		; save control variable's new value
-	ldo		$a3,LOPLMT	; get loop's limit value
-	bge		$a1,$x0,NX1 ; check loop increment, branch if loop increment is positive
-	blt		$a0,$a3,NXPurge	; test against limit
-	bra   NX3
-NX1:
-	bgt		$a0,$a3,NXPurge
-NX3:
-	ldo		$t2,LOPLN	; Within limit, go back to the...
-	sto		$t2,CURRNT
-	ldo		$t2,LOPPT	; saved 'CURRNT' and text pointer.
-	bra		FINISH
-NXPurge:
-  call  POPA_        ; purge this loop
-  bra   FINISH
-..
-
-;******************************************************************
-; *** REM *** IF *** INPUT *** LET (& DEFLT) ***
-;
-; 'REM' can be followed by anything and is ignored by the
-; interpreter.
-;
-;REM
-;    br	    IF2		    ; skip the rest of the line
-; 'IF' is followed by an expression, as a condition and one or
-; more commands (including other 'IF's) separated by colons.
-; Note that the word 'THEN' is not used.  The interpreter evaluates
-; the expression.  If it is non-zero, execution continues.  If it
-; is zero, the commands that follow are ignored and execution
-; continues on the next line.
-;******************************************************************
-;
-	align 16
-IF0:
-  call	OREXPR		; evaluate the expression
-IF1:
-  beqz 	$s8,IF2	; is it zero? if not, continue
-  bra		RUNSML
-IF2:
-  mov		$t3,$t2	; set lookup pointer
-	mov		$a0,$x0		; find line #0 (impossible)
-	ldo   $a0,CURRNT  ; move to the next line
-	ldbu  $a1,[$a0]
-	add   $a1,$a1,$a0
-	sto   $a1,CURRNT
-	ldo   $a0,TXTUNF  ; do a warm start if past end
-	bltu  $a1,$a0,IF3
-	bra		WSTART
-IF3:
-  mov   $t3,$a1
-	bra		RUNTSL		; run the next line
-
-
-;******************************************************************
-; INPUT is called first and establishes a stack frame
-	align	16
-INPERR:
-	ldo		$sp,STKINP		; restore the old stack pointer
-	ldo		$a0,[$sp]
-	add		$sp,$sp,#8
-	sto		$a0,CURRNT		; and old 'CURRNT'
-	ldo		$t2,[$sp]		; and old text pointer
-	add		$sp,$sp,#8
-	add		$sp,$sp,#40	; fall through will subtract 40
-	bra		INPUT
-..
-
-; 'INPUT' is like the 'PRINT' command, and is followed by a list
-; of items.  If the item is a string in single or double quotes,
-; or is an underline (back arrow), it has the same effect as in
-; 'PRINT'.  If an item is a variable, this variable name is
-; printed out followed by a colon, then the interpreter waits for
-; an expression to be typed in.  The variable is then set to the
-; value of this expression.  If the variable is preceeded by a
-; string (again in single or double quotes), the string will be
-; displayed followed by a colon.  The interpreter the waits for an
-; expression to be entered and sets the variable equal to the
-; expression's value.  If the input expression is invalid, the
-; interpreter will print "What?", "How?", or "Sorry" and reprint
-; the prompt and redo the input.  The execution will not terminate
-; unless you press control-C.  This is handled in 'INPERR'.
-;
-	align	16
-INPUT:
-	sub		$sp,$sp,#40	; allocate five words on stack
-	sto		$a5,32[$sp]	; save off r5 into stack var
-IP6:
-	sto		$t2,[$sp]	; save in case of error
-	call	QTSTG		; is next item a string?
-	bra		IP2			; nope - this branch must take only 1 word
-	ldi		$a0,#1		; allocate var
-	call	TSTV		; yes, but is it followed by a variable?
-	beqz  $a0,IP4     ; if not, brnch
-	mov		$t4,$a0		; put away the variable's address
-	bra		IP3			; if so, input to variable
-IP2:
-	sto		$t2,8[$sp]	; save off in stack var for 'PRTSTG'
-	ldi		$a0,#1
-	call	TSTV		; must be a variable now
-	bnez	$a0,IP7
-	ldi		$a0,#msgInputVar
-	add		$sp,$sp,#40	; cleanup stack
-	bra		ERROR		; "What?" it isn't?
-IP7:
-	mov		$t4,$a0		; put away the variable's address
-	ldbu	a5,[$t2]		; get ready for 'PRTSTG' by null terminating
-	stb		$x0,[$t2]
-	mov		$a1,$x0
-	ldo		$a0,8[$sp]	; get back text pointer
-	call	PRTSTG		; print string as prompt
-	stb		$a5,[$t2]		; un-null terminate
-IP3
-	sto		$t2,8[$sp]	; save in case of error
-	ldo		$a0,CURRNT
-	sto		$a0,16[$sp]	; also save 'CURRNT'
-	ldi		$a0,#-1
-	sto		$a0,CURRNT	; flag that we are in INPUT
-	sto		$sp,STKINP	; save the stack pointer too
-	sto		$t4,24[$sp]	; save the variable address
-	ldi		a0,#':'		; print a colon first
-	call	GETLN		; then get an input line
-	ldi		$t2,#BUFFER	; point to the buffer
-	call	OREXPR		; evaluate the input
-	ldo		$t4,24[$sp]	; restore the variable address
-	sto		$a0,[$t4]	; save value in variable
-	ldo		$a0,16[$sp]	; restore old 'CURRNT'
-	sto		$a0,CURRNT
-	ldo		$t2,8[$sp]	; and the old text pointer
-IP4:
-	ldi		$a0,#','
-	call   TSTC
-	bra		IP5
-	bra		IP6			; yes, more items
-IP5:
-	ldo		$a5,32[$sp]
-	add		$sp,$sp,#40	; cleanup stack
- 	bra		FINISH
-..
-
-	align	16
-DEFLT:
-  ldbu   	$a0,[$t2]
-  ldi			$t1,#CR
-	beq	    $a0,$t1,FINISH	    ; empty line is OK else it is 'LET'
-	bra			LET
-..
-
-;******************************************************************
-; 'LET' is followed by a list of items separated by commas.
-; Each item consists of a variable, an equals sign, and an
-; expression.  The interpreter evaluates the expression and sets
-; the variable to that value.  The interpreter will also handle
-; 'LET' commands without the word 'LET'.  This is done by 'DEFLT'.
-;******************************************************************
-;
-	align	16
-LET:
-  call	SETVAL		; do the assignment
-  ldi		$a0,#','
-	call   TSTC		; check for more 'LET' items
-	bra		FINISH
-	bra   LET
-LT1:
-  bra   FINISH		; until we are finished.
-..
-
-;******************************************************************
-; *** LOAD *** & SAVE ***
-;
-; These two commands transfer a program to/from an auxiliary
-; device such as a cassette, another computer, etc.  The program
-; is converted to an easily-stored format: each line starts with
-; a colon, the line no. as 4 hex digits, and the rest of the line.
-; At the end, a line starting with an '@' sign is sent.  This
-; format can be read back with a minimum of processing time by
-; the RTF65002
-;******************************************************************
-;
-	align	16
-LOAD
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-	ldi		$t2,#TXTBGN	; set pointer to start of prog. area
-	ldi		$a0,#CR		; For a CP/M host, tell it we're ready...
-	call  GOAUXO		; by sending a CR to finish PIP command.
-LOD1:
-	cal  GOAUXI		; look for start of line
-	ble		$a0,$x0,LOD1
-	seq		$a0,#'@'    ; end of program?
-	seq.or	$a0,#$1A  ; or EOF marker
-	bt		LODEND
-	sne		$a0,#':'
-	bt		LOD1	    ; if not, is it start of line? if not, wait for it
-	call	  GCHAR		  ; get line number
-	stt		$a0,[$t2]		; store it
-	add		$t2,$t2,#4
-LOD2:
-	call	  GOAUXI		; get another text char.
-	tst   $a0
-	ble	  LOD2
-	stb		$a0,[$t2]		; store it
-	add		$t2,$t2,#1
-	sne		$a0,#CR
-	bt		LOD2		; is it the end of the line? if not, go back for more
-	bra		LOD1		; if so, start a new line
-LODEND:
-	sto		$t2,TXTUNF	; set end-of program pointer
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	bra		WSTART		; back to direct mode
-..
-
-
-; get character from input (32 bit value)
-GCHAR:
-	enter	#48
-	sto		$a5,[$sp]
-	sto		$a6,8[$sp]
-	ldi		$a6,#8       ; repeat ten times
-	ldi		$a5,#0
-GCHAR1:
-	call	  GOAUXI		; get a char
-	tst   $a0
-	ble		GCHAR1
-	call  asciiToHex
-	asl		$a5,$a5,#4
-	or		$a5,$a5,$a0
-	sub		$a6,$a6,#1
-	bgtu	$a6,$x0,GCHAR1
-	mov		$a0,$a5
-	ldo		$a5,[$sp]
-	ldo		$a6,8[$sp]
-	leave	#32
-..
-
-; convert an ascii char to hex code
-; input
-;	a0 = char to convert
-
-asciiToHex:
-	sleu	$a1,$a0,#'9'
-	bne  	$a1,.a2h1   ; less than '9'
-	sub		$a0,$a0,#7	; shift 'A' to '9'+1
-.a2h1:
-	sub		$a0,$a0,#'0'
-	and		$a0,$a0,#15	; make sure a nybble
-	ret
-..
-
-GetFilename:
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	ldi		$a0,#'"'
-	call  TSTC
-	bra		.gfn1
-	mov		$a3,$x0
-.gfn2:
-	ldbu	$a0,[$t2]		; get text character
-	add		$t2,$t2,#1
-	seq		$a1,$a0,#'"'
-	bnez	$a1,.gfn3
-	beqz	$a0,.gfn3
-	stb		$a0,FILENAME[r3]
-	add		$a3,$a3,#1
-	sltu	$a1,$a3,#64
-	bnez	$a1,.gfn2
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	ret
-.gfn3:
-	ldi		$a0,#' '
-	stb		$a0,FILENAME[$a3]
-	add		r3,r3,#1
-	sltu	$a3,#64
-	bt	  .gfn3
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	ret
-.gfn1:
-	bra		WSTART
-..
-
-LOAD3:
-	call	GetFilename
-	call	AUXIN_INIT
-	bra		LOAD
-
-;	call		OREXPR		;evaluate the following expression
-;	ld		a0,#5000
-	ldi		$a1,#$E00
-	call	  SDReadSector
-	add		$a0,$a0,#1
-	ldi		$a1,#TXTBGN
-LOAD4:
-	sub		$sp,$sp,#8
-	sto		$a0,[$sp]
-	call	  SDReadSector
-	add		$a1,$a1,#512
-	ldo		$a0,[$sp]
-	add		$sp,$sp,#8
-	add		$a0,$a0,#1
-	ldi		$a4,#TXTBGN
-	add		$a4,$a4,#65536
-	slt   $a1,$a4
-	bt		LOAD4
-LOAD5:
-	bra		WSTART
-..
-
-SAVE3:
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-	call	GetFilename
-	call	AUXOUT_INIT
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	bra		SAVE
-
-	; dead code follows
-	call	OREXPR		;evaluate the following expression
-;	lda		#5000		; starting sector
-	ldi		$a1,#$E00	; starting address to write
-	call	SDWriteSector
-	add		$a0,$a0,#1
-	ldi		$a1,#TXTBGN
-SAVE4:
-	sub		$sp,$sp,#8
-	sto		$a0,[$sp]
-	call	SDWriteSector
-	add		$a1,$a1,#512
-	ldo		$a0,[$sp]
-	add		$sp,$sp,#8
-	add		$a0,$a0,#1
-	ldi		$a4,#TXTBGN
-	add		$a4,$a4,#65536
-	slt   $a1,$a4
-	bt		SAVE4
-	bra		WSTART
-..
-
-SAVE:
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-	ldi		$t2,#TXTBGN	;set pointer to start of prog. area
-	ldo		$t3,TXTUNF	;set pointer to end of prog. area
-SAVE1:
-	call	AUXOCRLF    ; send out a CR & LF (CP/M likes this)
-	bgt		$t2,$t3,SAVEND; are we finished?
-	ldi		$a0,#':'		; if not, start a line
-	call	GOAUXO
-	ldt		$a0,1[$t2]		; get line number (skip over line length)
-	add		$t2,$t2,#4
-	call	PWORD       ; output line number as 5-digit hex
-SAVE2:
-	ldbu	$a0,[$t2]		; get a text char.
-	add		$t2,$t2,#1
-	beq		$a0,#CR,SAVE1	; is it the end of the line? if so, send CR & LF and start new line
-	call	GOAUXO		; send it out
-	bra		SAVE2		; go back for more text
-SAVEND:
-	ldi		$a0,#'@'		; send end-of-program indicator
-	call	GOAUXO
-	call	AUXOCRLF    ; followed by a CR & LF
-	ldi		$a0,#$1A		; and a control-Z to end the CP/M file
-	call	GOAUXO
-	call	AUXOUT_FLUSH
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	bra		WSTART		; then go do a warm start
-..
-
-; output a CR LF sequence to auxillary output
-; Registers Affected
-;   r3 = LF
-	align	16
-AUXOCRLF:
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-  ldi		$a0,#CR
-  call	GOAUXO
-  ldi		$a0,#LINEFD
-  ldo		$ra,[$sp]
-  add		$sp,$sp,#8
-  bra	  GOAUXO
-..
-
-; output a word in hex format
-; tricky because of the need to reverse the order of the chars
-	align	16
-PWORD:
-	enter	#40
-	sto		$a5,[$sp]
-	ldi		$a5,#NUMWKA+14
-	mov		$a4,$a0		; r4 = value
-.pword1:
-  mov   $a0,$a4	    ; a0 = value
-  srl		$a4,$a4,#4	; shift over to next nybble
-  call	toAsciiHex  ; convert LS nybble to ascii hex
-  stb   $a0,[$a5]		; save in work area
-  sub		$a5,$a5,#1
-  sge		$a1,$a5,#NUMWKA
-	bnez	$a1,.pword1
-.pword2:
-  add		$a5,$a5,#1
-  ldbu  $a0,[$a5]     ; get char to output
-	call	GOAUXO		; send it
-	slt   $a5,#NUMWKA+14
-	bt		.pword2
-	ldo		$a5,[$sp]
-	leave	#32
-..
-
-; convert nybble in a1 to ascii hex chaa1
-; a1 = character to convert
-	align	16
-toAsciiHex:
-	and		$a0,$a0,#15	; make sure it's a nybble
-	slt   $a1,$a0,#10
-	sll		$a1,$a1,#3	; *8
-	sub		$a1,$a1,#1	; *7
-	add		$a0,$a0,$a1	; bump it up to the letter 'A'
-	add		$a0,$a0,#'0'	; bump up to ascii '0'
-	ret
-..
-
-;******************************************************************
-; *** POKE ***
-;
-; 'POKE expr1,expa1' stores the byte from 'expa1' into the memory
-; address specified by 'expr1'.
-; 'POKEW expr1,expa1' stores the word from 'expa1' into the memory
-; address specified by 'expr1'.
-; 'POKEH expr1,expa1' stores the half-word from 'expa1' into the memory
-; address specified by 'expr1'.
-;******************************************************************
-;
-	align	16
-POKE:
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-	call	OREXPR		; get the memory address
-	mov		$a1,$a0
-	ldi		$a0,#','
-	call  TSTC		; it must be followed by a comma
-	bra		PKER
-	sub		$sp,$sp,#8
-	sto		$a1,[$sp]	; save the address
-	call	OREXPR		; get the byte to be POKE'd
-	ldo		$a1,[$sp]	; get the address back
-	add		$sp,$sp,#8
-	stb		$a0,[$a1]		; store the byte in memory
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	bra		FINISH
-..
-	align	16
-POKEW:
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-	call	OREXPR		; get the memory address
-	mov		$a1,$a0
-	ldi		$a0,#','
-	call  TSTC		; it must be followed by a comma
-	bra		PKER
-	sub		$sp,$sp,#8
-	sto		$a1,[$sp]	; save the address
-	call	OREXPR		; get the byte to be POKE'd
-	ldo		$a1,[$sp]	; get the address back
-	add		$sp,$sp,#8
-	stw		$a0,[$a1]		; store the byte in memory
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	bra		FINISH
-..
-	align	16
-POKET:
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-	call	 OREXPR		; get the memory address
-	mov		$a1,$a0
-	ldi		$a0,#','
-	call  TSTC		; it must be followed by a comma
-	bra		PKER
-	sub		$sp,$sp,#8
-	sto		$a1,[$sp]	; save the address
-	call	OREXPR		; get the byte to be POKE'd
-	ldo		$a1,[$sp]	; get the address back
-	add		$sp,$sp,#8
-	stt		$a0,[$a1]		; store the byte in memory
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	bra		FINISH
-..
-	align	16
-POKEO:
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-	call	OREXPR		; get the memory address
-	mov		$a1,$a0
-	ldi		$a0,#','
-	call  TSTC		; it must be followed by a comma
-	bra		PKER
-	sub		$sp,$sp,#8
-	sto		$a1,[$sp]	; save the address
-	call	OREXPR		; get the byte to be POKE'd
-	ldo		$a1,[$sp]	; get the address back
-	add		$sp,$sp,#8
-	sto		$a0,[$a1]		; store the byte in memory
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	bra		FINISH
-..
-	align	16
-PKER:
-	add		$sp,$sp,#8	; discard ret address
-	ldi		$a0,#msgComma
-	bra		ERROR		; if no comma, say "What?"
-
-;******************************************************************
-; 'SYSX expr' jumps to the machine language subroutine whose
-; starting address is specified by 'expr'.  The subroutine can use
-; all registers but must leave the stack the way it found it.
-; The subroutine returns to the interpreter by executing an RTS.
-;******************************************************************
-	align	16
-SYSX:
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-	call	OREXPR		; get the subroutine's address
-	bnez	$s8,.sysx1; make sure we got a valid address
-	ldi		$a0,#msgSYSBad
-	add		$sp,$sp,#8
-	bra		ERROR
-.sysx1:
-	sub		$sp,$sp,#8
-	sto		$t2,[$sp]	; save the text pointer
-	call	[$s8]			; jump to the subroutine
-	ldo		$t2,[$sp]	; restore the text pointer
-	add		$sp,$sp,#8
-	ldo		$ra,[$sp]
-	add		$sp,$sp,#8
-	bra		FINISH
-..
-
-;******************************************************************
-; *** EXPR ***
-;
-; 'EXPR' evaluates arithmetical or logical expressions.
-; <OREXPR>::= <ANDEXPR> OR <ANDEXPR> ...
-; <ANDEXPR>::=<EXPR> AND <EXPR> ...
-; <EXPR>::=<ADDEXPR>
-;	   <ADDEXPR><rel.op.><ADDEXPR>
-; where <rel.op.> is one of the operators in TAB8 and the result
-; of these operations is 1 if true and 0 if false.
-; <ADDEXPR>::=(+ or -)<MULEXPR>(+ or -)<MULEXPR>(...
-; where () are optional and (... are optional repeats.
-; <MULEXPR>::=<FUNCEXPR>( <* or /><FUNCEXPR> )(...
-; <FUNCEXPR>::=<variable>
-;	    <function>
-;	    (<EXPR>)
-; <EXPR> is recursive so that the variable '@' can have an <EXPR>
-; as an index, functions can have an <EXPR> as arguments, and
-; <FUNCEXPR> can be an <EXPR> in parenthesis.
-;
-
-; <OREXPR>::=<ANDEXPR> OR <ANDEXPR> ...
-;
-	align	16
-OREXPR:
-	enter #48
-	call	ANDEXPR		; get first <ANDEXPR>
-XP_OR1:
-	sto		$s8,[$sp]		; save <ANDEXPR> value
-	sto		$s9,8[$sp]	; save type
-	ldi		$t3,#TAB10	; look up a logical operator
-	ldi		$t4,#TAB10_1
-	bra		EXEC		; go do it
-XP_OR:
-  call	ANDEXPR
-  ldo		$a0,[$sp]
-  or    $s8,$s8,$a0
-  bra   XP_OR1
-XP_ORX:
-  ldo		$s8,[$sp]
-  ldo		$s9,8[$sp]
-  leave	#32
-.. OREXPR
-
-; <ANDEXPR>::=<EXPR> AND <EXPR> ...
-;
-	align	16
-ANDEXPR:
-	enter	#48
-	call	EXPR		; get first <EXPR>
-XP_AND1:
-	sto		$s8,[$sp]		; save <EXPR> value
-	sto		$s9,8[$sp]	; save type
-	ldi		$t3,#TAB9		; look up a logical operator
-	ldi		$t4,#TAB9_1
-	bra		EXEC		; go do it
-XP_AND:
-  call	  EXPR
-  ldo		$a0,[$sp]
-  and   $s8,$s8,$a0
-  bra   XP_AND1
-XP_ANDX:
-  ldo		$s8,[$sp]
-  ldo		$s9,8[$sp]
-  leave	#32
-.. ANDEXPR
-
-	align	16
-FORCEFIT:
-	beq		$a1,$s9,.0001				; types match
-	beqz	$a1,.intAnd
-;	itof	$f1,$s8
-	ldi		$a0,#1
-	ret
-.intAnd:
-	bne		$s9,#1,.0001
-;	itof	$f2,$a1
-	ldi		$a1,#1
-	ret
-.0001:
-	ret
-..
-	align	16
-EXPR:
-	enter	#48
-	call	ADDEXPR
-	sto		$s8,[$sp]		; save <ADDEXPR> value
-	sto		$s9,8[$sp]	; save type
-	ldi		$t3,#TAB8		; look up a relational operator
-	ldi		$t4,#TAB8_1
-	bra		EXEC		; go do it
-..
-	align	16
-XP11:
-	ldo		$s8,[$sp]
-	ldo		$s9,8[$sp]
-	add		$sp,$sp,#16
-	call	XP18	; is it ">="?
-	sge   $s8,$a0,$s8
-	bra		XPRTI
-..
-	align	16
-XP12:
-	ldo		$s8,[$sp]
-	ldo		$s9,8[$sp]
-	add		$sp,$sp,#16
-	call	XP18	; is it "<>"?
-  sne   $s8,$a0,$s8
-	bra		XPRTI
-..
-	align	16
-XP13:
-	ldo		$s8,[$sp]
-	ldo		$s9,8[$sp]
-	add		$sp,$sp,#16
-	call	XP18	; is it ">"?
-  sgt   $s8,$a0,$s8
-	bra		XPRTI
-..
-	align	16
-XP14:
-	ldo		$s8,[$sp]
-	ldo		$s9,8[$sp]
-	add		$sp,$sp,#16
-	call	XP18	; is it "<="?
-	sle   $s8,$a0,$s8
-	bra		XPRTI
-..
-	align	16
-XP15:
-	ldo		$s8,[$sp]
-	ldo		$s9,8[$sp]
-	add		$sp,$sp,#16
-	call	XP18	; is it "="?
-  seq   $s8,$a0,$s8
-	bra		XPRTI
-..
-	align	16
-XP16:
-	ldo		$s8,[$sp]
-	ldo		$s9,8[$sp]
-	add		$sp,$sp,#16
-	call	XP18	; is it "<"?
-  slt   $s8,$a0,$s8
-	bra		XPRTI
-..
-	align	16
-XPRTI:
-	ldi		$s9,#0	; type = int
-	leave	#32
-..
-	align	16
-XP17:				; it's not a rel. operator
-	ldo		$s8,[$sp] ; return a1=<ADDEXPR>
-	ldo		$s9,8[$sp]
-	leave	#32
-..
-	align	16
-XP18:
-	enter	#48
-	sto		$s8,[$sp]
-	sto		$s9,8[$sp]
-	call	ADDEXPR		; do a second <ADDEXPR>
-	ldo		$a0,[$sp]
-	ldo		$a1,8[$sp]
-	leave	#32
-..
-
-; <ADDEXPR>::=(+ or -)<MULEXPR>(+ or -)<MULEXPR>(...
-//message "ADDEXPR"
-	align	16
-ADDEXPR:
-	enter	#32
-	ldi		$a0,#'-'
-	call  TSTC		; negative sign?
-	bra		.XP21
-	mov		$s8,$x0		; yes, fake '0-'
-	sub		$sp,$sp,#16
-	sto		$s8,[$sp]
-	sto		$s9,8[$sp]
-	bra		.XP26
-.XP21:
-	ldi		$a0,#'+'
-	call  TSTC		; positive sign? ignore it
-	nop
-	call	MULEXPR		; first <MULEXPR>
-.XP23:
-	sub		$sp,$sp,#16; yes, save the value
-	sto		$s8,[$sp]
-	sto	  $s9,8[$sp]	; and type
-	ldi		$a0,#'+'
-	call  TSTC		; add?
-	bra		.XP25
-	call	MULEXPR		; get the second <MULEXPR>
-.XP24:
-	ldo		$a0,[$sp]
-	ldo		$a1,8[$sp]
-	add		$sp,$sp,#16
-	add		$s8,$s8,$a0	; add it to the first <MULEXPR>
-;	BVS.L	QHOW		brnch if there's an overflow
-	bra		.XP23		; else go back for more operations
-.XP25:
-	ldi		$a0,#'-'
-	call  TSTC		; subtract?
-	bra		.XP45
-.XP26:
-	call	MULEXPR		; get second <MULEXPR>
-	sub		$s8,$x0,$s8	; change its sign
-	bra		.XP24		; and do an addition
-.XP45:
-	ldo		$s8,[$sp]
-	ldo		$s9,8[$sp]
-	leave	#32
-..
-
-; <MULEXPR>::=<FUNCEXPR>( <* or /><FUNCEXPR> )(...
-
-MULEXPR:
-	enter	#32
-	call	FUNCEXPR		; get first <FUNCEXPR>
-.XP31:
-	sub		$sp,$sp,#16
-	sto		$s8,[$sp]  ; yes, save that first result
-	sto		$s9,8[$sp]
-	ldi		$a0,#'*'
-	call  TSTC		; multiply?
-	bra		.XP34
-	call	FUNCEXPR		; get second <FUNCEXPR>
-	ldo		$a0,[$sp]
-	ldo		$a1,8[$sp]
-	add		$sp,$sp,#16
-	mul		$s8,$s8,$a0	; multiply the two
-	bra		.XP31        ; then look for more terms
-.XP34:
-	ldi		$a0,#'/'
-	call   TSTC		; divide?
-	bra		.XP35
-	call	FUNCEXPR		; get second <FUNCEXPR>
-	ldo		$a0,[$sp]
-	ldo		$a1,8[$sp]
-	add		$sp,$sp,#16
-	div		$s8,$s8,$a0	; do the division
-	bra		.XP31		; go back for any more terms
-.XP35:
-	ldi		$a0,#'%'
-	call  TSTC
-	bra		.XP47
-	call	FUNCEXPR
-	ldo		$a0,[$sp]
-	ldo		$a1,8[$sp]
-	add		$sp,$sp,#16
-	rem		$s8,$s8,$a0
-	bra		.XP31
-.XP47:
-	ldo		$s8,[$sp]
-	ldo		$s9,8[$sp]
-	leave	#32
-..
-
-; Functions are called through FUNCEXPR
-; <FUNCEXPR>::=<variable>
-;	    <function>
-;	    (<EXPR>)
-	align	16
-FUNCEXPR:
-	enter	#32
-  ldi		$t3,#TAB4		; find possible function
-  ldi		$t4,#TAB4_1
-	bra		EXEC        ; branch to function which does subsequent ret for FUNCEXPR
-.XP40:                   ; we get here if it wasn't a function
-	mov		$a0,$x0
-	call	TSTV
-	beqz  $s8,.XP41	  ; not a variable
-	ldo		$s8,[$s8]		; if a variable, return its value in s8
-	leave	#32
-.XP41:
-	call	TSTNUM		; or is it a number?
-	bnez	$s9,.XP46	; (if not, # of digits will be zero) if so, return it in s8
-	call	PARN        ; check for (EXPR)
-.XP46:
-	leave	#32
-..
-
-; Check for a parenthesized expression
-	align	16
-PARN:
-	enter	#32
-	ldi		$a0,#'('
-	call  TSTC		; else look for ( OREXPR )
-	bra		.XP43
-	call	OREXPR
-	ldi		$a0,#')'
-	call   TSTC
-	bra		.XP43
-.XP42:
-	leave	#32
-.XP43:
-	add		$sp,$sp,#8		; get rid of return address
-	ldi		$a0,#msgWhat
-	bra		ERROR
-..
-
-
-; ===== Test for a valid variable name.  Returns Z=1 if not
-;	found, else returns Z=0 and the address of the
-;	variable in a0.
-; Parameters
-;		a0 = 1 = allocate if not found
-; Returns
-;		s8 = address of variable, zero if not found
-
-TSTV:
-	enter	#40
-	sto		$a5,[$sp]
-	mov		$a5,$a0		; r5=allocate flag
-	call	IGNBLK
-	ldbu	$a0,[$t2]		; look at the program text
-	slt		$a1,$a0,#'@'
-	bnez	$a1,tstv_notfound	; C=1: not a variable
-	ldi		$a1,#'@'
-	bne		$a0,$a1,TV1	; brnch if not "@" array
-	add		$t2,$t2,#1	; If it is, it should be
-	call	  PARN		; followed by (EXPR) as its index.
-;	BCS.L	QHOW		say "How?" if index is too big
-	bra		TV3
-TV3:
-	sub		$sp,$sp,#8	; save the index
-	sto		$s8,[$sp]
-	call	SIZEX			; get amount of free memory
-	ldo		$a1,[$sp]
-	add		$sp,$sp,#8	; get back the index
-	slt   $t1,$a1,$s8
-	bnez	$t1,TV2		  ; see if there's enough memory
-	add		$sp,$sp,#16
-	bra   QSORRY		; if not, say "Sorry"
-TV2:
-	ldo		$a0,VARBGN	; put address of array element...
-	sub   $s8,$a0,$a1    ; into a0 (neg. offset is used)
-	bra   TSTVRT
-TV1:	
-  call	getVarName      ; get variable name
-  beqz  $s8,TSTVRT    ; if not, return s8=0
-  mov		$a0,$s8
-  mov		$a1,$a5
-  call	findVar     ; find or allocate
-TSTVRT:
-	ldo		$a5,[$sp]
-	leave	#32						; s8<>0 (if found)
-tstv_notfound:
-	mov		$s8,$x0				; s8=0 if not found
-	ldo		$a5,[$sp]
-  leave	#32
-.. TSTV
-
-; Get a variable name. Called after blanks have been ignored.
-;
-; Returns
-;   s8 = 7 character variable name + type
-;
-getVarName:
-	enter	#40
-	sto		$a5,[$sp]
-  ldbu  $a0,[$t2]			; get first character
-  sto		$a0,16[$sp]		; save off current name
-  call	_isalpha
-  beqz  $a0,.gvn1
-  ldi	  $a5,#6       	; loop six more times
-
-	; check for second/third character
-.gvn4:
-	add		$t2,$t2,#1
-	ldbu  $a0,[$t2]			; do we have another char ?
-	call	_isalnum
-	beqz  $a0,.gvn2	   	; nope
-	ldo		$a0,16[$sp]		; get varname
-	sll		$a0,$a0,#8
-	ldbu  $a1,[$t2]
-	or    $a0,$a0,$a1  	; add in new char
-  sto		$a0,16[$sp]		; save off current name again
-  sub		$a5,$a5,#1
-  bgt		$a5,$x0,.gvn4
-
- 	; now ignore extra variable name characters
-.gvn6:
-	add		$t2,$t2,#1
-	ldbu  $a0,[$t2]		; do we have another char ?
-  call  _isalnum
-  bne   .gvn6	; keep looping as long as we have identifier chars
-
-  ; check for a variable type
-.gvn2:
-	ldbu    $a1,[$t2]
-	seq		  $t1,$a1,#'%'	; integer?
-	seq			$t3,$a1,#'$'	; string?
-	or			$t1,$t1,$t3
-	bnez		$t1,.gvn3
-  sub		  $t2,$t2,#1
-  ldi		  $a1,#'.'		; if no variable type assume float
-
-  ; insert variable type indicator and return
-.gvn3:
-	add		$t2,$t2,#1
-	ldo		$a0,16[$sp]		; get varname
-	sll		$a0,$a0,#8
-  or    $s8,$a0,$a1   ; add in variable type
-  ldo		$a5,[$sp]
-  leave	#32						; return s8 = varname
-
-  ; not a variable name
-.gvn1:
-  mov		$s8,$x0       ; return s8 = 0 if not a varname
-	ldo		$a5,[$sp]
-	leave	#32
-
-
-; Find variable
-;   a0 = varname
-;		a1 = allocate flag
-; Returns
-;   s8 = variable address, Z =0 if found / allocated, Z=1 if not found
-
-findVar:
-	sub		$sp,$sp,#24
-	sto		$s0,[$sp]
-	sto		$a3,8[$sp]
-	sto		$s1,16[$sp]
-  ldo   $a3,VARBGN
-  ldo		$s1,VAREND
-.fv4:
-  ldo  	$s0,[$a3]     ; get varname / type
-  beqz 	$s0,.fv3		  ; no more vars ?
-  beq   $a0,$s0,.fv1	; match ?
-	add		$a3,$a3,#16		; move to next var
-  blt   $a3,$s1,.fv4	; loop back to look at next var
-
-  ; variable not found
-  ; no more memory
-  ldo		$s0,[$sp]
-  ldo		$a3,8[$sp]
-  add		$sp,$sp,#16
-  ldi		$a0,#msgVarSpace
-  bra   ERROR
-
-  ; variable not found
-  ; allocate new ?
-.fv3:
-	beqz	$a1,.fv2
-  sto   $a0,[$a3]     ; save varname / type
-  ; found variable
-  ; return address
-.fv1:
-  add		$s8,$a3,#8
-  ldo		$s0,[$sp]
-  ldo		$a3,8[$sp]
-  ldo		$s1,16[$sp]
-  add		$sp,$sp,#24
-  ret									; s8 = address
-
-  ; didn't find var and not allocating
-.fv2:
-	mov		$s8,$x0				; s8 = nullptr
-  ldo		$s0,[$sp]
-  ldo		$a3,8[$sp]
-  ldo		$s1,16[$sp]
-  add		$sp,$sp,#24
-  ret
-
-; The following functions are entered via a jump instruction with
-; the return address already saved.
-
-; ===== The PEEK function returns the byte stored at the address
-;	contained in the following expression.
-;
-	align	16
-PEEK:
-	enter	#32
-	call	PARN			; get the memory address
-	ldb		$s8,[$s8]	; get the addressed byte
-	mov		$s9,$x0		; type = int
-	leave	#32
-..
-	align	16
-PEEKW:
-	enter	#32
-	call	PARN			; get the memory address
-	ldw		$s8,[$s8]	; get the addressed word
-	mov		$s9,$x0		; type = int
-	leave	#32
-..
-	align	16
-PEEKT:
-	enter	#32
-	call	PARN			; get the memory address
-	ldt		$s8,[$s8]	; get the addressed byte
-	mov		$s9,$x0		; type = int
-	leave	#32
-..
-	align	16
-PEEKO:
-	enter	#32
-	call	PARN			; get the memory address
-	ldo		$s8,[$s8]	; get the addressed byte
-	mov		$s9,$x0		; type = int
-	leave	#32
-..
-
-; user function call
-; call the user function with argument in a0, type in a1
-	align	16
-USRX:
-	enter	#32
-	sub		$sp,$sp,#8
-	sto		$t0,[$sp]
-	call	PARN				; get expression value
-	mov		$a0,$s8
-	mov		$a1,$s9
-	sub		$sp,$sp,#8	; save the text pointer
-	sto		$t2,[$sp]
-	ldo		$t3,usrJmp
-	call	[$t3]				; get usr vector, jump to the subroutine
-	ldo		$t2,[$sp]		; restore the text pointer
-	add		$sp,$sp,#8
-	ldo		$t0,[$sp]
-	leave	#32
-..
-
-; ===== The RND function returns a random number from 1 to
-;	the value of the following expression in D0.
-;
-	align	16
-RND:
-	enter #32
-	call	PARN				; get the upper limit
-	beqz	$s8,.rnd2		; it must be positive and non-zero
-	blt		$s8,$x0,.rnd1
-	mov		$a1,$s8
-	mov		$s9,$s8
-	call	gen_rand		; generate a random number
-	rem		$s8,$s8,$s9
-	add		$s8,$s8,#1
-	mov		$s9,$x0
-	leave	#32
-.rnd1:
-	ldi		$a0,#msgRNDBad
-	add		$sp,$sp,#8
-	bra		ERROR
-.rnd2:
-	call	gen_rand		; generate a random number
-	mov		$s9,$x0
-	leave	#32
-..
-
-; ===== The ABS function returns an absolute value in a1.
-;
-	align	16
-ABS:
-	enter	#32
-	call	PARN		; get the following expr.'s value
-	blt		$s8,$x0,.ABS1
-	leave	#32
-.ABS1:
-	neg		$s8,$s8
-	leave	#32
-..
-
-;==== The TICK function returns the cpu tick value in a0.
-;
-	align	16
-TICKX:
-	csrrw	s8,#$C00,x0
-	mov		s9,x0
-	ret
-..
-
-; ===== The SGN function returns the sign in a0. +1,0, or -1
-;
-	align	16
-SGN:
-	enter	#32
-	call	PARN		; get the following expr.'s value
-	mov		$s9,$x0
-	beqz	$s8,.SGN1
-	blt		$s8,$x0,.SGN2
-	ldi		$s8,#1
-	leave	#32
-.SGN2:
-	ldi		$s8,#-1
-.SGN1:
-	leave	#32
-..
-
-; ===== The SIZE function returns the size of free memory in s8.
-; does not consider memory used by @()
-;
-	align	16
-SIZEX:
-	ldo		$s8,VARBGN	; get the number of free bytes...
-	ldo		$s9,TXTUNF	; between 'TXTUNF' and 'VARBGN'
-	sub		$s8,$s8,$s9
-	mov		$s9,$x0			; type = int
-	ret				; return the number in s8
-..
-
-;******************************************************************
-;
-; *** SETVAL *** FIN *** ENDCHK *** ERROR (& friends) ***
-;
-; 'SETVAL' expects a variable, followed by an equal sign and then
-; an expression.  It evaluates the expression and sets the variable
-; to that value.
-;
-; returns
-; a1 = variable's address
-;
-	align	16
-SETVAL:
-	enter	#32
-  ldi		$a0,#1		; allocate var
-  call	TSTV			; variable name?
-  bnez	$s8,.sv2
- 	ldi		$a0,#msgVar
-	add		$sp,$sp,#32
- 	bra		ERROR 
-.sv2:
-	sub		$sp,$sp,#8
-	sto		$s8,[$sp]		; save the variable's address
-	ldi		$a0,#'='
-	call  TSTC				; get past the "=" sign
-	bra		SV1
-	call	OREXPR			; evaluate the expression
-	ldo		$a1,[$sp]		; get back the variable's address
-	add		$sp,$sp,#8
-	sto   $s8,[$a1]   ; and save value in the variable
-	mov		$s8,$a1			; return s8 = variable address
-	ldo	  $s9,-8[$a1]
-	and		$s9,$s9,#$FF	; get type indicator
-	leave	#32
-SV1:
-	add		$sp,$sp,#40
-  bra	  QWHAT		; if no "=" sign
-..
-
-; 'FIN' checks the end of a command.  If it ended with ":",
-; execution continues.	If it ended with a CR, it finds the
-; the next line and continues from there.
-;
-	align	16
-FIN:
-	enter	#32
-	ldi		$a0,#':'
-	call  TSTC				;		 *** FIN ***
-	bra		.FI1
-	add		$sp,$sp,#32	; if ":", discard return address
-	bra		RUNSML			; continue on the same line
-.FI1:
-	ldi		$a0,#CR
-	call  TSTC				; not ":", is it a CR?
-	bra		.FI2
-										; else return to the caller
-	add		$sp,$sp,#32	; yes, purge return address
-	bra		RUNNXL			; execute the next line
-.FI2:
-	leave	#32					; else return to the caller
-..
-
-; 'ENDCHK' checks if a command is ended with a CR. This is
-; required in certain commands, such as GOTO, RETURN, STOP, etc.
-;
-; Check that there is nothing else on the line
-; Registers Affected
-;   a0
-;
-	align	16
-ENDCHK:
-	call	IGNBLK
-	ldbu	$a0,[$t2]
-	beq		$a0,#CR,.ec1	; does it end with a CR?
-	ldi		$a0,#msgExtraChars
-	bra		ERROR
-.ec1:
-	ret
-..
-
-; 'ERROR' prints the string pointed to by a0. It then prints the
-; line pointed to by CURRNT with a "?" inserted at where the
-; old text pointer (should be on top of the stack) points to.
-; Execution of Tiny BASIC is stopped and a warm start is done.
-; If CURRNT is zero (indicating a direct command), the direct
-; command is not printed. If CURRNT is -1 (indicating
-; 'INPUT' command in progress), the input line is not printed
-; and execution is not terminated but continues at 'INPERR'.
-;
-; Related to 'ERROR' are the following:
-; 'QWHAT' saves text pointer on stack and gets "What?" message.
-; 'AWHAT' just gets the "What?" message and jumps to 'ERROR'.
-; 'QSORRY' and 'ASORRY' do the same kind of thing.
-; 'QHOW' and 'AHOW' also do this for "How?".
-;
-	align	16
-TOOBIG:
-	ldi		$a0,#msgTooBig
-	bra		ERROR
-..
-	align	16
-QSORRY:
-  ldi		$a0,#SRYMSG
-	bra   ERROR
-..
-	align	16
-QWHAT:
-	ldi		$a0,#msgWhat
-	bra		ERROR
-..
-	align	16
-ERROR:
-	call	PRMESG		; display the error message
-	ldo		$a0,CURRNT	; get the current line pointer
-	beqz	$a0,.ERROR1	; if zero, do a warm start
-	beq		$a0,#-1,INPERR	; is the line no. pointer = -1? if so, redo input
-	ldbu	$a5,[$t2]		; save the char. pointed to
-	stb		$x0,[$t2]		; put a zero where the error is
-	ldt		$a0,CURRNT	; point to start of current line
-	call	PRTLN				; display the line in error up to the 0
-	mov   $a6,$a0	    ; save off end pointer
-	stb		$a5,[$t2]		; restore the character
-	ldi		$a0,#'?'		; display a "?"
-	call	GOOUT
-	mov		$a1,$x0			; stop char = 0
-	sub		$a0,$a6,#1	; point back to the error char.
-	call	PRTSTG			; display the rest of the line
-.ERROR1:
-	bra	  WSTART		; and do a warm start
-..
-
-;******************************************************************
-;
-; *** GETLN *** FNDLN (& friends) ***
-;
-; 'GETLN' reads in input line into 'BUFFER'. It first prompts with
-; the character in r3 (given by the caller), then it fills the
-; buffer and echos. It ignores LF's but still echos
-; them back. Control-H is used to delete the last character
-; entered (if there is one), and control-X is used to delete the
-; whole line and start over again. CR signals the end of a line,
-; and causes 'GETLN' to return.
-;
-;
-	align	16
-GETLN:
-	enter	#32
-	sub		$sp,$sp,#8
-	sto		$a5,[$sp]
-	call 	GOOUT		; display the prompt
-	ldi		$a0,#1
-;	sw		a0,CursorFlash	; turn on cursor flash
-	ldi		$a0,#' '		; and a space
-	call	GOOUT
-	ldi		$t2,#BUFFER	; $t2 is the buffer pointer
-.GL1:
-	call	CHKIO			; check keyboard
-	beqz	$a0,.GL1	; wait for a char. to come in
-	beq		$a0,#CTRLH,.delchar	; delete last character? if so
-	beq		$a0,#CTRLX,.delline	; delete the whole line?
-	beq		$a0,#CR,.GL2	; accept a CR
-	bltu	$a0,#' ',.GL1	; if other control char., discard it
-.GL2:
-	stb		$a0,[$t2]			; save the char.
-	add		$t2,$t2,#1
-	sub		$sp,$sp,#8
-	sto		$a0,[$sp]
-	call	GOOUT		  		; echo the char back out
-	ldo		$a0,[$sp] 		; get char back (GOOUT destroys a0)
-	add		$sp,$sp,#8
-	beq		$a0,#CR,.GL7	; if it's a CR, end the line
-	slt		$t1,$t2,#BUFFER+BUFLEN-1
-	bnez	$t1,.GL1			; any more room? ; yes: get some more, else delete last char.
-.delchar:
-	ldi		$a0,#CTRLH		; delete a char. if possible
-	call	GOOUT
-	ldi		$a0,#' '
-	call	GOOUT
-	sle   $t1,$t2,#BUFFER
-	bnez	$t1,.GL1      ; any char.'s left?	; if not
-	ldi		$a0,#CTRLH		; if so, finish the BS-space-BS sequence
-	call	GOOUT
-	sub		$t2,$t2,#1		; decrement the text pointer
-	bra		.GL1		    	; back for more
-.delline:
-	mov		$a0,$t2				; delete the whole line
-	sub		$a5,$a0,#BUFFER   ; figure out how many backspaces we need
-	beqz	$a5,.GL6		  ; if none needed, branch
-	sub		$a5,$a5,#1		; loop count is one less
-.GL5:
-	ldi		$a0,#CTRLH		; and display BS-space-BS sequences
-	call	GOOUT
-	ldi		$a0,#' '
-	call	GOOUT
-	ldi		$a0,#CTRLH
-	call	GOOUT
-	sub		$a5,$a5,#1
-	bnez	$a5,.GL5
-.GL6:
-	ldi		$t2,#BUFFER		; reinitialize the text pointer
-	bra		.GL1					; and go back for more
-.GL7:
-	stb		$x0,[$t2]		; null terminate line
-;	sw		x0,CursorFlash	; turn off cursor flash
-	ldi		$a0,#LINEFD	; echo a LF for the CR
-	call	GOOUT
-	ldo		$a5,[$sp]
-	leave	#32
-..
-
-
-; 'FNDLN' finds a line with a given line no. (in a0) in the
-; text save area.  $t3 is used as the text pointer. If the line
-; is found, $t3 will point to the beginning of that line
-; (i.e. the high byte of the line no.), and $s8 = 1.
-; If that line is not there and a line with a higher line no.
-; is found, $t3 points there and $s8 = 0. If we reached
-; the end of the text save area and cannot find the line, flags
-; $t3 = 0, $s8 = 0.
-; $s8=1 if line found
-; r0 = 1	<= line is found
-;	$t3 = pointer to line
-; r0 = 0    <= line is not found
-;	r9 = zero, if end of text area
-;	r9 = otherwise higher line number
-;
-; 'FNDLN' will initialize $t3 to the beginning of the text save
-; area to start the search. Some other entries of this routine
-; will not initialize $t3 and do the search.
-; 'FNDLNP' will start with $t3 and search for the line no.
-; 'FNDNXT' will bump $t3 by 4, find a CR and then start search.
-; return Z=1 if line is found, r9 = pointer to line
-;
-; Parameters
-;	a0 = line number to find
-;
-	align	16
-FNDLNT:
-  ldo   $t3,CURRNT
-  sto   $t3,SRCHLN
-  bra		FNDLNP
-..
-	align	16
-FNDLN:
-	slt   $a0,#$FFFFF
-	bt		.fl1        ; line no. must be < 1048576
-	ldi		$a0,#msgLineRange
-	bra		ERROR
-.fl1:
-	ldi		$t3,#TXTBGN	; init. the text save pointer
-	sto   $t3,SRCHLN
-FNDLNP:
-	ldt		$t4,TXTUNF	; check if we passed the end
-	bgeu  $t3,$t4,FNDRET1     ; if so, return with r9=0,a0=0
-	ldt   $s8,1[$t3]	; get line number
-;	gcsub $sp,$sp,#16
-;	stt   $ra,[$sp]
-;	stt   $a0,4[$sp]
-;	mov   $a0,$s8
-;	call  PutHexWord
-;	ldt   $ra,[$sp]
-;	ldt   $a0,4[$sp]
-;	add   $sp,$sp,#16
-	beq	  $s8,$a0,FNDRET2
-	bltu  $s8,$s0,FNDNXT	; is this the line we want? no, not there yet
-FNDRET1:
-	mov		$s8,$x0	; line not found, but $t3=next line pointer
-	ret
-FNDRET2:
-	ldi		$s8,#1	; line found
-	ret
-.. FNDLN
-
-; Move from the current line to the next one.
-	align	16
-FNDNXT:
-  ldo   $s8,SRCHLN	
-	ldbu	$s9,[$s8]			; first byte of line is line length
-	add		$t3,$s8,$s9		; add to current pos
-	sto   $t3,SRCHLN
-	bra   FNDLNP
-..
-
-;******************************************************************
-; 'MVUP' moves a block up from where a0 points to where a1 points
-; until a0=a2
-;
-	align	16
-MVUP1:
-  sub   $a5,$a2,$a0 ; get number of bytes to move
-.MVUP2:
-  sub  	$a5,$a5,#1
-	ldb		$a4,[$a0+$a5]
-	stb		$a4,[$a1+$a5]
-	bnez	$a5,.MVUP2
-	ret
-..
-
-; 'MVDOWN' moves a block down from where a0 points to where a1
-; points until a0=a2
-;
-	align	16
-MVDOWN1:
-	sub		$a0,$a0,#1
-	sub		$a1,$a1,#1
-	ldb		$a4,[$a0]
-	stb		$a4,[$a1]
-.MVDOWN:
-	bne		$a0,$a2,.MVDOWN1
-	ret
-..
-
-; 'POPA_' restores the 'FOR' loop variable save area from the stack
-;
-; 'PUSHA_' stacks for 'FOR' loop variable save area onto the stack
-;
-; Note: a single zero word is stored on the stack in the
-; case that no FOR loops need to be saved. This needs to be
-; done because PUSHA_ / POPA_ is called all the time.
-//message "POPA_"
-	align	16
-POPA_:
-	ldo		$a0,[$sp]
-	add		$sp,$sp,#8
-	sto	  $a0,LOPVAR	; restore LOPVAR, but zero means no more
-	beqz	$a0,.PP1
-	ldo		$a0,[$sp]
-	sto		$a0,LOPPT
-	ldo		$a0,8[$sp]
-	sto		$a0,LOPLN
-	ldo		$a0,16[$sp]
-	sto		$a0,LOPLMT
-	ldo		$a0,24[$sp]
-	sto		$a0,LOPINC
-	add		$sp,$sp,#32
-.PP1:
-	ret
-..
-
-	align	16
-PUSHA_:
-	ldo		$a0,STKBOT			; Are we running out of stack room?
-	add		$a0,$a0,#40			; we might need this many bytes
-	blt		$sp,$a0,QSORRY	; out of stack space
-	ldo		$a1,LOPVAR			; save loop variables
-	beqz	$a1,.PU1				; if LOPVAR is zero, that's all
-	sub		$sp,$sp,#32
-	ldo		$a0,LOPPT
-	sto		$a0,[$sp]
-	ldo		$a0,LOPLN
-	sto		$a0,8[$sp]
-	ldo		$a0,LOPLMT
-	sto		$a0,16[$sp]
-	ldo		$a0,LOPINC
-	sto		$a0,24[$sp]
-.PU1:
-	sub		$sp,$sp,#8
-	sto		$a1,[$sp]
-	ret
-..
-
-;******************************************************************
-;
-; 'PRTSTG' prints a string pointed to by a0. It stops printing
-; and returns to the caller when either a CR is printed or when
-; the next byte is the same as what was passed in a1 by the
-; caller.
-;
-; 'PRTLN' prints the saved text line pointed to by r3
-; with line no. and all.
-;
-
-; a0 = pointer to string
-; a1 = stop character
-; return s8 = pointer to end of line + 1
-	align	16
-PRTSTG:
-	enter	#64
-	sto		$a5,[$sp]
-	sto		$a6,8[$sp]
-	sto		$s0,16[$sp]
-	sto		$a0,24[$sp]
-	mov   $a5,$a0	    	; r5 = pointer
-	mov   $a6,$a1	    	; r6 = stop char
-.PS1:
-  ldbu  $s0,[$a5]     ; get a text character
-	add		$a5,$a5,#1
-	beq	  $s0,$a6,.PRTRET	; same as stop character? if so, return
-	mov   $a0,$s0
-	call	GOOUT					; display the char.
-	bne   $s0,#CR,.PS1	; is it a C.R.? no, go back for more
-	ldi		$a0,#LINEFD  	; yes, add a L.F.
-	call	  GOOUT
-.PRTRET:
-  mov   $s9,$s0	    ; return a1 = stop char
-	mov		$s8,$a5			; return a0 = line pointer
-	ldo		$a5,[$sp]
-	ldo		$a6,8[$sp]
-	ldo		$s0,16[$sp]
-	ldo		$a0,24[$sp]
-	leave	#32
-..
-
-; 'QTSTG' looks for an underline (back-arrow on some systems),
-; single-quote, or double-quote.  If none of these are found, returns
-; to the caller.  If underline, outputs a CR without a LF.  If single
-; or double quote, prints the quoted string and demands a matching
-; end quote.  After the printing, the next i-word of the caller is
-; skipped over (usually a branch instruction).
-;
-	align	16
-QTSTG:
-	sub		$sp,$sp,#8
-	sto		$ra,[$sp]
-	ldi		$a0,#'"'
-	call   TSTC		; *** QTSTG ***
-	bra		.QT3
-	ldi		$a1,#'"'		; it is a "
-.QT1:
-	mov		$a0,$t2
-	call	PRTSTG		; print until another
-	mov		$t2,$s8
-	bne		$s9,#CR,.QT2	; was last one a CR?
-	bra		RUNNXL		; if so run next line
-.QT3:
-	ldi		$a0,#'\''	; '
-	call   TSTC		; is it a single quote?
-	bra		.QT4
-	ldi		$a1,#'\''  ; ' if so, do same as above
-	bra		.QT1
-.QT4:
-	ldi		$a0,#'_'
-	call   TSTC		; is it an underline?
-	bra		.QT5
-	ldi		$a0,#CR		; if so, output a CR without LF
-	call	GOOUT
-.QT2:
-	ldo		$ra,[$sp]		; get return address
-	add		$sp,$sp,#8
-	jmp		9[$ra]	    ; skip following branch
-.QT5:					      ; not " ' or _
-	ldo		$ra,[$sp]		; get return address
-	add		$sp,$sp,#8
-	ret
-..
-
-; Output a CR LF sequence
-;
-	align	16
-prCRLF:
-	enter	#32
-	ldi		$a0,#CR
-	call	GOOUT
-	ldi		$a0,#LINEFD
-	call	GOOUT
-	leave	#32
-..
-
-;-------------------------------------------------------------------------------
-; 'PRTNUM' prints the 32 bit number in a0, leading blanks are added if
-; needed to pad the number of spaces to the number in a1.
-; However, if the number of digits is larger than the no. in
-; a1, all digits are printed anyway. Negative sign is also
-; printed and counted in, positive sign is not.
-;
-; Parameters
-; 	a0 = number to print
-; 	a1 = number of digits
-;		a2 = base (eg 10, 16)
-; Register Usage
-;		s2 = number of padding spaces
-; Modifies:
-;		a0,a1,t1,t2
-; Returns:
-;		none
-;-------------------------------------------------------------------------------
-	.global	PRTNUM
-	align	16
-PRTNUM:
-	sub		$sp,$sp,#32
-	sto		$s1,[$sp]
-	sto		$s2,8[$sp]
-	sto		$s3,16[$sp]
-	sto		$s4,24[$sp]
-	ldi		$s4,#NUMWKA	; r7 = pointer to numeric work area
-	mov		$s3,$a0			; save number for later
-	mov		$s2,$a1			; s2 = min number of chars
-	bge		$s3,$x0,.PN2	      ; is it negative? if not
-	neg		$a0,$a0	    ; else make it positive
-	sub		$s2,$s2,#1	; one less for width count
-.PN2:
-	ldi		$t1,#10
-.PN1:
-	rem		$a1,$a0,$a2	; a1 = a0 mod base
-	div		$a0,$a0,$a2	; a0 /= divide by base
-	bleu  $a1,$a2,.PN7
-	add		$a1,$a1,#'A'-10-'0'
-.PN7:
-	add		$a1,$a1,#'0'	; convert remainder to ascii
-	stb		$a1,[$s4]		; and store in buffer
-	add		$s4,$s4,#1
-	sub		$s2,$s2,#1	; decrement width
-	bnez	$a0,.PN1
-	ble		$s2,$x0,.PN4	; test pad count, skip padding if not needed
-.PN3:
-	ldi		$a0,#' '		; display the required leading spaces
-	call	GOOUT
-	sub		$s2,$s2,#1
-	bgt		$s2,$x0,.PN3
-.PN4:
-	bge		$s3,$x0,.PN5	      ; is number negative?
-	ldi		$a0,#'-'		; if so, display the sign
-	call	GOOUT
-.PN5:
-	ldi		$t1,#NUMWKA
-.PN6:
-	sub		$s4,$s4,#1
-	ldbu	$a0,[$s4]		; now unstack the digits and display
-	call	GOOUT
-	bgtu	$s4,$t1,.PN6
-
-	ldo		$s1,[$sp]
-	ldo		$s2,8[$sp]
-	ldo		$s3,16[$sp]
-	ldo		$s4,24[$sp]
-	add		$sp,$sp,#32
-	ret
-..
-
-;-------------------------------------------------------------------------------
-; Parameters:
-; 	$a0 = pointer to line
-; Returns:
-;		$s8 = pointer to end of line + 1
-;-------------------------------------------------------------------------------
-	align	16
-PRTLN:
-	enter	#56
-	sto		$t0,[$sp]
-	sto		$a0,8[$sp]
-	sto		$a1,16[$sp]
-  mov		$t0,$a0		; $t0 = pointer
-  ; get the line number stored as binary
-  ; assume unaligned loads not allowed
-  ;call	LoadWord
-  ldt   $s8,1[$t0]    ; we can do unaligned loads
-	add		$t0,$t0,#5
-  mov		$a0,$s8
-  ldi		$a1,#5       ; display a 0 or more digit line no.
-  ldi		$a2,#10
-	call	PRTNUM
-	ldi		$a0,#' '     ; followed by a blank
-	call	GOOUT
-	mov		$a1,$x0     ; stop char. is a zero
-	mov		$a0,$t0
-	call  PRTSTG		  ; display the rest of the line
-	ldo		$t0,[$sp]
-	ldo		$a0,8[$sp]
-	ldo		$a1,16[$sp]
-	leave	#32
-..
-
-; ===== Test text byte following the call to this subroutine. If it
-;	equals the byte pointed to by t2, return to the code following
-;	the call. 
-;
-; Parameters:
-;		a0 = char to look for
-;		<static> branch if not found
-; Registers Affected
-;   none
-; Returns
-;		t2 = updated text pointer
-;
-	align	16
-TSTC:
-	sub		$sp,$sp,#24
-	sto		$a0,[$sp]
-	sto		$ra,8[$sp]
-	sto		$a1,16[$sp]
-	call	IGNBLK			; ignore leading blanks
-	ldo		$ra,8[$sp]	; get return address, it's needed for a reference
-	ldbu	$a1,[$t2]
-	beq		$a0,$a1,.TC1	; is it = to what t2 points to? if so
-	ldo		$a0,[$sp]
-	ldo		$ra,8[$sp]
-	ldo		$a1,16[$sp]
-	add		$sp,$sp,#24
-	ret								; return to branch
-.TC1:
-	add		$t2,$t2,#1	; if equal, bump text pointer
-	ldo		$a0,[$sp]
-	ldo		$ra,8[$sp]
-	ldo		$a1,16[$sp]
-	add		$sp,$sp,#24
-	jal		9[$ra]			; jump back, skip parm and branch
-..
-
-; ===== See if the text pointed to by $t2 is a number. If so,
-;	return the number in $s8 and the number of digits in $s9,
-;	else return zero in $s8 and $s9.
-; Registers Affected
-;   a0,a1,r3,r4
-; Returns
-; 	s8 = number
-;		s9 = number of digits in number
-;	t2 = updated text pointer
-;
-	align	16
-TSTNUM:
-	sub		$sp,$sp,#16
-	sto		$ra,[$sp]
-	sto		$t0,8[$sp]
-	call	IGNBLK		; skip over blanks
-	mov		$s8,$x0		; initialize return parameters
-	mov		$s9,$x0
-.TN1:
-	ldbu	$t0,[$t2]
-	ldi		$a0,#'0'	; is it less than zero? or is it greater than nine?
-	bltu	$t0,$a0,.TSNMRET
-	ldi		$a0,#'9'+1
-	bgeu	$t0,$a0,.TSNMRET
-	sleu	$a0,$s8,#$7FFFFFFFFFFFFFF
-	bnez  $a0,.TN2  		; see if there's room for new digit
-	ldi		$a0,#msgNumTooBig	; if not, we've overflowd
-	ldo		$t0,8[$sp]
-	add		$sp,$sp,#16		; dump return address
-	bra		ERROR				
-.TN2:
-	add		$t2,$t2,#1		; adjust text pointer
-	sll		$a0,$s8,#1		; *2
-	sll		$s8,$s8,#3		; *8
-	add   $s8,$s8,$a0 	; quickly multiply result by 10
-	sub   $t0,$t0,#'0'  ; convert ascii to binary
-	add		$s8,$s8,$t0 	; add in the new digit
-	add		$s9,$s9,#1		; increment the no. of digits
-	bra		.TN1
-.TSNMRET:
-	ldo		$ra,[$sp]
-	ldo		$t0,8[$sp]
-	add		$sp,$sp,#16
-	ret
-..
-
-;===== Skip over blanks in the text pointed to by $t2.
-;
-; Registers Affected:
-;	$t2
-; Returns
-;	$t2 = pointer updateded past any spaces or tabs
-;
-	align	16
-IGNBLK:
-	sub		$sp,$sp,#8
-	sto	  $a0,[$sp]
-.IGB2:
-	ldbu  $a0,[$t2]				; get char
-	beq		$a0,#' ',.0001	; space
-	beq		$a0,#'\t',.0001	; or tab
-	ldo		$a0,[$sp]
-	add		$sp,$sp,#8
-	ret
-.0001:
-	add	  $t2,$t2,#1		; increment the text pointer
-	bra	  .IGB2
-..
-
-; ===== Convert the line of text in the input buffer to upper
-;	case (except for stuff between quotes).
-;
-; Registers Affected
-;   a0,r3
-; Returns
-;	r8 = pointing to end of text in buffer
-;
-	align	16
-TOUPBUF:
-	ldi		  $t2,#BUFFER	; set up text pointer
-	mov		  $a3,$x0		; clear quote flag
-.TOUPB1:
-	ldbu	  $a0,[$t2]		; get the next text char.
-	add		  $t2,$t2,#1
-	beq		  $a0,#CR,.TOUPBRT	; is it end of line?
-	beq		  $a0,#'"',.DOQUO
-	beq			$a0,#'\'',.DOQUO     ; '; a single/double quote?
-	bnez		$a3,.TOUPB1	; inside quotes?
-	call	  _toupper 		; convert to upper case
-	stb		  $a0,-1[$t2]	; store it
-	bra		  .TOUPB1			; and go back for more
-.DOQUO:
-	bnez	$a3,.DOQUO1; are we inside quotes?
-	mov		$a3,$a0		; if not, toggle inside-quotes flag
-	bra		.TOUPB1
-.DOQUO1:
-	bne		$a3,$a0,.TOUPB1	; make sure we're ending proper quote
-	mov		$a3,$x0					; else clear quote flag
-	bra		.TOUPB1
-.TOUPBRT:
-	ret
-..
-
-; 'CHKIO' checks the input. If there's no input, it will return
-; to the caller with the a0=0. If there is input, the input byte is in a0.
-; However, if a control-C is read, 'CHKIO' will warm-start BASIC and will
-; not return to the caller.
-;
-//message "CHKIO"
-	align	16
-CHKIO:
-	enter	#32
-	call	INCH		    				; get input if possible
-	beqz	$a0,.CHKRET  				; if Zero, no input
-	bne   $a0,#CTRLC,.CHKRET	; is it control-C?
-	bra		WSTART		  				; if so, do a warm start
-.CHKRET:
-	leave	#32
-..
-
-; ===== Display a CR-LF sequence
-;
-	align	32
-CRLF:
-	ldi		$a0,#CLMSG
-	bra		PutString
-..
-
-; ===== Display a zero-ended string pointed to by register a0
-; Registers Affected
-;   a0,a1,r4
-;
-	align	16
-PRMESG:
-	bra	  PutString
-..
-
-;------------------------------------------------------------------------------
-;	erc = ALLOCMBX (<handle var>)
-;------------------------------------------------------------------------------
-	align	32
-ALLOCMBX:
-	enter	#32
-	ldi		$a0,#'('
-	call  TSTC		; else look for ( OREXPR )
-	bra		.paren
-	ldi		$a0,#1
-	call	TSTV
-	bnez	$s8,.0001
-	ldi		$a0,#msgVar
-	bra		ERROR
-.0001:
-	ldi		$a0,#')'
-	call	TSTC		; else look for ( OREXPR )
-	bra		.paren
-	mov		$s1,$s8
-	ldi		$a0,#14			; get current tid
-	brk   #240
-	mov		$a2,$s1
-	ldi		$a0,#6
-	brk   #240
-	bnez	$a0,.0002
-	sto		$s9,[$s1]				; save handle in variable
-.0002:
-	mov		$s9,$x0
-	leave	#32
-.paren:
-	ldi		$a0,#msgParen
-	bra		ERROR
-..
-
-;------------------------------------------------------------------------------
-; erc = SENDMSG (<handle var>, <msg data 1>, <msg data 2>, <msg data 3>)
-;------------------------------------------------------------------------------
-	align	16
-SENDMSG:
-	enter	#32
-	ldi		$a0,#'('
-	call	TSTC		; else look for ( OREXPR )
-	bra		.paren
-	call	OREXPR	; get the mailbox handle
-	mov		$s1,$s8
-	ldi		$a0,#','
-	call	TSTC		; it must be followed by a comma
-	bra		.err
-	call	OREXPR	; get the memory address
-	mov		$s2,$s8
-	ldi		$a0,#','
-	call	TSTC		; it must be followed by a comma
-	bra		.err
-	call	OREXPR	; get the memory address
-	mov		$s3,$s8
-	ldi		$a0,#','
-	call	TSTC		; it must be followed by a comma
-	bra		.err
-	call	OREXPR	; get the memory address
-	mov		$s4,$s8
-	ldi		$a0,#')'
-	call	TSTC		; else look for ( OREXPR )
-	bra		.paren
-	ldi		$a0,#9		; SendMsg
-	mov		$a1,$s1
-	mov		$a2,$s2
-	mov		$a3,$s3
-	mov		$a4,$s4
-	brk   #240
-	mov		$s9,$x0
-	leave	#32
-.err:
-	ldi		$a0,#msgComma
-	bra		ERROR
-.paren:
-	ldi		$a0,#msgParen
-	bra		ERROR
-..
-
-;------------------------------------------------------------------------------
-; WAITMSG <handle var>, <var for data 1>, <var for data 2>, <var for data 3>,
-;		<expr>
-;------------------------------------------------------------------------------
-	align	16
-WAITMSG:
-	enter	#32
-	ldi		$a0,#'('
-	call	TSTC		; else look for ( OREXPR )
-	bra		.paren
-	call	OREXPR	; get the mailbox handle
-	mov		$s1,$s8
-	ldi		$a0,#','
-	call	TSTC		; it must be followed by a comma
-	bra		.err
-	ldi		$a0,#1
-	call	TSTV
-	bnez	$s8,.0001
-.0002:
-	ldi		$a0,#msgVar
-	bra		ERROR
-.0001:
-	ldi		$a0,#','
-	call	TSTC		; it must be followed by a comma
-	bra		.err
-	mov		$s2,$s8
-	ldi		$a0,#1
-	call	TSTV
-	beqz	$s8,.0002
-	ldi		$a0,#','
-	call	TSTC		; it must be followed by a comma
-	bra		.err
-	mov		$s3,$s8
-	ldi		$a0,#1
-	call	TSTV
-	beqz	$s8,.0002
-	mov		$s4,$s8
-	ldi		$a0,#','
-	call	TSTC		; it must be followed by a comma
-	bra		.err
-	call	OREXPR	; get queue remove flag
-	mov		$a5,$s8
-	mov		$s4,$s8
-	ldi		$a0,#')'
-	call   TSTC		; else look for ( OREXPR )
-	bra		.paren
-	ldi		$a0,#10		; WaitMsg
-	mov		$a1,$s1
-	mov		$a2,$s2
-	mov		$a3,$s3
-	mov		$a4,$s4
-	brk   #240
-	mov		$s9,$x0
-	leave	#32
-.err:
-	ldi		$a0,#msgComma
-	bra		ERROR
-.paren:
-	ldi		$a0,#msgParen
-	bra		ERROR
-..
-
-;*****************************************************
-; The following routines are the only ones that need *
-; to be changed for a different I/O environment.     *
-;*****************************************************
-
-; ===== Output character to the console (Port 1) from register a0
-;	(Preserves all registers.)
-;
-	align	16
-OUTC:
-	bra		Putch
-..
-
-; ===== Input a character from the console into register s8 (or
-;	return Zero status if there's no character available).
-;
-	align	16
-INCH:
-	call  Getch
-	add		$a0,$a0,#1			; prepare test -1
-	beqz	$a0,.INCH1			; was = -1
-	sub		$a0,$a0,#1			; get char back
-.INCH1:
-	ret
-..
-
-; ===== Return to the resident monitor, operating system, etc.
-;
-;message "BYEBYE"
-	align	16
-BYEBYE:
-;	call	ReleaseIOFocus
-  ldi   $a0,#22     ; release I/O focus
-  brk   #240
-	ldt		$sp,OSSP
-	ldi   $a0,#34     ; activate Monitor
-	brk   #240
-..
-
 msgInit	dcb	CR,LINEFD,"ANY1 Tiny BASIC v1.4",CR,LINEFD,"(C) 2017-2021  Robert Finch",CR,CR,0
 OKMSG	dcb	CR,LINEFD,"OK",CR,0
 msgWhat	dcb	"What?",CR,0
@@ -3119,5 +3197,9 @@ msgEnvFail		dcb	" Environment jsr failed",CR,0
 msgParen		dcb	"Expecting parenthesis",CR,0
 
 LSTROM	equ	*		; end of possible ROM area
+
+tblib_table:
+	.symtab
+
 ;	END
 
