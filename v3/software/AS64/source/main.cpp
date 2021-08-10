@@ -139,6 +139,8 @@ extern void Gambit_v5_processMaster();
 extern void rtf64_processMaster();
 extern void SymbolInit();
 extern void dsd9_VerilogOut(FILE *fp);
+extern void any1v3_process_data();
+extern void any1v3_process_rodata();
 
 Arg gArgs[12];
 int gArgCount;
@@ -631,6 +633,8 @@ void emitByte(int64_t cd)
       else
       */
       code_address++;
+      if (gCpu == ANY1V3)
+        code_address++;
       break;
     }
 }
@@ -710,8 +714,8 @@ void emitNybble(int64_t cd)
 
 void emitChar(int64_t cd)
 {
-     emitByte(cd & 255LL);
-     emitByte((cd >> 8) & 255LL);
+  emitByte(cd & 255LL);
+  emitByte((cd >> 8) & 255LL);
 }
 
 // ---------------------------------------------------------------------------
@@ -816,13 +820,24 @@ void process_public()
     segment = codeseg;
   }
   else if (token==tk_rodata) {
-    segment = rodataseg;
+    if (gCpu == ANY1V3)
+      any1v3_process_rodata();
+    else
+      segment = rodataseg;
   }
   else if (token==tk_data) {
-    if (isInitializationData)
-      segment = rodataseg;
-    else
-      segment = dataseg;
+    if (isInitializationData) {
+      if (gCpu == ANY1V3)
+        any1v3_process_rodata();
+      else
+        segment = rodataseg;
+    }
+    else {
+      if (gCpu == ANY1V3)
+        any1v3_process_data();
+      else
+        segment = dataseg;
+    }
   }
   else if (token==tk_bss) {
     segment = bssseg;
@@ -893,7 +908,7 @@ void process_public()
         p3 = p1;
         do {
           NextToken();
-        } while (token != tk_end && token != tk_dotdot);
+        } while (token != tk_endp && token != tk_endproc && token != tk_end && token != tk_dotdot);
         p2 = inptr;
         for (; *p2; p1++, p2++)
           *p1 = *p2;
@@ -1224,24 +1239,24 @@ void process_code()
 
 void process_data(int seg)
 {
-    int64_t st, nd;
+  int64_t st, nd;
 
-    segment = seg;
+  segment = seg;
+  NextToken();
+  if (token==tk_eol) {
+    prevToken();
+    return;
+  }
+  st = expr();
+  if (token==tk_bits) {
+    data_bits = (int)st;
+    return;
+  }
+  if (token==tk_to) {
     NextToken();
-    if (token==tk_eol) {
-        prevToken();
-        return;
-    }
-    st = expr();
-    if (token==tk_bits) {
-        data_bits = (int)st;
-        return;
-    }
-    if (token==tk_to) {
-        NextToken();
-        nd = expr();
-        data_bits = (int)log((double)nd+1)/log((double)2.0);    // +1 to round up a little bit
-    }
+    nd = expr();
+    data_bits = (int)log((double)nd+1)/log((double)2.0);    // +1 to round up a little bit
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -1279,14 +1294,14 @@ void process_db()
             inptr++;
         }
 
-        else if (*inptr=='\'') {
-            inptr++;
-            emitByte(*inptr);
-            inptr++;
-            if (*inptr!='\'') {
-                printf("Missing ' in character constant.\r\n");
-            }
-        }
+        //else if (*inptr=='\'') {
+        //    inptr++;
+        //    emitByte(*inptr);
+        //    inptr++;
+        //    if (*inptr!='\'') {
+        //        printf("Missing ' in character constant.\r\n");
+        //    }
+        //}
 
         else {
             NextToken();
@@ -1776,42 +1791,43 @@ void process_dcp() {
 
 void process_fill()
 {
-    char sz = 'b';
-    int64_t count;
-    int64_t val;
-    int64_t nn;
+  char sz = 'b';
+  int64_t count;
+  int64_t val;
+  int64_t nn;
+  char* legals = gCpu == ANY1V3 || gCpu == RTF64 ? "bwtoBWTO" : "bchwBCHW";
 
-    if (*inptr=='.') {
-        inptr++;
-        if (strchr("bchwBCHW",*inptr)) {
-            sz = tolower(*inptr);
-            inptr++;
-        }
-        else
-            printf("Illegal fill size.\r\n");
+  if (*inptr=='.') {
+    inptr++;
+    if (strchr(legals,*inptr)) {
+      sz = tolower(*inptr);
+      inptr++;
     }
-    SkipSpaces();
-    NextToken();
-    count = expr();
-    need(',');
-    NextToken();
-    val = expr();
-    prevToken();
-    for (nn = 0; nn < count; nn++)
-      if (gCpu==RTF64)
-        switch (sz) {
-        case 'b': emitByte(val); break;
-        case 'w': emitWyde(val); break;
-        case 't': emitTetra(val); break;
-        case 'o': emitOcta(val); break;
-        }
-      else
-        switch(sz) {
-        case 'b': emitByte(val); break;
-        case 'c': emitChar(val); break;
-        case 'h': emitHalf(val); break;
-        case 'w': emitWord(val); break;
-        }
+    else
+      printf("Illegal fill size.\r\n");
+  }
+  SkipSpaces();
+  NextToken();
+  count = expr();
+  need(',');
+  NextToken();
+  val = expr();
+  prevToken();
+  for (nn = 0; nn < count; nn++)
+    if (gCpu==RTF64||gCpu==ANY1V3)
+      switch (sz) {
+      case 'b': emitByte(val); break;
+      case 'w': emitWyde(val); break;
+      case 't': emitTetra(val); break;
+      case 'o': emitOcta(val); break;
+      }
+    else
+      switch(sz) {
+      case 'b': emitByte(val); break;
+      case 'c': emitChar(val); break;
+      case 'h': emitHalf(val); break;
+      case 'w': emitWord(val); break;
+      }
 }
 
 // ----------------------------------------------------------------------------
@@ -1958,7 +1974,46 @@ void process_message()
     printf(buf);
     ScanToEOL();
 }
-       
+
+bool SetFunc(SYM* sym)
+{
+  // Skip over ':' or begin
+  if (token == tk_proc) {
+    SkipSpaces();
+    sym->isFunc = true;
+    NextToken();
+    if (token == ':' || token == '{' || token == tk_begin)
+      NextToken();
+    return (true);
+  }
+  else if (token == '(') {
+    SkipSpaces();
+    NextToken();
+    if (token == ')') {
+      sym->isFunc = true;
+      NextToken();
+      if (token == ':' || token == '{' || token == tk_proc || token == tk_begin)
+        NextToken();
+    }
+    return (true);
+  }
+  // Size specification?
+  else if (token == '[') {
+    SkipSpaces();
+    sym->size = expr();
+    if (token == ',') {
+      NextToken();
+      sym->alignment = expr();
+    }
+    if (token == ']')
+      NextToken();
+    if (token == ':')
+      NextToken();
+    return (true);
+  }
+  return (false);
+}
+
 // ----------------------------------------------------------------------------
 // label:
 // ----------------------------------------------------------------------------
@@ -1972,6 +2027,7 @@ void process_label()
   Int128 val;
   int isEquate;
   int shft = 0;
+  bool bNewsym = false;
 
 	val.low = 0;
 	val.high = 0;
@@ -2022,38 +2078,15 @@ void process_label()
 	if (strcmp("end_init_data", nm)==0)
     isInitializationData = 0;
   // Skip over ':' or begin
-  if (token == tk_proc) {
-    SkipSpaces();
-    sym->isFunc = true;
-    NextToken();
-    if (token == ':' || token == '{' || token == tk_begin)
-      NextToken();
+  if (sym == nullptr) {
+    sym = new_symbol(nm);
+    bNewsym = true;
   }
-  else if (token == '(') {
-    SkipSpaces();
+  if (!SetFunc(sym)) {
     NextToken();
-    if (token == ')') {
-      sym->isFunc = true;
-      NextToken();
-      if (token == ':' || token=='{' || token == tk_proc || token == tk_begin)
-        NextToken();
-    }
+    token;
+    SetFunc(sym);
   }
-  // Size specification?
-  else if (token == '[') {
-    SkipSpaces();
-    sym->size = expr();
-    if (token == ',') {
-      NextToken();
-      sym->alignment = expr();
-    }
-    if (token == ']')
-      NextToken();
-    if (token == ':')
-      NextToken();
-  }
-  else
-    NextToken();
 //    SkipSpaces();
   if (token==tk_equ || token==tk_eq) {
     NextToken();
@@ -2072,7 +2105,7 @@ void process_label()
     return;
 //  sym = find_symbol(nm);
   if (pass==4 || pass==3) {
-    if (sym) {
+    if (!bNewsym) {
       if (sym->isDefined) {
         //if (!Int128::IsEqual(&sym->value, &val)) {
         //    printf("Label %s already defined %ld vs %ld.\r\n", nm, sym->value.low, val.low);
@@ -2100,7 +2133,7 @@ void process_label()
       }
     }
     else {
-      sym = new_symbol(nm);    
+//      sym = new_symbol(nm);    
       sym->isDefined = 1;
       if (isEquate) {
         sym->value = val;
@@ -2255,18 +2288,23 @@ void processSegments()
     else if ((_strnicmp(inptr,"code",4)==0) && !isIdentChar(inptr[4])) {
       segment = codeseg;
 			setname = true;
+      pinptr = &inptr[4];
     }
     else if ((_strnicmp(inptr,"data",4)==0) && !isIdentChar(inptr[4])) {
         segment = dataseg;
+        pinptr = &inptr[4];
     }
     else if ((_strnicmp(inptr,"rodata",6)==0) && !isIdentChar(inptr[6])) {
         segment = rodataseg;
+        pinptr = &inptr[6];
     }
     else if ((_strnicmp(inptr,"tls",3)==0) && !isIdentChar(inptr[3])) {
         segment = tlsseg;
+        pinptr = &inptr[3];
     }
     else if ((_strnicmp(inptr,"bss",3)==0) && !isIdentChar(inptr[3])) {
         segment = bssseg;
+        pinptr = &inptr[3];
     }
 j1:
     ScanToEOL();

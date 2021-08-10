@@ -30,6 +30,7 @@ extern int pass;
 extern bool keepUnreferenced;
 int numsym = 0;
 SYM* current_symbol;
+NameTable gfnTable(100000);
 
 void ShellSort(void *, int, int, int (*)());   // Does a shellsort - like bsort()
 SHashVal HashFnc(void *def);
@@ -70,6 +71,16 @@ int ncmp (char *m1, const void *m2)
 	//if (m1==NULL) return 1;
 	//if (n2->name==NULL) return -1;
   return (strcmp(m1, &nmTable.nametext[n2->name]));
+}
+
+int libcmp(const void* m1, const void* m2)
+{
+  SYM* n1; SYM* n2;
+  n1 = (SYM*)m1;
+  n2 = (SYM*)m2;
+  if (n1->libcallno < n2->libcallno) return -1;
+  if (n1->libcallno > n2->libcallno) return 1;
+  return (0);
 }
 
 void SymbolInit()
@@ -209,6 +220,7 @@ SYM *new_symbol(char *name)
     //printf("%s: added\r\n", name);
   }
   ts.name = nmTable.AddName(name);
+  ts.gfnName = 0;
 //     strncpy(syms[numsym].name, name, sizeof(syms[numsym].name)/sizeof(char)-1);
 //     syms[numsym].name[199] = '\0';
 //	ts.value.low = 0x8000000000000000LL | numsym;
@@ -289,4 +301,64 @@ void DumpSymbols()
 				fprintf(ofp, "\n");
 			}
 		}
+}
+
+void DumpLibcallTable()
+{
+  int nn, ii, blnk, kk;
+  SYM* dp, * pt;
+
+  pt = (SYM*)HashInfo.table;
+
+  // Pack any 'holes' in the table
+  ii = PackSymbols(HashInfo.size);
+  if (!keepUnreferenced)
+    RemoveUnreferenced(ii);
+  ii = PackSymbols(ii);
+
+  // Sort the table
+  qsort(pt, ii, sizeof(SYM), libcmp);
+
+  for (kk = nn = 0; nn < ii; nn++) {
+    dp = &pt[nn];
+    if (dp->name && dp->isFunc && dp->isGlobal && dp->isLibcall) {
+      for (; kk < dp->libcallno; kk++)
+        emitWyde(0);
+      emitWyde(dp->value.low >> 5);
+    }
+  }
+}
+
+void DumpSymtab()
+{
+  int nn, ii, blnk, kk, nm;
+  SYM* dp, * pt;
+
+  pt = (SYM*)HashInfo.table;
+  ii = HashInfo.size;
+
+  for (kk = nn = 0; nn < ii; nn++) {
+    dp = &pt[nn];
+    if (dp->name && dp->isGlobal && dp->isFunc) {
+      kk++;
+    }
+  }
+  emitWyde(kk);
+  for (nn = 0; nn < ii; nn++) {
+    dp = &pt[nn];
+    if (dp->name && dp->isGlobal && dp->isFunc) {
+      if (dp->gfnName == 0) {
+        nm = gfnTable.AddName(nmTable.GetName(dp->name));
+        dp->gfnName = nm;
+      }
+      else
+        nm = dp->gfnName;
+      emitWyde(nm);
+      emitWyde(dp->value.low >> 5);
+    }
+  }
+  emitWyde(0);
+  emitWyde(0);
+  for (nn = 0; nn < gfnTable.length; nn++)
+    emitByte(gfnTable.nametext[nn]);
 }

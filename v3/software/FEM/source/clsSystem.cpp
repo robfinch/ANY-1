@@ -23,10 +23,11 @@ void clsSystem::Reset()
 	cpu1.system1 = this;
 	refscreen = true;
 };
-	unsigned int clsSystem::Read(unsigned int ad, int sr) {
+	unsigned int clsSystem::Read(uint64_t adin, int sr) {
 		int rr;
 		unsigned __int8 sc;
 		unsigned __int8 st;
+		unsigned int ad = cpu1.tlb.Map(cpu1.asid,adin);
 		if (sr) {
 			if (radr1 == 0)
 				radr1 = ad;
@@ -70,10 +71,11 @@ void clsSystem::Reset()
 		}
 		return 0;
 	};
-	int clsSystem::Write(unsigned int ad, unsigned int dat, unsigned int mask, int cr) {
+	int clsSystem::Write(uint64_t adin, unsigned int dat, unsigned int mask, int cr) {
 		int nn;
 		int ret;
 
+		unsigned int ad = cpu1.tlb.Map(cpu1.asid,adin);
 		if (cr && (ad!=radr1 && ad!=radr2)) {
 			ret = false;
 			goto j1;
@@ -191,7 +193,7 @@ j1:
 		}
 		return ret;
 	};
-	int clsSystem::WriteByte(unsigned int ad, unsigned int dat, int cr) {
+	int clsSystem::WriteByte(uint64_t ad, unsigned int dat, int cr) {
 		unsigned int mask;
 		unsigned int dt = dat << ((ad & 3) << 3);
 		switch (ad & 3) {
@@ -202,7 +204,7 @@ j1:
 		}
 		return (Write(ad & 0xFFFFFFFCL, dt, mask, cr));
 	};
-	int clsSystem::WriteWyde(unsigned int ad, unsigned int dat, int cr) {
+	int clsSystem::WriteWyde(uint64_t ad, unsigned int dat, int cr) {
 		unsigned int mask;
 		unsigned int dt = dat << ((ad & 3) << 3);
 		int rv;
@@ -217,7 +219,7 @@ j1:
 			rv = rv & Write((ad + 4) & 0xFFFFFFFCL, dat >> 8, 1, cr);
 		return (rv);
 	};
-	int clsSystem::WriteTetra(unsigned int ad, unsigned int dat, int cr) {
+	int clsSystem::WriteTetra(uint64_t ad, unsigned int dat, int cr) {
 		unsigned int mask;
 		unsigned int dt = dat << ((ad & 3) << 3);
 		int rv;
@@ -239,7 +241,7 @@ j1:
 		}
 		return (rv);
 	};
-	int clsSystem::WriteOcta(unsigned int ad, uint64_t dat, int cr) {
+	int clsSystem::WriteOcta(uint64_t ad, uint64_t dat, int cr) {
 		unsigned int mask;
 		int rv;
 		uint64_t dt = dat << (((uint64_t)ad & 3LL) << 3LL);
@@ -263,11 +265,12 @@ j1:
 		}
 		return (rv);
 	};
-	uint64_t clsSystem::IFetch(uint64_t ip) {
+	uint64_t clsSystem::IFetch(uint64_t ipin) {
 		int rr;
 		unsigned __int8 sc;
 		unsigned __int8 st;
 		uint64_t rv;
+		uint64_t ip = (cpu1.tlb.Map(cpu1.asid,ipin>>1LL) << 1LL) | (ipin & 1LL);
 		if (ip < 134217728 * 2) {
 			rv = memory[ip >> 3];
 			rv = rv | ((uint64_t)(memory[(ip >> 3) + 1]) << 32LL);

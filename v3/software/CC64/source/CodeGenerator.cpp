@@ -1218,12 +1218,12 @@ void CodeGenerator::GenerateLoadConst(Operand *ap1, Operand *ap2)
 		ap3 = ap1->Clone();
 		ap3->mode = am_direct;
 		GenerateDiadic(cpu.lea_op, 0, ap2, ap3);
-		if (!compiler.os_code) {
-			switch (ap1->segment) {
-			case tlsseg:		GenerateTriadic(op_base, 0, ap2, ap2, MakeImmediate(8));	break;
-			case rodataseg:	GenerateTriadic(op_base, 0, ap2, ap2, MakeImmediate(12));	break;
-			}
-		}
+		//if (!compiler.os_code) {
+		//	switch (ap1->segment) {
+		//	case tlsseg:		GenerateTriadic(op_base, 0, ap2, ap2, MakeImmediate(8));	break;
+		//	case rodataseg:	GenerateTriadic(op_base, 0, ap2, ap2, MakeImmediate(12));	break;
+		//	}
+		//}
 	}
 	else {
 		//if (ap2->mode == am_fpreg) {
@@ -1667,8 +1667,8 @@ Operand *CodeGenerator::GenAutocon(ENODE *node, int flags, int64_t size, TYP* ty
 	ap1->typep = typ;
 	ap1->tp = node->tp;
 	GenerateDiadic(cpu.lea_op,0,ap1,ap2);
-	if (!compiler.os_code)
-		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(10));
+	//if (!compiler.os_code)
+	//	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(10));
 	ap1->MakeLegal(flags,size);
 	return (ap1);             /* return reg */
 }
@@ -1742,12 +1742,12 @@ Operand* CodeGenerator::GenLabelcon(ENODE* node, int flags, int64_t size)
 		}
 		ap2->offset = node;     // use as constant node
 		GenerateDiadic(cpu.lea_op, 0, ap1, ap2);
-		if (!compiler.os_code) {
-			switch (node->segment) {
-			case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
-			case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
-			}
-		}
+		//if (!compiler.os_code) {
+		//	switch (node->segment) {
+		//	case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
+		//	case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
+		//	}
+		//}
 		ap1->MakeLegal(flags, size);
 		return (ap1);
 	}
@@ -1848,12 +1848,12 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size,
 			if (node)
 				DataLabels[node->i] = true;
       GenerateDiadic(cpu.lea_op,0,ap1,ap2);
-			if (!compiler.os_code) {
-				switch (node->segment) {
-				case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
-				case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
-				}
-			}
+			//if (!compiler.os_code) {
+			//	switch (node->segment) {
+			//	case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
+			//	case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
+			//	}
+			//}
 			ap1->MakeLegal(flags,size);
 			Leave("GenExpression",6); 
 			goto retpt;
@@ -2372,23 +2372,23 @@ Operand *CodeGenerator::GenerateExpression(ENODE *node, int flags, int64_t size,
 		}
 		else
 			GenerateDiadic(cpu.lea_op, 0, ap1, MakeDataLabel(node->i, regZero));
-		if (!compiler.os_code) {
-			switch (node->segment) {
-			case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
-			case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
-			}
-		}
+		//if (!compiler.os_code) {
+		//	switch (node->segment) {
+		//	case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
+		//	case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
+		//	}
+		//}
 		ap1->isPtr = true;
 		goto retpt;
 	case en_object_list:
 		ap1 = GetTempRegister();
 		GenerateDiadic(cpu.lea_op,0,ap1,MakeIndexed(-8,regFP));
-		if (!compiler.os_code) {
-			switch (node->segment) {
-			case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
-			case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
-			}
-		}
+		//if (!compiler.os_code) {
+		//	switch (node->segment) {
+		//	case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
+		//	case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
+		//	}
+		//}
 		goto retpt;
 	default:
     printf("DIAG - uncoded node (%d) in GenerateExpression.\n", node->nodetype);
@@ -2729,12 +2729,12 @@ Operand* CodeGenerator::GenerateTrinary(ENODE* node, int flags, int size, int op
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
 						else if (ap2->isPtr) {
 							GenerateDiadic(cpu.lea_op, 0, ap3, op == op_sub ? compiler.of.MakeNegIndexed(ap2->offset, ap1->preg) : MakeIndexed(ap2->offset, ap1->preg));
-							if (!compiler.os_code) {
-								switch (ap3->segment) {
-								case tlsseg:		GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(8));	break;
-								case rodataseg:	GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(12));	break;
-								}
-							}
+							//if (!compiler.os_code) {
+							//	switch (ap3->segment) {
+							//	case tlsseg:		GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(8));	break;
+							//	case rodataseg:	GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(12));	break;
+							//	}
+							//}
 						}
 						else
 							GenerateTriadic(op, 0, ap3, ap1, ap2);

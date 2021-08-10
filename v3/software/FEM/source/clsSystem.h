@@ -26,12 +26,12 @@ public:
 
 	clsSystem();
 	void Reset();
-	unsigned int Read(unsigned int ad, int sr=0);
-	int Write(unsigned int ad, unsigned int dat, unsigned int mask, int cr=0);
-	int WriteByte(unsigned int ad, unsigned int dat, int cr = 0);
-	int WriteWyde(unsigned int ad, unsigned int dat, int cr = 0);
-	int WriteTetra(unsigned int ad, unsigned int dat, int cr = 0);
-	int WriteOcta(unsigned int ad, uint64_t dat, int cr = 0);
+	unsigned int Read(uint64_t ad, int sr=0);
+	int Write(uint64_t ad, unsigned int dat, unsigned int mask, int cr=0);
+	int WriteByte(uint64_t ad, unsigned int dat, int cr = 0);
+	int WriteWyde(uint64_t ad, unsigned int dat, int cr = 0);
+	int WriteTetra(uint64_t ad, unsigned int dat, int cr = 0);
+	int WriteOcta(uint64_t ad, uint64_t dat, int cr = 0);
 	uint64_t IFetch(uint64_t ad);
  	int random();
 };

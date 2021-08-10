@@ -341,13 +341,16 @@ void getString()
 static char *pseudos[] = {
     "align", "code", "data", "tls", "rodata", "file",
 		"fill", "org", "byte", "message", "global", "end",
-		"section", "endp", "endproc", "proc",
+		"section", "endp", "endproc", "proc", "symtab",
+		"libcall_table",
 		(char *)NULL
 };
 static int pseudoTokens[] = {
     tk_align, tk_code, tk_data, tk_tls, tk_rodata, tk_file,
     tk_fill, tk_org, tk_db, tk_message, tk_global, tk_end,
-		tk_section, tk_endproc, tk_endproc, tk_proc, tk_none
+		tk_section, tk_endproc, tk_endproc, tk_proc, tk_symtab,
+		tk_libcall_table,
+		tk_none
 };
 
 int isPseudoOp()
@@ -365,7 +368,7 @@ int isPseudoOp()
     nn++;
   }
   buf[nn] = '\0';
-  for (nn = 0; nn < 16; nn++) {
+  for (nn = 0; nn < 18; nn++) {
     if (strcmp(buf, pseudos[nn])==0) {
       //inptr = p;
       //token = pseudoTokens[nn];
@@ -390,7 +393,7 @@ int NextToken()
 
 	if (gCpu == RTF64)
 		return (rtf64_NextToken());
-	else if (gCpu == ANY1)
+	else if (gCpu == ANY1 || gCpu==ANY1V3)
 		return (any1_NextToken());
 	token2 = tk_nop;
 	// Under construction: tokens are stored in a buffer

@@ -79,12 +79,12 @@ void ANY1CodeGenerator::GenerateLea(Operand* ap1, Operand* ap2)
 		break;
 	default:
 		GenerateDiadic(cpu.lea_op, 0, ap1, ap2);
-		if (!compiler.os_code) {
-			switch (ap1->segment) {
-			case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
-			case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
-			}
-		}
+		//if (!compiler.os_code) {
+		//	switch (ap1->segment) {
+		//	case tlsseg:		GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(8));	break;
+		//	case rodataseg:	GenerateTriadic(op_base, 0, ap1, ap1, MakeImmediate(12));	break;
+		//	}
+		//}
 	}
 }
 

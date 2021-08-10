@@ -14,7 +14,7 @@ std::string Ra()
 {
 	char buf[40];
 	std::string str;
-	str = "x" + std::string(_itoa((insn >> 14LL) & 0x1fLL,buf,10));
+	str = "$x" + std::string(_itoa((insn >> 14LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -28,7 +28,7 @@ std::string Rb()
 	if (Rb & 0x40)
 		str = "#" + std::string(_itoa(Rb & 0x3f, buf, 16));
 	else
-		str = "x" + std::string(_itoa(Rb & 0x1f,buf,10));
+		str = "$x" + std::string(_itoa(Rb & 0x1f,buf,10));
 	return str;
 }
 
@@ -42,7 +42,7 @@ std::string Bb()
 	if (Rb & 0x40)
 		str = "#" + std::string(_itoa(Rb & 0x3f, buf, 16));
 	else
-		str = "b" + std::string(_itoa(Rb & 0x1f, buf, 10));
+		str = "$b" + std::string(_itoa(Rb & 0x1f, buf, 10));
 	return str;
 }
 
@@ -50,7 +50,7 @@ std::string Rc()
 {
 	char buf[40];
 	std::string str;
-	str = "x" + std::string(_itoa((insn >> 16) & 0x1f,buf,10));
+	str = "$x" + std::string(_itoa((insn >> 16) & 0x1f,buf,10));
 	return str;
 }
 
@@ -59,9 +59,9 @@ std::string Rt()
 	char buf[40];
 	std::string str;
 	if ((insn & 0x7fLL)==IJAL || (insn & 0x7fLL)==IBAL)
-		str = "x" + std::string(_itoa((insn >> 8LL) & 0x3LL, buf, 10));
+		str = "$x" + std::string(_itoa((insn >> 8LL) & 0x3LL, buf, 10));
 	else
-		str = "x" + std::string(_itoa((insn >> 8LL) & 0x1fLL,buf,10));
+		str = "$x" + std::string(_itoa((insn >> 8LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -69,7 +69,7 @@ std::string Rt4()
 {
 	char buf[40];
 	std::string str;
-	str = "x" + std::string(_itoa(((insn >> 12) & 0xf)|((insn & 1) << 4),buf,10));
+	str = "$x" + std::string(_itoa(((insn >> 12) & 0xf)|((insn & 1) << 4),buf,10));
 	return str;
 }
 
@@ -77,7 +77,7 @@ std::string FPa()
 {
 	char buf[40];
 	std::string str;
-	str = "FP" + std::string(_itoa((insn >> 14LL) & 0x1fLL,buf,10));
+	str = "$FP" + std::string(_itoa((insn >> 14LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -85,7 +85,7 @@ std::string FPb()
 {
 	char buf[40];
 	std::string str;
-	str = "FP" + std::string(_itoa((insn >> 20LL) & 0x1fLL,buf,10));
+	str = "$FP" + std::string(_itoa((insn >> 20LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -93,7 +93,7 @@ std::string FPt()
 {
 	char buf[40];
 	std::string str;
-	str = "FP" + std::string(_itoa((insn >> 8LL) & 0x1fLL,buf,10));
+	str = "$FP" + std::string(_itoa((insn >> 8LL) & 0x1fLL,buf,10));
 	return str;
 }
 
@@ -101,7 +101,7 @@ std::string Bn()
 {
 	char buf[40];
 	std::string str;
-	str = "B" + std::string(_itoa((insn >> 11) & 0x3f,buf,10));
+	str = "$B" + std::string(_itoa((insn >> 11) & 0x3f,buf,10));
 	return str;
 }
 
@@ -525,7 +525,10 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		sprintf(buf, "#$%I64X", (insn >> 8LL));
 		str = "EXI1   " + std::string(buf); return (str);
 		break;
-	case IREGLST:
+	case IREGLST0:
+	case IREGLST1:
+	case IREGLST2:
+	case IREGLST3:
 		sprintf(buf, "REGLST #$%I64X", (insn & 3LL) | ((insn >> 8LL) << 2LL));
 		return (std::string(buf));
 	case ILDx:
@@ -535,6 +538,7 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		case 2:	str = "LDT    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 3:	str = "LDO    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 13:	str = "LDM    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 14:	str = "LEA    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		}
 		break;
 	case ILDxZ:
@@ -543,6 +547,7 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		case 1:	str = "LDWU   " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 2:	str = "LDTU   " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		case 3:	str = "LDOU   " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
+		case 14:	str = "LEA    " + Rt() + ", " + DisassemMemAddress(); immcnt = 0; return (str);
 		}
 		break;
 	case ILDxX:
@@ -551,6 +556,8 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		case 1:	str = "LDWX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
 		case 2:	str = "LDTX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
 		case 3:	str = "LDOX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 13:	str = "LDMX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 14:	str = "LEAX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
 		}
 		break;
 	case ILDxXZ:
@@ -768,10 +775,22 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 			str = "SYNC   ";
 			return (str);
 		case IMTBASE:
-			str = "MTBASE " + Bb() + "," + Ra();
+			str = "MTBASE [" + Rb() + "]," + Ra();
+			return (str);
+		case IMFBASE:
+			str = "MFBASE " + Rt() + ",[" + Rb() + "]";
+			return (str);
+		case IMTBND:
+			str = "MTBBND  [" + Rb() + "]," + Ra();
+			return (str);
+		case IMFBND:
+			str = "MFBBND  " + Rt() + ",[" + Rb() + "]";
 			return (str);
 		case IBASE:
 			str = "BASE   " + Rt() + "," + Ra() + "," + Rb();
+			return (str);
+		case ITLBRW:
+			str = "TLBRW  " + Rt() + "," + Ra() + "," + Rb();
 			return (str);
 		}
 		break;

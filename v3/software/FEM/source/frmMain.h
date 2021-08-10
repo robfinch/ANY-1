@@ -2501,6 +2501,7 @@ private: void LoadIntelHexFile() {
 			 std::string str_ad_insn;
 			 std::string str_disassem;
 			 unsigned int ad;
+			 uint64_t ad64;
 			 unsigned int dat;
 			 unsigned int firstAdr;
 			 char buf2[40];
@@ -2538,7 +2539,8 @@ private: void LoadIntelHexFile() {
 				}
 				if (!firstAdr)
 					firstAdr = ad;
-				system1.Write(ad,dat,0xffffffff);
+				ad64 = ad;
+				system1.Write(ad64,dat,0xffffffff);
 				//	case IBcc0:
 //system1.memory[ad>>2] = dat;
 				//sprintf(buf2,"%06X", ad);

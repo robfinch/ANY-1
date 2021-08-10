@@ -1778,12 +1778,12 @@ Operand *ENODE::GenerateBinary(int flags, int size, int op)
 							GenerateTriadic(op, 0, ap3, ap1, ap2);
 						else if (ap2->isPtr) {
 							GenerateDiadic(cpu.lea_op, 0, ap3, op == op_sub ? compiler.of.MakeNegIndexed(ap2->offset, ap1->preg) : MakeIndexed(ap2->offset, ap1->preg));
-							if (!compiler.os_code) {
-								switch (ap3->segment) {
-								case tlsseg:		GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(8));	break;
-								case rodataseg:	GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(12));	break;
-								}
-							}
+							//if (!compiler.os_code) {
+							//	switch (ap3->segment) {
+							//	case tlsseg:		GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(8));	break;
+							//	case rodataseg:	GenerateTriadic(op_base, 0, ap3, ap3, MakeImmediate(12));	break;
+							//	}
+							//}
 						}
 						else {
 							GenerateTriadic(op, 0, ap3, ap1, ap2);

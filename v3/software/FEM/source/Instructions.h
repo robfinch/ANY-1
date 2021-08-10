@@ -6,11 +6,6 @@
 #define IR1			0x01
 #define IMEMDB			0x10
 #define IMEMSB			0x11
-#define IOSR2		0x07
-#define ISYNC		0x1F
-#define IBASE		0x26
-#define IMFBASE	0x28
-#define IMTBASE	0x29
 #define IBTFLD	0x22
 #define IBFSET			0x0
 #define IBFCLR			0x1
@@ -33,7 +28,7 @@
 #define IADDI		0x04
 #define ISUBFI	0x05
 #define IMULI		0x06
-
+#define IOSR2		0x07
 #define IANDI   0x08
 #define IORI    0x09
 #define IXORI   0x0A
@@ -135,7 +130,10 @@
 #define EXI2		0x52
 #define EXI3		0x53
 #define EXI4		0x54
-#define IREGLST	0x5F
+#define IREGLST0	0x5C
+#define IREGLST1	0x5D
+#define IREGLST2	0x5E
+#define IREGLST3	0x5F
 
 #define ILDx		0x60
 #define ILDxX		0x61
@@ -146,3 +144,11 @@
 #define ISTxX		0x69
 #define IPUSH		0x6F
 
+// OSR2
+#define ITLBRW	0x1E
+#define ISYNC		0x1F
+#define IBASE		0x26
+#define IMFBASE	0x28
+#define IMTBASE	0x29
+#define IMFBND	0x2A
+#define IMTBND	0x2B

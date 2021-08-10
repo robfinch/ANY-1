@@ -48,6 +48,7 @@ namespace E64 {
 	protected: 
 	private: System::Windows::Forms::Label^  label1;
 	private: System::Windows::Forms::TextBox^  textBoxMem;
+	private: System::Windows::Forms::Button^ button1;
 
 	private:
 		/// <summary>
@@ -65,6 +66,7 @@ namespace E64 {
 			this->textBoxAddr = (gcnew System::Windows::Forms::TextBox());
 			this->label1 = (gcnew System::Windows::Forms::Label());
 			this->textBoxMem = (gcnew System::Windows::Forms::TextBox());
+			this->button1 = (gcnew System::Windows::Forms::Button());
 			this->SuspendLayout();
 			// 
 			// textBoxAddr
@@ -86,47 +88,90 @@ namespace E64 {
 			// 
 			// textBoxMem
 			// 
-			this->textBoxMem->Enabled = false;
-			this->textBoxMem->Font = (gcnew System::Drawing::Font(L"Lucida Console", 8.25F, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point, 
+			this->textBoxMem->Font = (gcnew System::Drawing::Font(L"Lucida Console", 8.25F, System::Drawing::FontStyle::Regular, System::Drawing::GraphicsUnit::Point,
 				static_cast<System::Byte>(0)));
 			this->textBoxMem->Location = System::Drawing::Point(27, 44);
 			this->textBoxMem->Multiline = true;
 			this->textBoxMem->Name = L"textBoxMem";
+			this->textBoxMem->ScrollBars = System::Windows::Forms::ScrollBars::Vertical;
 			this->textBoxMem->Size = System::Drawing::Size(561, 353);
 			this->textBoxMem->TabIndex = 2;
+			// 
+			// button1
+			// 
+			this->button1->Location = System::Drawing::Point(204, 15);
+			this->button1->Name = L"button1";
+			this->button1->Size = System::Drawing::Size(75, 23);
+			this->button1->TabIndex = 3;
+			this->button1->Text = L"Dump TLB";
+			this->button1->UseVisualStyleBackColor = true;
+			this->button1->Click += gcnew System::EventHandler(this, &frmMemory::button1_Click);
 			// 
 			// frmMemory
 			// 
 			this->AutoScaleDimensions = System::Drawing::SizeF(6, 13);
 			this->AutoScaleMode = System::Windows::Forms::AutoScaleMode::Font;
 			this->ClientSize = System::Drawing::Size(614, 409);
+			this->Controls->Add(this->button1);
 			this->Controls->Add(this->textBoxMem);
 			this->Controls->Add(this->label1);
 			this->Controls->Add(this->textBoxAddr);
 			this->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 			this->Name = L"frmMemory";
-			this->Text = L"E64 Memory";
+			this->Text = L"FSIM Memory";
 			this->ResumeLayout(false);
 			this->PerformLayout();
 
 		}
 #pragma endregion
 	private: System::Void textBox1_TextChanged(System::Object^  sender, System::EventArgs^  e) {
-				 int nn;
+				 uint64_t nn;
         		char* str = (char*)(void*)Marshal::StringToHGlobalAnsi(this->textBoxAddr->Text);
 				std::string str2;
 				char buf[50];
 
 				str2 = "";
-				 for (nn = strtoul(str,NULL,16); nn < strtoul(str,NULL,16) + 512; nn++) {
-					 if ((nn % 16)==0) {
-						 sprintf(buf, "\r\n%06X ", nn);
+				 for (nn = strtoull(str,NULL,16); nn < strtoull(str,NULL,16) + 512; nn++) {
+					 if ((nn % 16LL)==0) {
+						 sprintf(buf, "\r\n%06I64X ", nn);
 						 str2 += buf;
 					 }
-					 sprintf(buf, "%02X ", (system1.Read(nn) >> ((nn & 3)<<3)) & 0xFF);
+					 sprintf(buf, "%02X ", (system1.Read(nn) >> ((nn & 3LL)<<3LL)) & 0xFFLL);
 					 str2 += buf;
 				 }
 				 this->textBoxMem->Text = gcnew String(str2.c_str());
 			 }
-	};
+	private: System::Void button1_Click(System::Object^ sender, System::EventArgs^ e) {
+		char buf[100];
+		std::string str;
+		int way;
+		int entryno;
+
+		str = "";
+		for (way = 0; way < 4; way++) {
+			sprintf_s(buf, sizeof(buf), "Way Entry ASID G D A U CRWX  VPN  PPN   \r\n");
+			str += buf;
+			str += "-----------------------------------------------\r\n";
+			for (entryno = 0; entryno < 1024; entryno++) {
+				sprintf_s(buf, sizeof(buf), " %d  %04d  %04X %c %c %c %c %c%c%c%c %04X %05X\r\n",
+					way, entryno,
+					cpu1.tlb.entries[way][entryno].ASID,
+					cpu1.tlb.entries[way][entryno].G ? 'G' : ' ',
+					cpu1.tlb.entries[way][entryno].D ? 'D' : ' ',
+					cpu1.tlb.entries[way][entryno].A ? 'A' : ' ',
+					cpu1.tlb.entries[way][entryno].U ? 'U' : ' ',
+					cpu1.tlb.entries[way][entryno].C ? 'C' : ' ',
+					cpu1.tlb.entries[way][entryno].R ? 'R' : ' ',
+					cpu1.tlb.entries[way][entryno].W ? 'W' : ' ',
+					cpu1.tlb.entries[way][entryno].X ? 'X' : ' ',
+					cpu1.tlb.entries[way][entryno].vpn,
+					cpu1.tlb.entries[way][entryno].ppn
+				);
+				str += buf;
+			}
+			str += "\r\n";
+		}
+		this->textBoxMem->Text = gcnew String(str.c_str());
+	}
+};
 }

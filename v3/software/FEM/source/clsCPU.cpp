@@ -16,13 +16,15 @@ void clsCPU::Reset()
 		for (nn = 0; nn < 64; nn++)
 			regs[0][nn] = 0;
 		rgs = 0;
-		sregs[15] = 0xFFFFFFFFFFFC0007LL;
+		sregs[7] = 0xFFFFFFFFFFFC0007LL;
 		pc = 0x0600LL;
 		vbr = 0;
 		tick = 0;
 		rvecno = 0;
 		regLR = 1;
 		exi = false;
+		asid = 0;
+		tlb.Reset();
 	};
 	void clsCPU::BuildConstant() {
 		sir = ir;
@@ -32,7 +34,7 @@ void clsCPU::Reset()
 	};
 	void clsCPU::Step()
 	{
-		unsigned int ad, opc;
+		unsigned int opc;
 		unsigned __int64 irx, iry, irz;
 		unsigned int lsfunc;
 		int nn;
@@ -45,7 +47,8 @@ void clsCPU::Reset()
 		bool isCompressed;
 		bool isUnsignedOp;
 		uint64_t rv,rv2;
-		uint64_t csip = ((sregs[15] & 0xFFFFFFF0LL) << 1LL) + pc;
+		uint64_t csip = ((sregs[7] & 0xFFFFFFF0LL) << 1LL) + pc;
+		uint64_t ad, ad_mapped;
 
 		if (imcd > 0) {
 			imcd--;
@@ -431,6 +434,7 @@ dc:
 			break;
 		case ILDxX:
 			ad = a + (b << sc);
+			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
 			switch (lsfunc) {
 			case 0:	// 8 bit load
 				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
@@ -471,6 +475,7 @@ dc:
 			break;
 		case ILDxXZ:
 			ad = a + (b << sc);
+			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
 			switch (lsfunc) {
 			case 0:	// 8 bit load
 				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
@@ -508,7 +513,7 @@ dc:
 			break;
 		case ILDx:
 			ad = a + imm;
-			ad = (ad & 0xfffffffLL) + (sregs[(ad >> 28LL) & 15LL] & -16LL);
+			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
 			switch (lsfunc) {
 			case 0:	// 8 bit load
 				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
@@ -549,7 +554,7 @@ dc:
 			break;
 		case ILDxZ:
 			ad = a + imm;
-			ad = (ad & 0xfffffffLL) + (sregs[(ad >> 28LL) & 15LL] & -16LL);
+			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
 			switch (lsfunc) {
 			case 0:	// 8 bit load
 				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
@@ -587,7 +592,7 @@ dc:
 			break;
 		case ISTx:
 			ad = a + imm;
-			ad = (ad & 0xfffffffLL) + (sregs[(ad >> 28LL) & 15LL] & -16LL);
+			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
 			switch (lsfunc) {
 			case 0:
 				system1->WriteByte(ad, b, 0);
@@ -605,6 +610,7 @@ dc:
 			break;
 		case ISTxX:
 			ad = a + (b << sc);
+			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
 			switch (lsfunc) {
 			case 0:
 				system1->WriteByte(ad, b, 0);
@@ -674,17 +680,33 @@ dc:
 		case IOSR2:
 			switch ((ir >> 29LL) & 0x7fLL) {
 			case IMTBASE:
-				sregs[BIT(ir,26) ? b & 15 : Rb & 15] = a;
+				sregs[b & 2047] = a;
 				Rt = 0;
 				break;
 			case IMFBASE:
-				res = sregs[Ra & 15];
+				res = sregs[b & 2047];
+				break;
+			case IMTBND:
+				bregs[b & 2047] = a;
+				Rt = 0;
+				break;
+			case IMFBND:
+				res = bregs[b & 2047];
 				break;
 			case IBASE:
-				mask = 0xffffffffffffffffLL >> (64LL - 28LL);
-				res = (a & mask) | (b << 28LL);
+				//mask = 0xffffffffffffffffLL >> (64LL - 28LL);
+				res = (b << 32LL);
+				break;
+			case ITLBRW:
+				res = tlb.ReadWrite(a, b);
 				break;
 			}
+			break;
+		case IREGLST0:
+		case IREGLST1:
+		case IREGLST2:
+		case IREGLST3:
+			reglist = (opcode & 3LL) | ((ir >> 8LL) << 2LL);
 			break;
 		default: break;
 		}

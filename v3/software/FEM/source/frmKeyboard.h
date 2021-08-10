@@ -1145,7 +1145,7 @@ private: System::Windows::Forms::Button^  buttonTab;
 			this->FormBorderStyle = System::Windows::Forms::FormBorderStyle::FixedDialog;
 			this->MaximizeBox = false;
 			this->Name = L"frmKeyboard";
-			this->Text = L"E64 Keyboard";
+			this->Text = L"FSIM Keyboard";
 			this->Load += gcnew System::EventHandler(this, &frmKeyboard::frmKeyboard_Load);
 			this->MouseUp += gcnew System::Windows::Forms::MouseEventHandler(this, &frmKeyboard::frmKeyboard_MouseUp);
 			this->ResumeLayout(false);

@@ -1182,12 +1182,20 @@ void Function::Generate()
 	if (!IsNocall)
 		SetupReturnBlock();
 	stmt->CheckReferences(&sp, &bp, &gp, &gp1);
-	if (gp != 0)
-		GenerateDiadic(cpu.lea_op, 0, makereg(regGP), MakeStringAsNameConst("__data_start", dataseg));
+	if (gp != 0) {
+		Operand* ap = GetTempRegister();
+		cg.GenerateLoadConst(MakeStringAsNameConst("#__data_base", dataseg), ap);
+		//GenerateDiadic(cpu.lea_op, 0, makereg(regGP), MakeStringAsNameConst("__data_start", dataseg));
+		GenerateTriadic(op_base, 0, makereg(regGP), makereg(regGP), ap);
+		ReleaseTempRegister(ap);
+	}
 	if (gp1 != 0) {
-		GenerateDiadic(cpu.lea_op, 0, makereg(regGP1), MakeStringAsNameConst("__rodata_start", dataseg));
-		if (!compiler.os_code)
-			GenerateTriadic(op_base, 0, makereg(regGP1), makereg(regGP1), MakeImmediate(12));
+		Operand* ap = GetTempRegister();
+		cg.GenerateLoadConst(MakeStringAsNameConst("#__rodata_base", dataseg), ap);
+		//GenerateDiadic(cpu.lea_op, 0, makereg(regGP1), MakeStringAsNameConst("__rodata_start", dataseg));
+		//if (!compiler.os_code)
+		GenerateTriadic(op_base, 0, makereg(regGP1), makereg(regGP1), ap);
+		ReleaseTempRegister(ap);
 	}
 	if (!IsInline)
 		GenerateMonadic(op_hint, 0, MakeImmediate(start_funcbody));

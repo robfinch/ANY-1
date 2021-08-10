@@ -1340,14 +1340,14 @@ int any1_NextToken()
 								return token = tk_data;
             }
 						// Not sure why dcb is defined as a fill here.
-						if (gCpu != NVIO && gCpu != RTF64) {
-							if ((inptr[1] == 'c' || inptr[1] == 'C') && (inptr[2] == 'b' || inptr[2] == 'B') && (isspaceOrDot(inptr[3]) || inptr[3] == '.')) {
-								inptr += 3;
-								tokenBuffer[tbndx] = tk_fill;
-								tbndx++;
-								return token = tk_fill;
-							}
-						}
+						//if (gCpu != NVIO && gCpu != RTF64) {
+						//	if ((inptr[1] == 'c' || inptr[1] == 'C') && (inptr[2] == 'b' || inptr[2] == 'B') && (isspaceOrDot(inptr[3]) || inptr[3] == '.')) {
+						//		inptr += 3;
+						//		tokenBuffer[tbndx] = tk_fill;
+						//		tbndx++;
+						//		return token = tk_fill;
+						//	}
+						//}
              if ((inptr[1]=='h' || inptr[1]=='H') &&
                  (inptr[2]=='_' || inptr[2]=='_') &&
                  (inptr[3]=='h' || inptr[3]=='H') &&
@@ -2414,7 +2414,25 @@ int any1_NextToken()
 						tbndx++;
 						return token = tk_llax;
 					}  
-          break;
+					if ((inptr[1] == 'i' || inptr[1] == 'I') &&
+						(inptr[2] == 'b' || inptr[2] == 'B') &&
+						(inptr[3] == 'c' || inptr[3] == 'C') &&
+						(inptr[4] == 'a' || inptr[4] == 'A') &&
+						(inptr[5] == 'l' || inptr[5] == 'L') &&
+						(inptr[6] == 'l' || inptr[6] == 'L') &&
+						(inptr[7] == '_' || inptr[7] == '_') &&
+						(inptr[8] == 't' || inptr[8] == 'T') &&
+						(inptr[9] == 'a' || inptr[9] == 'A') &&
+						(inptr[10] == 'b' || inptr[10] == 'B') &&
+						(inptr[11] == 'l' || inptr[11] == 'L') &&
+						(inptr[12] == 'e' || inptr[12] == 'E') &&
+						isspaceOrDot(inptr[13])) {
+						inptr += 13;
+						tokenBuffer[tbndx] = tk_libcall_table;
+						tbndx++;
+						return token = tk_libcall_table;
+					}
+					break;
 
         // max min mod modu modi modui mov mul muli mulu mului mtspr mfspr mtfp mffp message memdb memsb
         case 'm': case 'M':
@@ -2626,6 +2644,26 @@ int any1_NextToken()
 							tokenBuffer[tbndx] = tk_mtbase;
 							tbndx++;
 							return (token = tk_mtbase);
+						}
+						if ((inptr[1] == 'f' || inptr[1] == 'F') &&
+							(inptr[2] == 'b' || inptr[2] == 'B') &&
+							(inptr[3] == 'n' || inptr[3] == 'N') &&
+							(inptr[4] == 'd' || inptr[4] == 'D') &&
+							isspaceOrDot(inptr[5])) {
+							inptr += 5;
+							tokenBuffer[tbndx] = tk_mfbnd;
+							tbndx++;
+							return (token = tk_mfbnd);
+						}
+						if ((inptr[1] == 't' || inptr[1] == 'T') &&
+							(inptr[2] == 'b' || inptr[2] == 'B') &&
+							(inptr[3] == 'n' || inptr[3] == 'N') &&
+							(inptr[4] == 'd' || inptr[4] == 'D') &&
+							isspaceOrDot(inptr[5])) {
+							inptr += 5;
+							tokenBuffer[tbndx] = tk_mtbnd;
+							tbndx++;
+							return (token = tk_mtbnd);
 						}
 						if ((inptr[1] == 'v' || inptr[1] == 'V') &&
 							(inptr[2] == 's' || inptr[2] == 'S') &&
@@ -3535,6 +3573,17 @@ int any1_NextToken()
 				tbndx++;
 				return (token = tk_section);
 			}
+			if ((inptr[1] == 'y' || inptr[1] == 'Y') &&
+				(inptr[2] == 'm' || inptr[2] == 'M') &&
+				(inptr[3] == 't' || inptr[3] == 'T') &&
+				(inptr[4] == 'a' || inptr[4] == 'A') &&
+				(inptr[5] == 'b' || inptr[5] == 'B') &&
+				isspaceOrDot(inptr[6])) {
+				inptr += 6;
+				tokenBuffer[tbndx] = tk_symtab;
+				tbndx++;
+				return (token = tk_symtab);
+			}
 			break;
 
       // tgt to tlbdis tlben tlbpb tlbrd tlbrdreg tlbwi tlbwr tlbwrreg transform tst
@@ -3553,7 +3602,17 @@ int any1_NextToken()
 					tbndx++;
 					return token = tk_tst;
 				}
-			 if (gCpu==4 || gCpu=='F') {
+				if ((inptr[1] == 'l' || inptr[1] == 'L') &&
+					(inptr[2] == 'b' || inptr[2] == 'B') &&
+					(inptr[3] == 'r' || inptr[3] == 'R') &&
+					(inptr[4] == 'w' || inptr[4] == 'W') &&
+					isspaceOrDot(inptr[5])) {
+					inptr += 5;
+					tokenBuffer[tbndx] = tk_tlbrw;
+					tbndx++;
+					return (token = tk_tlbrw);
+				}
+				if (gCpu==4 || gCpu=='F') {
                  if ((inptr[1]=='l' || inptr[1]=='L') &&
                      (inptr[2]=='b' || inptr[2]=='B') &&
                      (inptr[3]=='d' || inptr[3]=='D') &&

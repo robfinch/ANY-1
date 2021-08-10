@@ -15,6 +15,8 @@ void process_dcw();
 void process_dco();
 void process_end();
 void process_section();
+void emitWyde(int64_t val);
+void emitTetra(int64_t val);
 // tokenizer
 void getnum();
 int my_isspace(char ch);
@@ -43,3 +45,6 @@ void emitBitPair(int64_t oc);
 void emitNybble(int64_t oc);
 
 int64_t expr_def(int64_t* def);
+// symbol.cpp
+void DumpLibcallTable();
+void DumpSymtab();

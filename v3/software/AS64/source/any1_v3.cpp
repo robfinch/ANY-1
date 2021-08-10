@@ -90,7 +90,9 @@
 #define I_LEAVE	0x500075E67	//  0100_0000_0000_0000_0111_0101_1110_0110_0111               0_0111_0101_1110_0011_1101
 #define I_AUIIP	0x3E
 
+#define I_TLBRW	0x3C0000007
 #define I_RTE		0x260000007
+
 #define I_BAND	0x44
 #define I_BOR		0x45
 #define I_BBC		0x4C
@@ -269,6 +271,8 @@
 #define I_BASE	0x26
 #define I_MFBASE	0x28
 #define I_MTBASE	0x29
+#define I_MFBND	0x2A
+#define I_MTBND	0x2B
 
 #define I_FCMP	0x10
 #define I_FSEQ	0x11
@@ -2432,7 +2436,7 @@ static void process_rrop()
 		emit_insn(((Rb) << 13LL) | ((Rt) << 8LL) | I_AND20, 5);
 		goto xit;
 	}
-	emit_insn(FUNC6(funct6) | RB(Rb) | RT(Rt) | RA(Ra) | I_R2);
+	emit_insn(FUNC6(funct6) | RB(Rb) | RT(Rt) | RA(Ra) | opcode);
 	xit:
 		prevToken();
 		ScanToEOL();
@@ -3117,15 +3121,17 @@ static void process_mvbase(int oc)
 	p = inptr;
 	SkipSpaces();
 	// MTBASE
-	if (oc == 0x29) {
-		if (inptr[0] == '[') {
+	if (oc == 0x29 || oc == 0x2B) {
+		NextToken();
+		if (token == '[') {
 			Rb = getRegisterX();
-			if (inptr[0] == ']')
+			if (token == ']')
 				any1_NextToken();
 		}
 		else
 			Rb = getRegisterX();
 		if (token == ',') {
+			any1_NextToken();
 			Ra = getRegisterX();
 		}
 	}
@@ -5478,7 +5484,10 @@ static void ProcessEOL(int opt)
 		if (segment == codeseg) {
 			cc = 9;
 		while (nn < sections[segment].index) {
-			fprintf(ofp, "%08I64X.%01X ", ca >> 1, bt_index * 2);
+			if (segment==codeseg)
+				fprintf(ofp, "%08I64X.%01X ", ca >> 1, bt_index * 2);
+			else
+				fprintf(ofp, "%08I64X ", ca);
 			for (mm = nk; nk < mm + cc && nn < sections[segment].index; nk += cc) {
 				nn = nk >> 1;
 				switch (nk & 1) {
@@ -5575,17 +5584,16 @@ static void ProcessEOL(int opt)
 //			nn = (int)nf;
 		}	// while
 		}
-		else {
+		else { // not code segment
 			caia = 0;
 			while (nn < sections[segment].index) {
-				fprintf(ofp, "%08I64X.%01X ", ca >> 1, bt_index * 2);
-				for (mm = nk; nk < mm + cc && nn < sections[segment].index;) {
-					nn = nk >> 1;
+				fprintf(ofp, "%08I64X ", ca);
+				for (mm = nn; nn < mm + cc && nn < sections[segment].index;) {
 					cai = sections[segment].index - nn;
 					if (cai > 10) cai = 10;
-					for (jj = 0; jj < (int)cai; jj++, nk += 2) {
+					for (jj = 0; jj < (int)cai; jj++) {
 						fprintf(ofp, "%02X ", sections[segment].bytes[nn + jj]);
-						ca += 2;
+						ca++;
 					}
 					fprintf(ofp, " ");
 					nn += cai;
@@ -5644,6 +5652,50 @@ static void ProcessEOL(int opt)
 	}
 }
 
+void any1v3_process_data()
+{
+	if (first_data) {
+		if (segment == codeseg)
+			while (sections[segment].address & (63) * 2)
+				emitNybble(0x00);
+		else
+			while (sections[segment].address & (63))
+				emitByte(0x00);
+		if (rom_code)
+			sections[2].address = 0;
+		else if (segment == codeseg)
+			sections[2].address = sections[segment].address >> 1;   // set starting address
+		else
+			sections[2].address = sections[segment].address;   // set starting address
+		data_base_address = data_address = sections[2].address;
+		first_data = 0;
+	}
+	binstart = sections[2].index;
+	ca = sections[2].address;
+	segment = dataseg;
+}
+
+void any1v3_process_rodata()
+{
+	if (first_rodata) {
+		if (segment == codeseg)
+			while (sections[segment].address & (63) * 2)
+				emitNybble(0x00);
+		else
+			while (sections[segment].address & (63))
+				emitByte(0x00);
+		if (segment == codeseg)
+			sections[1].address = sections[segment].address >> 1;
+		else
+			sections[1].address = sections[segment].address;
+		rodata_base_address = rodata_address = sections[1].address;
+		first_rodata = 0;
+	}
+	binstart = sections[1].index;
+	ca = sections[1].address;
+	segment = rodataseg;
+}
+
 static void process_default()
 {
 	char* p;
@@ -5678,14 +5730,21 @@ j1:
 		//case tk_bsr: process_bra(0x56); break;
 	case tk_bss:
 		if (first_bss) {
-			while (sections[segment].address & (pagesize-1)*2)
-				emitNybble(0x00);
-			sections[3].address = sections[segment].address;
+			if (segment==codeseg)
+				while (sections[segment].address & (64-1)*2)
+					emitNybble(0x00);
+			else
+				while (sections[segment].address & (64 - 1))
+					emitNybble(0x00);
+			if (segment==codeseg)
+				sections[3].address = sections[segment].address>>1;
+			else
+				sections[3].address = sections[segment].address;
 			bss_base_address = bss_address = sections[3].address;
 			first_bss = 0;
-			binstart = sections[3].index;
-			ca = sections[3].address;
 		}
+		binstart = sections[3].index;
+		ca = sections[3].address;
 		segment = bssseg;
 		break;
 	case tk_bytndx: process_rrop();
@@ -5707,21 +5766,7 @@ j1:
 	case tk_csrrs: process_csrrw(I_CSRRS); break;
 	case tk_csrrw: process_csrrw(I_CSRRW); break;
 	case tk_csrrd: process_csrrw(I_CSRRD); break;
-	case tk_data:
-		if (first_data) {
-			while (sections[segment].address & (pagesize-1)*2)
-				emitNybble(0x00);
-			if (rom_code)
-				sections[2].address = 0;
-			else
-				sections[2].address = sections[segment].address;   // set starting address
-			data_base_address = data_address = sections[2].address;
-			first_data = 0;
-			binstart = sections[2].index;
-			ca = sections[2].address;
-		}
-		process_data(dataseg);
-		break;
+	case tk_data: any1v3_process_data(); break;
 	case tk_db:  process_db(); break;
 		//case tk_dbnz: process_dbnz(0x26,3); break;
 	case tk_dc:  process_dc(); break;
@@ -5796,6 +5841,7 @@ j1:
 	case tk_jsr: process_call(I_JAL,1); break;
 	case tk_ld:	process_ld(); break;
 	case tk_leave: emit_insn(I_LEAVE); break;
+	case tk_libcall_table: DumpLibcallTable(); break;
 		//case tk_lui: process_lui(0x27); break;
 	case tk_lsr: process_shift(I_SRL); break;
 	case tk_lv:  process_lv(0x36); break;
@@ -5804,8 +5850,10 @@ j1:
 	case tk_memsb: emit_insn(0x04440002); break;
 	case tk_message: process_message(); break;
 	case tk_mfbase: process_mvbase(I_MFBASE); break;
+	case tk_mfbnd: process_mvbase(I_MFBND); break;
 	case tk_mov: process_mov(I_MOV, 0x00); break;
 	case tk_mtbase: process_mvbase(I_MTBASE); break;
+	case tk_mtbnd: process_mvbase(I_MTBND); break;
 	case tk_mux: process_cmove(4); break;
 	case tk_mvseg: process_rrop(); break;
 		//case tk_mulh: process_rrop(0x26, 0x3A); break;
@@ -5826,18 +5874,7 @@ j1:
 		process_public();
 		break;
 	case tk_pushq: process_pushq(I_PUSHQ); break;
-	case tk_rodata:
-		if (first_rodata) {
-			while (sections[segment].address & (pagesize-1)*2)
-				emitNybble(0x00);
-			sections[1].address = sections[segment].address;
-			rodata_base_address = rodata_address = sections[1].address;
-			first_rodata = 0;
-			binstart = sections[1].index;
-			ca = sections[1].address;
-		}
-		segment = rodataseg;
-		break;
+	case tk_rodata: any1v3_process_rodata(); break;
 	//case tk_redor: process_rop(0x06); break;
 	case tk_ret: process_ret(I_RET); break;
 	case tk_rex: process_rex(); break;
@@ -5888,6 +5925,7 @@ j1:
 	case tk_sxb: process_sxx(0x280000001); break;
 	case tk_sxw: process_sxx(0x2A0000001); break;
 	case tk_sxt: process_sxx(0x2C0000001); break;
+	case tk_symtab: DumpSymtab(); break;
 	case tk_sync: emit_insn(0x3E0000007); break;
 	case tk_tlbdis:  process_tlb(6); break;
 	case tk_tlben:   process_tlb(5); break;
@@ -5973,6 +6011,10 @@ void any1v3_processMaster()
 		parm1[tk_base] = I_BASE;
 		parm2[tk_base] = -1LL;
 		parm3[tk_base] = I_OSR2;
+		jumptbl[tk_tlbrw] = &process_rrop;
+		parm1[tk_tlbrw] = 0x1E;
+		parm2[tk_tlbrw] = -1;
+		parm3[tk_tlbrw] = I_TLBRW;
 		jumptbl[tk_add] = &process_rrop;
 		parm1[tk_add] = I_ADD2;
 		parm2[tk_add] = I_ADDI;
@@ -6252,6 +6294,7 @@ void any1v3_processMaster()
 		sym = new_symbol("__data_start");
 		sym->value.low = 0;
 		sym->value.high = 0;
+		sym->segment = dataseg;
     for (nn = 0; nn < 100000; nn++) {
       hTable[nn].count = 0;
       hTable[nn].opcode = 0;
