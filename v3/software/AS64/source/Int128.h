@@ -69,7 +69,7 @@ public:
 		this->low = s.low;
 		return s;
 	}
-	static Int128 Convert(long v) {
+	static Int128 Convert(int64_t v) {
 		Int128 p;
 
 		p.low = v;

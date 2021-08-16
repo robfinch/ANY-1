@@ -56,15 +56,25 @@ LDxZ,LDxXZ:
 	4'd8:	sel <= 32'h00000003;
 	4'd9:	sel <= 32'h0000000F;
 	4'd10:	sel <= 32'h000000FF;
-	4'd11:	sel <= 32'h0000FFFF;
+	4'd11:	sel <= 32'h0000FFFF;	// load / store base register
 	4'd12:	sel <= 32'hFFFFFFFF;
 	4'd14:	sel <= 32'h0000FFFF;
 	4'd15:	sel <= 32'h0000FFFF;
 	default:	sel <= 32'h00000000;
 	endcase
-SYS:			sel <= 32'h0000FFFF;	// CSAVE / CRESTORE
-CALL,RTS:
-	sel <= 32'h0000FFFF;
+JALI:
+	case(ir[12:10])
+	4'd0:	sel <= 32'h00000003;
+	4'd1:	sel <= 32'h0000000F;
+	4'd2:	sel <= 32'h000000FF;
+	4'd3:	sel <= 32'h0000FFFF;
+	default:	sel <= 32'h00000000;
+	endcase
+SYS:
+	case(ir[35:29])
+	MTSEL:		sel <= 32'hFFFFFFFF;
+	default:	sel <= 32'h0000FFFF;	// CSAVE / CRESTORE
+	endcase
 default:	sel <= 32'h00000000;
 endcase
 endmodule

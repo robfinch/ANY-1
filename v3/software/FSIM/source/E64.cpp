@@ -18,8 +18,8 @@ volatile unsigned int interval1024;
 volatile unsigned int interval30;
 
 char refscreen;
-unsigned int breakpoints[30];
-unsigned int dataBreakpoints[30];
+uint64_t breakpoints[30];
+uint64_t dataBreakpoints[30];
 int numBreakpoints;
 int numDataBreakpoints;
 int runstop;

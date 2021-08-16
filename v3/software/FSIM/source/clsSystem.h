@@ -2,7 +2,7 @@
 #include "clsDevice.h"
 #include "clsKeyboard.h"
 extern char refscreen;
-extern unsigned int dataBreakpoints[30];
+extern uint64_t dataBreakpoints[30];
 extern int numDataBreakpoints;
 extern int runstop;
 extern clsKeyboard keybd;
@@ -15,7 +15,7 @@ public:
 	unsigned int memory[33554432];
 	unsigned int scratchpad[8192];
 	unsigned int rom[65536];
-	unsigned long VideoMem[4096];
+	unsigned long VideoMem[16384];
 	bool VideoMemDirty[4096];
 	unsigned int leds;
 	int m_z;

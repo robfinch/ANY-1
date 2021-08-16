@@ -16,8 +16,16 @@ void clsCPU::Reset()
 		for (nn = 0; nn < 64; nn++)
 			regs[0][nn] = 0;
 		rgs = 0;
-		sregs[7] = 0xFFFFFFFFFFFC0007LL;
-		pc = 0x0600LL;
+		sregs[7] = 0x80007;
+		for (nn = 0; nn < 8; nn++) {
+			desc[nn].base = 0x0003FLL;
+			desc[nn].limit = 0xFFFFFFFFFFFFFFC4LL;
+		}
+		tvec[4] = 0x0000LL;
+		svec[4] = 0xFFFFFFFFFFFC0007LL;
+		bvec[4] = 0xffffffffffffffffLL;
+		gdt = 0x0100FFLL;
+		pc = 0xFFFFFFFFFFF80600LL;
 		vbr = 0;
 		tick = 0;
 		rvecno = 0;
@@ -47,9 +55,11 @@ void clsCPU::Reset()
 		bool isCompressed;
 		bool isUnsignedOp;
 		uint64_t rv,rv2;
-		uint64_t csip = ((sregs[7] & 0xFFFFFFF0LL) << 1LL) + pc;
+		uint64_t csip = ((desc[7].base & 0xFFFFFFC0LL) << 1LL) + pc;
 		uint64_t ad, ad_mapped;
+		uint64_t cause;
 
+		cause = 0;
 		if (imcd > 0) {
 			imcd--;
 			if (imcd==1)
@@ -107,15 +117,27 @@ dc:
 		case IBAL:
 			Rt = (ir >> 8LL) & 0x3LL;
 			break;
+		case IBEQ:
+		case IBNE:
+		case IBLT:
+		case IBGE:
+		case IBLTU:
+		case IBGEU:
+		case IBBC:
+		case IBBS:
+			Rt = 0;
+			break;
+		case ISTx:
+		case ISTxX:
+			Rt = 0;
+			break;
 		default:
 			Rt = (ir >> 8LL) & 0x1fLL;
 		}
 		Ra = (ir >> 14LL) & 0x1fLL;
 		Rb = (ir >> 20LL) & 0x1fLL;
-		if (opcode==IJAL || opcode==IBAL)
-			Rt = (ir >> 8LL) & 3LL;
 		Bn = (ir >> 16) & 0x3f;
-		sc = (ir >> 21) & 3;
+		sc = (ir >> 27LL) & 7LL;
 		mb = (ir >> 16) & 0x3f;
 		me = (ir >> 22) & 0x3f;
 		switch (opcode) {
@@ -155,7 +177,6 @@ dc:
 			}
 			break;
 		case ISTx:
-			Rt = 0;
 			imm = ((ir >> 8LL) & 0x3f) | (((ir >> 27LL) & 0x1fLL) << 6LL);
 			if ((ir >> 31LL) & 1LL)
 				imm |= 0xfffffffffffff000LL;
@@ -165,7 +186,6 @@ dc:
 			}
 			break;
 		case ISTxX:
-			Rt = 0;
 			break;
 		case IR2:
 			switch (func) {
@@ -192,10 +212,19 @@ dc:
 		b = operb.ai = regs[Rb][rgs];
 		if (BIT(ir,26)) {
 			b = ((ir >> 20LL) & 0x3fLL);
-			if ((ir >> 25LL) && !isUnsignedOp)
+			if (((ir >> 25LL) & 1LL) && !isUnsignedOp)
 				b |= 0xffffffffffffffc0LL;
 		}
-//		c = operc.ai = regs[Rc][rgs];
+		if ((xir & 0x7F) == 0x58) {
+			Rc = (xir >> 14LL) & 0x1fLL;
+			if ((xir >> 27LL) & 1LL)
+				c = ((xir >> 19LL) << 5LL) | ((xir >> 14LL) & 0x1fLL);
+			else
+				c = regs[Rc][rgs];
+		}
+		else
+			c = 0;
+		//		c = operc.ai = regs[Rc][rgs];
 		ua = a;
 		ub = b;
 		res = 0;
@@ -434,204 +463,244 @@ dc:
 			break;
 		case ILDxX:
 			ad = a + (b << sc);
-			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
-			switch (lsfunc) {
-			case 0:	// 8 bit load
-				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
-				if (res & 0x80) res |= 0xFFFFFFFFFFFFFF00LL;
-				break;
-			case 1:	// 16 bit load
-				rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
-				res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFLL;
-				if (res & 0x8000) res |= 0xFFFFFFFFFFFF0000LL;
-				break;
-			case 2:	// 32 bit load
-				rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
-				res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFFFFFLL;
-				if (res & 0x80000000) res |= 0xFFFFFFFF00000000LL;
-				break;
-			case 3:	// 64 bit load
-				rv = (uint64_t)system1->Read(ad) >> (((uint64_t)ad & 3LL) << 3LL);
-				switch (ad & 3) {
-				case 0:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 32LL);
+			if ((ad & 0xffffffffLL) > (desc[(ad >> 54LL) & 1023LL].limit) && lsfunc != 14)
+				cause = FLT_SGB;
+			else {
+				ad = (ad & 0xffffffffLL) + (desc[(ad >> 54LL) & 1023LL].base & -64LL);
+				switch (lsfunc) {
+				case 0:	// 8 bit load
+					res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
+					if (res & 0x80) res |= 0xFFFFFFFFFFFFFF00LL;
 					break;
-				case 1:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 24LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 56LL);
+				case 1:	// 16 bit load
+					rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
+					res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFLL;
+					if (res & 0x8000) res |= 0xFFFFFFFFFFFF0000LL;
 					break;
-				case 2:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 16LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 48LL);
+				case 2:	// 32 bit load
+					rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
+					res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFFFFFLL;
+					if (res & 0x80000000) res |= 0xFFFFFFFF00000000LL;
 					break;
-				case 3:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 8LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 40LL);
+				case 3:	// 64 bit load
+					rv = (uint64_t)system1->Read(ad) >> (((uint64_t)ad & 3LL) << 3LL);
+					switch (ad & 3) {
+					case 0:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 32LL);
+						break;
+					case 1:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 24LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 56LL);
+						break;
+					case 2:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 16LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 48LL);
+						break;
+					case 3:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 8LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 40LL);
+						break;
+					}
+					res = rv;
+					break;
+				case 14:
+					res = a + (b << sc);
 					break;
 				}
-				res = rv;
-				break;
 			}
 			break;
 		case ILDxXZ:
 			ad = a + (b << sc);
-			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
-			switch (lsfunc) {
-			case 0:	// 8 bit load
-				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
-				break;
-			case 1:	// 16 bit load
-				rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
-				res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFLL;
-				break;
-			case 2:	// 32 bit load
-				rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
-				res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFFFFFLL;
-				break;
-			case 3:	// 64 bit load
-				rv = (uint64_t)system1->Read(ad) >> (((uint64_t)ad & 3LL) << 3LL);
-				switch (ad & 3) {
-				case 0:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 32LL);
+			if ((ad & 0xffffffffLL) > (desc[(ad >> 54LL) & 1023LL].limit) && lsfunc != 14)
+				cause = FLT_SGB;
+			else {
+				ad = (ad & 0xffffffffLL) + (desc[(ad >> 54LL) & 1023LL].base & -64LL);
+				switch (lsfunc) {
+				case 0:	// 8 bit load
+					res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
 					break;
-				case 1:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 24LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 56LL);
+				case 1:	// 16 bit load
+					rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
+					res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFLL;
 					break;
-				case 2:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 16LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 48LL);
+				case 2:	// 32 bit load
+					rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
+					res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFFFFFLL;
 					break;
-				case 3:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 8LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 40LL);
+				case 3:	// 64 bit load
+					rv = (uint64_t)system1->Read(ad) >> (((uint64_t)ad & 3LL) << 3LL);
+					switch (ad & 3) {
+					case 0:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 32LL);
+						break;
+					case 1:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 24LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 56LL);
+						break;
+					case 2:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 16LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 48LL);
+						break;
+					case 3:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 8LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 40LL);
+						break;
+					}
+					res = rv;
+					break;
+				case 14:
+					res = a + (b << sc);
 					break;
 				}
-				res = rv;
-				break;
 			}
 			break;
 		case ILDx:
 			ad = a + imm;
-			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
-			switch (lsfunc) {
-			case 0:	// 8 bit load
-				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
-				if (res & 0x80) res |= 0xFFFFFFFFFFFFFF00LL;
-				break;
-			case 1:	// 16 bit load
-				rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
-				res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFLL;
-				if (res & 0x8000) res |= 0xFFFFFFFFFFFF0000LL;
-				break;
-			case 2:	// 32 bit load
-				rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
-				res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFFFFFLL;
-				if (res & 0x80000000) res |= 0xFFFFFFFF00000000LL;
-				break;
-			case 3:	// 64 bit load
-				rv = (uint64_t)system1->Read(ad) >> (((uint64_t)ad & 3LL) << 3LL);
-				switch (ad & 3) {
-				case 0:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 32LL);
+			if ((ad & 0xffffffffLL) > (desc[(ad >> 54LL) & 1023LL].limit) && lsfunc != 14)
+				cause = FLT_SGB;
+			else {
+				ad = (ad & 0xffffffffLL) + (desc[(ad >> 54LL) & 1023LL].base & -64LL);
+				switch (lsfunc) {
+				case 0:	// 8 bit load
+					res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
+					if (res & 0x80) res |= 0xFFFFFFFFFFFFFF00LL;
 					break;
-				case 1:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 24LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 56LL);
+				case 1:	// 16 bit load
+					rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
+					res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFLL;
+					if (res & 0x8000) res |= 0xFFFFFFFFFFFF0000LL;
 					break;
-				case 2:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 16LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 48LL);
+				case 2:	// 32 bit load
+					rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
+					res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFFFFFLL;
+					if (res & 0x80000000) res |= 0xFFFFFFFF00000000LL;
 					break;
-				case 3:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 8LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 40LL);
+				case 3:	// 64 bit load
+					rv = (uint64_t)system1->Read(ad) >> (((uint64_t)ad & 3LL) << 3LL);
+					switch (ad & 3) {
+					case 0:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 32LL);
+						break;
+					case 1:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 24LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 56LL);
+						break;
+					case 2:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 16LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 48LL);
+						break;
+					case 3:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 8LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 40LL);
+						break;
+					}
+					res = rv;
+					break;
+				case 14:
+					res = a + imm;
 					break;
 				}
-				res = rv;
-				break;
 			}
 			break;
 		case ILDxZ:
 			ad = a + imm;
-			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
-			switch (lsfunc) {
-			case 0:	// 8 bit load
-				res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
-				break;
-			case 1:	// 16 bit load
-				rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
-				res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFLL;
-				break;
-			case 2:	// 32 bit load
-				rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
-				res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFFFFFLL;
-				break;
-			case 3:	// 64 bit load
-				rv = (uint64_t)system1->Read(ad) >> (((uint64_t)ad & 3LL) << 3LL);
-				switch (ad & 3) {
-				case 0:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 32LL);
+			if ((ad & 0xffffffffLL) > (desc[(ad >> 54LL) & 1023LL].limit) && lsfunc != 14)
+				cause = FLT_SGB;
+			else {
+				ad = (ad & 0xffffffffLL) + (desc[(ad >> 54LL) & 1023LL].base & -64LL);
+				switch (lsfunc) {
+				case 0:	// 8 bit load
+					res = (system1->Read(ad) >> ((ad & 3) << 3)) & 0xFF;
 					break;
-				case 1:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 24LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 56LL);
+				case 1:	// 16 bit load
+					rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
+					res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFLL;
 					break;
-				case 2:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 16LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 48LL);
+				case 2:	// 32 bit load
+					rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
+					res = (rv >> (((uint64_t)ad & 3LL) << 3LL)) & 0xFFFFFFFFLL;
 					break;
-				case 3:
-					rv = rv | ((uint64_t)system1->Read(ad + 4) << 8LL);
-					rv = rv | ((uint64_t)system1->Read(ad + 8) << 40LL);
+				case 3:	// 64 bit load
+					rv = (uint64_t)system1->Read(ad) >> (((uint64_t)ad & 3LL) << 3LL);
+					switch (ad & 3) {
+					case 0:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 32LL);
+						break;
+					case 1:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 24LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 56LL);
+						break;
+					case 2:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 16LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 48LL);
+						break;
+					case 3:
+						rv = rv | ((uint64_t)system1->Read(ad + 4) << 8LL);
+						rv = rv | ((uint64_t)system1->Read(ad + 8) << 40LL);
+						break;
+					}
+					res = rv;
+					break;
+				case 14:
+					res = a + (imm & 0x3fffffffffffffLL);
 					break;
 				}
-				res = rv;
-				break;
 			}
 			break;
 		case ISTx:
 			ad = a + imm;
-			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
-			switch (lsfunc) {
-			case 0:
-				system1->WriteByte(ad, b, 0);
-				break;
-			case 1:
-				system1->WriteWyde(ad, b, 0);
-				break;
-			case 2:
-				system1->WriteTetra(ad, b, 0);
-				break;
-			case 3:
-				system1->WriteOcta(ad, b, 0);
-				break;
+			if ((ad & 0xffffffffLL) > (desc[(ad >> 54LL) & 1023LL].limit))
+				cause = FLT_SGB;
+			else {
+				ad = (ad & 0xffffffffLL) + (desc[(ad >> 54LL) & 1023LL].base & -64LL);
+				switch (lsfunc) {
+				case 0:
+					system1->WriteByte(ad, b, 0);
+					break;
+				case 1:
+					system1->WriteWyde(ad, b, 0);
+					break;
+				case 2:
+					system1->WriteTetra(ad, b, 0);
+					break;
+				case 3:
+					system1->WriteOcta(ad, b, 0);
+					break;
+				}
 			}
 			break;
 		case ISTxX:
-			ad = a + (b << sc);
-			ad = (ad & 0xffffffffLL) + (sregs[(ad >> 32LL) & 2047LL] & -16LL);
-			switch (lsfunc) {
-			case 0:
-				system1->WriteByte(ad, b, 0);
-				break;
-			case 1:
-				system1->WriteWyde(ad, b, 0);
-				break;
-			case 2:
-				system1->WriteTetra(ad, b, 0);
-				break;
-			case 3:
-				system1->WriteOcta(ad, b, 0);
-				break;
+			ad = a + (c << sc);
+			if ((ad & 0xffffffffLL) > (desc[(ad >> 54LL) & 1023LL].limit))
+				cause = FLT_SGB;
+			else {
+				ad = (ad & 0xffffffffLL) + (desc[(ad >> 54LL) & 1023LL].base & -64LL);
+				switch (lsfunc) {
+				case 0:
+					system1->WriteByte(ad, b, 0);
+					break;
+				case 1:
+					system1->WriteWyde(ad, b, 0);
+					break;
+				case 2:
+					system1->WriteTetra(ad, b, 0);
+					break;
+				case 3:
+					system1->WriteOcta(ad, b, 0);
+					break;
+				}
 			}
 			break;
 		case IJAL:
 			ad = (ir >> 10LL);
 			if (ir >> 35)
 				ad |= 0xfffffffffc000000LL;
-			res = pc;
-			pc = ad;
+			if (ad > desc[7].limit & -64LL)
+				cause = FLT_SGB;
+			else {
+				res = pc;
+				pc = ad;
+			}
 			break;
 		case IBAL:
 			ad = (ir >> 10LL);
@@ -680,22 +749,32 @@ dc:
 		case IOSR2:
 			switch ((ir >> 29LL) & 0x7fLL) {
 			case IMTBASE:
-				sregs[b & 2047] = a;
+				sregs[b & 1023] = a;
 				Rt = 0;
 				break;
 			case IMFBASE:
-				res = sregs[b & 2047];
+				res = sregs[b & 1023];
 				break;
 			case IMTBND:
-				bregs[b & 2047] = a;
 				Rt = 0;
 				break;
 			case IMFBND:
-				res = bregs[b & 2047];
+				res = 0xDEADDEADDEADDEADLL;
 				break;
 			case IBASE:
 				//mask = 0xffffffffffffffffLL >> (64LL - 28LL);
-				res = (b << 32LL);
+				res = ((b & 1023) << 54LL);
+				break;
+			case IMFSEL:
+				res = sregs[b & 1023];
+				break;
+			case IMTSEL:
+				ad = (gdt & ~0xFFLL) + ((b & 1023LL) << 4LL);
+				rv = (uint64_t)system1->Read(ad) | ((uint64_t)system1->Read(ad + 4) << 32LL);
+				desc[b & 1023].base = rv;
+				rv = (uint64_t)system1->Read(ad+8) | ((uint64_t)system1->Read(ad + 12) << 32LL);
+				desc[b & 1023].limit = rv;
+				sregs[b & 1023] = a;
 				break;
 			case ITLBRW:
 				res = tlb.ReadWrite(a, b);
@@ -708,12 +787,29 @@ dc:
 		case IREGLST3:
 			reglist = (opcode & 3LL) | ((ir >> 8LL) << 2LL);
 			break;
+		case ICSR:
+			nn = ((ir >> 18LL) & 2LL) | ((ir >> 13LL) & 1LL);
+			switch (nn) {
+			case 0:
+				switch ((ir >> 20LL) & 0xffffLL) {
+				case CSR_DGDT:	res = gdt; break;
+				default:	res = 0xDEADDEADDEADDEADLL;
+				}
+				break;
+			}
+			break;
 		default: break;
 		}
 		//---------------------------------------------------------------------------
 		// Writeback stage
 		//---------------------------------------------------------------------------
-		if (Rt != 0) {
+		if (cause) {
+			eip = pc;
+			ecs = sregs[7];
+			pc = tvec[4];
+			sregs[7] = svec[4];
+		}
+		else if (Rt != 0) {
 			if (Rt==31 && res==0xC48EE0) {
 				regs[Rt][rgs] <= res;
 				printf("hi there");

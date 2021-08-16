@@ -2,7 +2,16 @@
 
 #pragma once
 
+#define FLT_SGB		0x34
+
 class clsSystem;
+
+class clsSegDesc
+{
+public:
+	uint64_t base;
+	uint64_t limit;
+};
 
 class clsTLBEntry
 {
@@ -46,7 +55,7 @@ public:
 	{
 		int count;
 
-		for (count = 0; count < 4096; count++)
+		for (count = 4080; count < 4096; count++)
 			switch ((count >> 10LL) & 3LL) {
 			case 0:
 			case 1:
@@ -160,7 +169,7 @@ class clsCPU
 	opval dres;
 	unsigned __int64 ua, ub;
 	uint64_t reglist;
-	__int64 sir;
+	__int64 sir,ir2;
 	bool StatusHWI;
 	int Ra,Rb,Rc;
 	int Rt,Rt2;
@@ -182,6 +191,7 @@ class clsCPU
 	int r1,r2,r3;
 public:
 	uint8_t asid;
+	uint64_t ecause;
 	clsTLB tlb;
 	char isRunning;
 	char brk;
@@ -189,10 +199,17 @@ public:
 	unsigned int rgs;
 	unsigned __int64 regs[32][64];
 	unsigned __int64 vregs[32][64];
-	uint64_t sregs[2048];
-	uint64_t bregs[2048];
+	uint32_t sregs[1024];		// selectors
+	clsSegDesc desc[1024];	// descriptor cache
 	double dregs[32];
+	uint64_t gdt;
 	uint64_t pc;
+	uint64_t eip;
+	uint64_t ecs;
+	uint64_t ecsbnd;
+	uint64_t tvec[8];
+	uint64_t svec[8];
+	uint64_t bvec[8];
 	unsigned int pcs[40];
 	unsigned int dpc;
 	unsigned int epc;

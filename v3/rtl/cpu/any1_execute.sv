@@ -41,7 +41,7 @@ module any1_execute(rst,clk,robi,execo,mulreci,divreci,membufi,fpreci,rob_exec,e
 	a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,out,tid,
 	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q,
 	ld_vtmp, vtmp, new_vtmp, graphi, rd_trace, trace_dout,
-	gr_target, gr_clip, clip_en, lsm_mask, exvec, tcbptr
+	gr_target, gr_clip, clip_en, lsm_mask, exvec, tcbptr, arange, omode, cs
 	);
 input rst;
 input clk;
@@ -82,6 +82,9 @@ input clip_en;
 input [35:0] lsm_mask;
 output reg [3:0] exvec;
 input Address tcbptr;
+input [3:0] arange;
+input [2:0] omode;
+input SegDesc cs;
 
 integer m,n;
 
@@ -98,6 +101,8 @@ begin
 	fnIncIP5 = {ptr[AWID-1:24],ptr[23:-1] + 4'd5};
 end
 endfunction
+
+wire [63:0] amask = 64'hFFFFFFFFFFFFFFF0 << {arange,3'b0};	// 0,8,16,24,32,40,48,56
 
 wire [7:0] vs = VALUE_SIZE;
 wire d_vsllv = (robi.ir.r2.opcode==VR2) && robi.ir.r2.func==VSLLV;
@@ -194,6 +199,10 @@ fpCompare u1 (
 	.snan(cmpsnan)
 );
 `endif
+
+reg [VALUE_SIZE-1:0] diff;
+always_comb
+	diff = robi.ia - robi.ib;
 
 	// Execute
 	// Lots to do here.
@@ -353,12 +362,15 @@ else begin
 			begin
 				case(robi.ir.r2.func)
 				SLLP:	begin execo.res.val <= sll_out[63:0]; tMod(); end
+				/*
 				PTRDIF:	
 					begin
 						//robi.res.tag <= TAG_INT;
-						execo.res.val <= ((robi.ia.val < robi.ib.val) ? robi.ib.val - robi.ia.val : robi.ia.val - robi.ib.val) >> robi.ic.val[4:0];
+						// We want A-B to return a negative if B > A.
+						execo.res.val <= diff[VALUE_SIZE-1] ? ~(64'hFFFFFFFFFFFFFFFF >> robi.ic.val[4:0]) | (diff >> robi.ic.val[4:0]) : (diff >> robi.ic.val[4:0]);
 						tMod();
 					end
+				*/
 				CHK:
 					case(robi.ir.r2.func)
 					3'd0:
@@ -664,6 +676,7 @@ else begin
 		ANDI:	begin execo.res.val <= robi.ia.val & robi.imm; tMod(); end
 		ORI:	begin execo.res.val <= robi.ia.val | robi.imm; tMod(); end
 		XORI:	begin execo.res.val <= robi.ia.val ^ robi.imm; tMod(); end
+		ADDIP:begin execo.res.val <= robi.ip + {robi.imm,14'b0}; tMod(); end
 `ifdef SUPPORT_MYST
 		MYSTI:	begin execo.res.val <= {robi.id.val[35:20],robi.ir[19:8],robi.id.val[7:0]}; execo.myst <= TRUE; tMod(); end
 `endif
@@ -879,7 +892,7 @@ else begin
 					end
 				endcase
 			end
-		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS:
+		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS,BBC:
 			tBranch();
 		JALR:	tJalr();
 		JAL:
@@ -890,7 +903,9 @@ else begin
 				a2d_rst <= TRUE;
 				d2x_rst <= TRUE;
 				ex_redirect.redirect_ip <= robi.imm;
+				ex_redirect.redirect_cs <= cs;
 				ex_redirect.current_ip <= robi.ip;
+				ex_redirect.current_cs <= cs;
 				ex_redirect.xrid <= rob_exec;
 				ex_redirect.step <= 6'd0;
 				ex_redirect.wr <= TRUE;
@@ -899,6 +914,23 @@ else begin
 				execo.update <= TRUE;
 			end
 		BAL:	tBal(FALSE);
+		JALI:
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= robi.step;
+				membufi.ir <= robi.ir;
+				membufi.ia <= robi.ia;
+				membufi.ib <= robi.ib;
+				membufi.ic <= robi.ic;
+				membufi.dato <= robi.ib;
+				membufi.imm <= robi.imm;
+				membufi.wr <= TRUE;
+				execo.res.val <= 64'hDEADDEADDEADEAD;
+				execo.update <= TRUE;
+				execo.cmt <= FALSE;
+				execo.cmt2 <= FALSE;
+				execo.wr_fu <= TRUE;
+			end
 `ifdef SUPPORT_CALL_RET			
 		CALL:
 			begin
@@ -1159,6 +1191,13 @@ else begin
 `endif				
 			CSAVE:		tStore(2'b10);
 			CRESTORE:	tLoad(2'b10);
+//			BASE:	begin execo.res.val <= (|omode & ~robi.ir[28]) ? robi.ia.val : (robi.ia.val & ~amask) | ({robi.ib.val[3:0],8'b0} << {arange,3'b0}); tMod(); end
+			BASE:	begin execo.res.val <= (robi.ib.val[9:0] << 6'd54); tMod(); end
+			MFBASE,MFSEL:	begin execo.res.val <= robi.ib.val; tMod(); end
+			MFBND:	begin execo.res.val <= robi.ib.val; tMod(); end
+			MTBASE:	begin execo.res.val <= robi.ia.val; tMod(); end
+			MTBND:	begin execo.res.val <= robi.ia.val; tMod(); end
+			MTSEL:	begin	execo.res.val <= robi.ia.val; tLoad(2'b11);	end
 			default:	;
 			endcase
 		// Some of the modifiers should never execute because they are committed
@@ -1828,7 +1867,9 @@ begin
 	a2d_rst <= TRUE;
 	d2x_rst <= TRUE;
 	ex_redirect.redirect_ip <= robi.ip + robi.imm;
+	ex_redirect.redirect_cs <= cs;
 	ex_redirect.current_ip <= robi.ip;
+	ex_redirect.current_cs <= cs;
 	ex_redirect.xrid <= rob_exec;
 	ex_redirect.step <= 6'd0;
 	ex_redirect.wr <= TRUE;
@@ -1847,8 +1888,10 @@ begin
 		a2d_rst <= TRUE;
 		d2x_rst <= TRUE;
 		ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
+		ex_redirect.redirect_cs <= cs;
 		//ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
 		ex_redirect.current_ip <= robi.ip;
+		ex_redirect.current_cs <= cs;
 		ex_redirect.step <= 6'd0;
 		ex_redirect.xrid <= rob_exec;
 		ex_redirect.wr <= TRUE;
@@ -1860,8 +1903,10 @@ begin
 		a2d_rst <= TRUE;
 		d2x_rst <= TRUE;
 		ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
+		ex_redirect.redirect_cs <= cs;
 		//ex_redirect.redirect_ip <= ex_takb ? robi.ic + robi.imm : fnIncIP(robi.ip);
 		ex_redirect.current_ip <= robi.ip;
+		ex_redirect.current_cs <= cs;
 		ex_redirect.step <= 6'd0;
 		ex_redirect.xrid <= rob_exec;
 		ex_redirect.wr <= TRUE;
@@ -1880,7 +1925,9 @@ begin
 	a2d_rst <= TRUE;
 	d2x_rst <= TRUE;
 	ex_redirect.redirect_ip <= robi.ia.val + robi.imm;
+	ex_redirect.redirect_cs <= cs;
 	ex_redirect.current_ip <= robi.ip;
+	ex_redirect.current_cs <= cs;
 	ex_redirect.step <= 6'd0;
 	ex_redirect.xrid <= rob_exec;
 	ex_redirect.wr <= TRUE;
@@ -1909,7 +1956,12 @@ begin
 	execo.cmt <= FALSE;
 	execo.cmt2 <= FALSE;
 	execo.wr_fu <= FALSE;
-	if (opt==2'b10) begin
+	// MTSEL
+	if (opt==2'b11) begin
+		membufi.ia <= robi.ia;
+		membufi.wr <= TRUE;
+	end
+	else if (opt==2'b10) begin
 		membufi.ia <= tcbptr + {robi.Rtseg,robi.Rt[4:0],3'h0};
 		membufi.wr <= TRUE;
 	end

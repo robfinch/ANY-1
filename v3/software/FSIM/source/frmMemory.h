@@ -49,6 +49,7 @@ namespace E64 {
 	private: System::Windows::Forms::Label^  label1;
 	private: System::Windows::Forms::TextBox^  textBoxMem;
 	private: System::Windows::Forms::Button^ button1;
+	private: System::Windows::Forms::Button^ button2;
 
 	private:
 		/// <summary>
@@ -67,6 +68,7 @@ namespace E64 {
 			this->label1 = (gcnew System::Windows::Forms::Label());
 			this->textBoxMem = (gcnew System::Windows::Forms::TextBox());
 			this->button1 = (gcnew System::Windows::Forms::Button());
+			this->button2 = (gcnew System::Windows::Forms::Button());
 			this->SuspendLayout();
 			// 
 			// textBoxAddr
@@ -107,11 +109,22 @@ namespace E64 {
 			this->button1->UseVisualStyleBackColor = true;
 			this->button1->Click += gcnew System::EventHandler(this, &frmMemory::button1_Click);
 			// 
+			// button2
+			// 
+			this->button2->Location = System::Drawing::Point(285, 16);
+			this->button2->Name = L"button2";
+			this->button2->Size = System::Drawing::Size(75, 23);
+			this->button2->TabIndex = 4;
+			this->button2->Text = L"Desc Cache";
+			this->button2->UseVisualStyleBackColor = true;
+			this->button2->Click += gcnew System::EventHandler(this, &frmMemory::button2_Click);
+			// 
 			// frmMemory
 			// 
 			this->AutoScaleDimensions = System::Drawing::SizeF(6, 13);
 			this->AutoScaleMode = System::Windows::Forms::AutoScaleMode::Font;
 			this->ClientSize = System::Drawing::Size(614, 409);
+			this->Controls->Add(this->button2);
 			this->Controls->Add(this->button1);
 			this->Controls->Add(this->textBoxMem);
 			this->Controls->Add(this->label1);
@@ -173,5 +186,35 @@ namespace E64 {
 		}
 		this->textBoxMem->Text = gcnew String(str.c_str());
 	}
+private: System::Void button2_Click(System::Object^ sender, System::EventArgs^ e) {
+	char buf[200];
+	std::string str;
+	int way;
+	int nn;
+
+	str = "";
+	str = "Num    Base    Limit  OM PAUSC CRWX\r\n";
+	str += "----------------------------------\r\n";
+	for (nn = 0; nn < 1024; nn++) {
+		sprintf_s(buf, sizeof(buf), "%04d %08I64X %08I64X %d %c%c%c%c%c %c%c%c%c\r\n",
+			nn,
+			cpu1.desc[nn].base & 0xffffffc0LL,
+			cpu1.desc[nn].limit & 0xffffffc0LL | 0x3FLL,
+			(int)(cpu1.desc[nn].limit & 0x7LL),
+			((cpu1.desc[nn].base & 0x20LL)!=0 ? 'P' : ' '),
+			((cpu1.desc[nn].base & 0x10LL)!=0 ? 'A' : ' '),
+			((cpu1.desc[nn].limit & 0x20LL)!=0 ? 'U' : ' '),
+			((cpu1.desc[nn].limit & 0x10LL)!=0 ? 'S' : ' '),
+			((cpu1.desc[nn].limit & 0x08LL)!=0 ? 'C' : ' '),
+			((cpu1.desc[nn].base & 0x08LL)!=0 ? 'C' : ' '),
+			((cpu1.desc[nn].base & 0x04LL)!=0 ? 'R' : ' '),
+			((cpu1.desc[nn].base & 0x02LL)!=0 ? 'W' : ' '),
+			((cpu1.desc[nn].base & 0x01LL)!=0 ? 'X' : ' ')
+		);
+		str += buf;
+	}
+	str += "\r\n";
+	this->textBoxMem->Text = gcnew String(str.c_str());
+}
 };
 }

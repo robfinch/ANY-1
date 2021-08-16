@@ -2,6 +2,8 @@
 #include "Disassem.h"
 
 extern int64_t perf_frq;
+extern int numBreakpoints;
+extern uint64_t breakpoints[30];
 
 namespace E64 {
 
@@ -152,8 +154,9 @@ namespace E64 {
 				uint64_t ad1, ad2, csip;
 				uint64_t dat;
 				static unsigned int ticks;
-				int regno;
+				int regno, kk;
 				double secsPassed;
+				bool run = false;
 
 				ticks++;
 				do {
@@ -164,12 +167,18 @@ namespace E64 {
 				operf_count = perf_count;
 
 				//ad2 = ad;
-				csip = ((cpu1.sregs[7] & 0xFFFFFFF0LL) << 1LL) + cpu1.pc;
+				csip = ((cpu1.desc[7].base & 0xFFFFFFC0LL) << 1LL) + cpu1.pc;
 				ad2 = csip - 72LL;
 				//if (ad2 != old_ad)
 				{
 					if (animate) {
-						if ((ticks % animateDelay)==0)
+						run = true;
+						for (kk = 0; kk < numBreakpoints; kk++) {
+							if ((cpu1.pc & 0x1ffffffffLL) == (breakpoints[kk] & 0x1ffffffffLL)) {
+								run = false;
+							}
+						}
+						if ((ticks % animateDelay)==0 && run)
 							cpu1.Step();
 					}
 					old_ad = ad2;
@@ -177,7 +186,7 @@ namespace E64 {
 					gr->FillRectangle(bkbr,0,0,740,430);
 					for (row = 0; row < 32; row++) {
 						yy = row * 12 + 40;
-						sprintf(buf,"%06I64X.%.1X", ad2 >> 1LL, (int)(ad2 & 1LL) << 3);
+						sprintf(buf,"%06I64X.%.1X", ((int64_t)ad2 >> 1LL) & 0xffffffffL, (int)(ad2 & 1LL) << 3);
 						str = std::string(buf);
 						dat = system1.IFetch(ad2);
 			//			dat = system1.memory[ad>>2];
@@ -228,16 +237,16 @@ namespace E64 {
 						case 7:	strcpy(buf, " cs"); break;
 						default:	strcpy(buf, "   ");
 						}
-						sprintf(&buf[3], " b%d %08X", regno, cpu1.sregs[regno]);
+						sprintf(&buf[3], " b%d %05X", regno, cpu1.sregs[regno]);
 						str = std::string(buf);
 						gr->DrawString(gcnew String(str.c_str()), myfont, fgbr, 610, yy);
 					}
 					yy = 18 * 12 + 40;
-					sprintf(buf, "cs %08I64X", cpu1.sregs[7]);
+					sprintf(buf, "cs %05X", cpu1.sregs[7]);
 					str = std::string(buf);
 					gr->DrawString(gcnew String(str.c_str()), myfont, fgbr, 320, yy);
 					yy = 19 * 12 + 40;
-					sprintf(buf, "ip %08I64X.%1X", cpu1.pc >> 1, (unsigned int)(cpu1.pc & 1) << 3);
+					sprintf(buf, "ip %08I64X.%1X", (int64_t)cpu1.pc >> 1, (unsigned int)(cpu1.pc & 1) << 3);
 					str = std::string(buf);
 					gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,320,yy);
 

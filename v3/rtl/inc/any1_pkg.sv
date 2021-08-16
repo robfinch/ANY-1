@@ -6,8 +6,8 @@ package any1_pkg;
 //`define CPU_B64			1'b1
 //`define CPU_B32			1'b1
 
-`define AMSB		31
-`define ABITS		31:-1
+`define AMSB		63
+`define ABITS		63:-1
 
 //`ifdef CPU_B128
 `define SELL		15:0
@@ -158,6 +158,7 @@ parameter MULI	= 8'h06;
 parameter ANDI  = 8'h08;
 parameter ORI		= 8'h09;
 parameter XORI	= 8'h0A;
+parameter ADDIP	= 8'h0C;
 parameter MULUI	= 8'h0E;
 parameter DIVI	= 8'h10;
 parameter DIVUI	= 8'h11;
@@ -188,8 +189,8 @@ parameter F1		= 8'h34;
 parameter F2		= 8'h35;
 parameter F3		= 8'h36;
 parameter F4		= 8'h37;
-parameter LINK	= 8'h3C;
-parameter UNLINK= 8'h3D;
+parameter ENTER	= 8'h3C;
+parameter LEAVE = 8'h3D;
 parameter NOP  	= 8'h3F;
 
 parameter CSR		= 8'h0F;
@@ -213,12 +214,25 @@ parameter REX		= 6'h10;
 parameter PFI		= 6'h11;
 parameter WFI		= 6'h12;
 parameter RTE		= 6'h13;
+parameter DI		= 6'h16;
 parameter MVSEG	= 6'h1D;
 parameter TLBRW	= 6'h1E;
 parameter SYNC	= 6'h1F;
 parameter CSAVE = 6'h20;
 parameter CRESTORE = 6'h21;
+parameter BASE	= 6'h26;
+parameter MFBASE=	6'h28;
+parameter MTBASE=	6'h29;
+parameter MFBND	=	6'h2A;
+parameter MTBND	=	6'h2B;
+parameter MFSEL	= 6'h2C;
+parameter MTSEL	= 6'h2D;
 
+parameter JAL		= 8'h40;
+parameter BAL		= 8'h41;
+parameter JALR	= 8'h42;
+parameter BSR		= 8'h43;
+parameter JALI	= 8'h44;
 parameter BLT		= 8'h48;
 parameter BGE		= 8'h49;
 parameter BLTU	= 8'h4A;
@@ -258,34 +272,28 @@ parameter PUSH	= 8'h6F;
 parameter BEQZ	= 8'h78;
 parameter BNEZ	= 8'h79;
 
-parameter JAL		= 8'h40;
-parameter BAL		= 8'h41;
-parameter JALR	= 8'h42;
-parameter RTS		= 8'h7B;
-parameter CALL  = 8'h7C;
-
 parameter LDB = 4'd0;
 parameter LDW = 4'd1;
 parameter LDT = 4'd2;
 parameter LDO = 4'd3;
 parameter LDH = 4'd4;
 parameter LDOR = 4'd6;
-parameter LDBU = 4'd8;
-parameter LDWU = 4'd9;
-parameter LDTU = 4'd10;
-parameter LDOU = 4'd11;
+parameter LDOB	= 4'd11;
+parameter LDDESC = 4'd12;
 parameter LSM  = 4'd13;
 parameter LEA	 = 4'd14;
 parameter CACHE	= 4'd15;
 parameter STCR = 4'd6;
 parameter STPTR = 4'd7;
+parameter STOB	= 4'd11;
 
 parameter LOAD = 3'd0;
 parameter STORE = 3'd1;
 parameter TLB = 3'd2;
 parameter CACHE2 = 3'd3;
 parameter LEA2 = 3'd4;
-parameter RTS2 = 3'd5;
+//parameter RTS2 = 3'd5;
+parameter M_JALI	= 3'd5;
 parameter M_CALL	= 3'd6;
 parameter LOADZ = 3'd7;		// unsigned load
 
@@ -396,15 +404,19 @@ parameter CSR_MCR0	= 16'h3000;
 parameter CSR_MHARTID = 16'h3001;
 parameter CSR_TICK	= 16'h3002;
 parameter CSR_MBADADDR	= 16'h3007;
-parameter CSR_MTVEC = 16'h303?;
+parameter CSR_MTVEC = 16'b0011_0000_0011_0???;
+parameter CSR_MSVEC = 16'b0011_0000_0011_1???;
 parameter CSR_MPMSTACK	= 16'h3040;
 parameter CSR_MSTATUS	= 16'h3044;
 parameter CSR_MVSTEP= 16'h3046;
 parameter CSR_MVTMP	= 16'h3047;
 parameter CSR_MEIP	=	16'h3048;
+parameter CSR_MECS	= 16'h3049;
+parameter CSR_MPCS	= 16'h304A;
 parameter CSR_DCR0	= 16'h4000;
 parameter CSR_DHARTID = 16'h4001;
-parameter CSR_DTVEC = 16'h403?;
+parameter CSR_DTVEC = 16'b0100_0000_0011_0???;
+parameter CSR_DSVEC = 16'b0100_0000_0011_1???;
 parameter CSR_DPMSTACK	= 16'h4040;
 parameter CSR_DSTUFF0	= 16'h4042;
 parameter CSR_DSTUFF1	= 16'h4043;
@@ -412,7 +424,15 @@ parameter CSR_DSTATUS	= 16'h4044;
 parameter CSR_DVSTEP= 16'h4046;
 parameter CSR_DVTMP	= 16'h4047;
 parameter CSR_DEIP	=	16'h4048;
+parameter CSR_DECS	= 16'h4049;
+parameter CSR_DPCS	= 16'h404A;
 parameter CSR_DTCBPTR=16'h4050;
+parameter CSR_DGDT	= 16'h4051;
+parameter CSR_DLDT	= 16'h4052;
+parameter CSR_DBVEC	= 16'b0100_0000_0101_1???;
+parameter CSR_DSP		= 16'h4060;
+parameter CSR_DSPBASE=16'h4061;
+parameter CSR_DSPBOUND=16'h4062;
 parameter CSR_TIME	= 16'h?FE0;
 parameter CSR_MTIME	= 16'h3FE0;
 parameter CSR_DTIME	= 16'h4FE0;
@@ -442,6 +462,7 @@ parameter FLT_CHK		= 8'h27;
 parameter FLT_KEY		= 8'h31;
 parameter FLT_WRV		= 8'h32;
 parameter FLT_RDV		= 8'h33;
+parameter FLT_SGB		= 8'h34;
 parameter FLT_WD		= 8'h36;
 parameter FLT_UNIMP	= 8'h37;
 parameter FLT_PMA		= 8'h3D;
@@ -541,8 +562,9 @@ parameter pL1LineSize = 512;
 parameter pL1ICacheLines = 512;
 parameter pL1ICacheLineSize = 548;
 localparam pL1Imsb = $clog2(pL1ICacheLines-1)-1+6;
-parameter RSTIP = {32'hFFFC0300,1'b0};
-parameter BRKIP = {32'hFFFC0000,1'b0};
+parameter RSTCS = {60'h000000000000000,4'h7};
+parameter RSTIP = {64'hFFFFFFFFFFFC0300,1'b0};
+parameter BRKIP = {64'hFFFFFFFFFFFC0000,1'b0};
 parameter RIBO = 1;
 
 typedef logic [`ABITS] Address;
@@ -550,6 +572,7 @@ typedef logic [AWID-13:0] BTBTag;
 typedef logic [7:0] ASID;
 typedef logic [63:0] Data;
 typedef logic [3:0] DataTag;
+typedef logic [9:0] Selector;
 
 typedef logic [NUM_AIREGS-1:1] RegBitList;
 
@@ -709,9 +732,26 @@ typedef struct packed
 
 typedef struct packed
 {
+	logic [63:6] limit;
+	logic U;
+	logic con;// conforming
+	logic S;	// stack
+	logic [2:0] OM;
+	logic [63:6] base;
+	logic P;	// present
+	logic A;	// accessed
+	logic C;	// cachable
+	logic R;
+	logic W;
+	logic X;
+} SegDesc;
+
+typedef struct packed
+{
 	logic v;
 	logic pma_v;
 	Address ip;
+	SegDesc cs;
 	Address pip;
 	logic predict_taken;
 	logic [pL1ICacheLineSize-1:0] cacheline;
@@ -721,6 +761,7 @@ typedef struct packed
 {
 	logic v;
 	Address ip;
+	SegDesc cs;
 	Address pip;
 	logic predict_taken;
 	Instruction ir;
@@ -730,17 +771,23 @@ typedef struct packed
 {
 	logic v;
 	Address ip;
+	Selector cs;
 	Address pip;
 	logic predict_taken;
 	Instruction ir;
 	logic ui;							// unimplemented instruction
 	logic rfwr;						// register file write is required
+	logic srfwr;					// base register file write is required
+	logic brfwr;					// bound register file write
 	logic vrfwr;					// vector register file write
 	logic vmrfwr;
 	logic is_vec;					// is a vector instruction
 	logic is_mod;					// is an instruction modifier
 	logic is_signed;			// is a signed operation
 	logic jump;
+	logic deferJmp;
+	logic mtcs;
+	logic di;
 	logic branch;
 	logic call;
 	logic exec;
@@ -766,7 +813,9 @@ typedef struct packed
 	logic Rcvec;
 	logic Rtvec;
 	logic Rbseg;
+	logic Rbbnd;
 	logic Rtseg;
+	logic Rtbnd;
 	logic Ramask;
 	logic Rbmask;
 	logic [2:0] Vm;
@@ -873,6 +922,7 @@ typedef struct packed
 	logic out;						// instruction is out being executed
 	logic out2;
 	Address ip;
+	Selector cs;
 	Instruction ir;
 	Instruction irmod;
 	Instruction lsm_mask;
@@ -899,6 +949,8 @@ typedef struct packed
 	logic takb;
 	logic predict_taken;
 	logic rfwr;
+	logic srfwr;					// write base register file
+	logic brfwr;
 	logic vrfwr;					// write vector register file
 	logic vmrfwr;
 	logic [5:0] Rt;
@@ -913,6 +965,7 @@ typedef struct packed
 	logic Rdvec;
 	logic Rbseg;
 	logic Rtseg;
+	logic Rtbnd;
 	logic [5:0] pRt;			// physical Rt
 	logic [5:0] step;			// vector step
 	logic step_v;
@@ -945,6 +998,8 @@ typedef struct packed
 	sFPFlags fp_flags;
 	logic [5:0] res_ele;
 	logic [15:0] cause;
+	logic [2:0] irq_level;
+	logic lockout;
 	Address badAddr;
 	logic wr_fu;				// write to functional unit
 	logic update_rob;
@@ -969,7 +1024,9 @@ typedef struct packed
 	logic [5:0] xrid;
 	logic [5:0] step;
 	Address redirect_ip;
+	Selector redirect_cs;
 	Address current_ip;
+	Selector current_cs;
 } sRedirect;
 
 typedef struct packed
@@ -1007,7 +1064,25 @@ typedef struct packed
 	logic cmt;
 	logic ret;
 	logic call;
+	logic jali;
+	logic ldcs;
 } MemoryResponse;	// 192
+
+typedef struct packed
+{
+	logic ASID;
+	logic G;
+	logic D;
+	logic A;
+	logic U;
+	logic C;
+	logic R;
+	logic W;
+	logic X;
+	logic [19:0] vpn;
+	logic [7:0] reseved;
+	logic [19:0] ppn;
+} TLBEntry;
 
 endpackage
 

@@ -356,6 +356,7 @@ enum {
        tk_mfbase,
        tk_mfbnd,
        tk_mffp, //280
+     tk_mfsel,
      tk_mfspr,
 			 tk_mfu,
 			tk_min,
@@ -374,6 +375,7 @@ enum {
      tk_mtbase,
      tk_mtbnd,
      tk_mtfp,
+    tk_mtsel,
      tk_mtspr,
 			tk_mtu,
      tk_mul,

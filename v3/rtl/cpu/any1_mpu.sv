@@ -56,7 +56,7 @@ input tm_clk_i;
 input pit_clk2;
 input pit_gate2;
 output pit_out2;
-output [3:0] irq_o;
+output [2:0] irq_o;
 input i1;
 input i2;
 input i3;
@@ -109,7 +109,7 @@ wire [15:0] sel;
 wire [63:0] adr;
 reg [127:0] dati;
 wire [127:0] dato;
-wire [3:0] irq;
+wire [2:0] irq;
 wire [7:0] cause;
 wire pic_ack;
 wire [31:0] pic_dato;
@@ -185,6 +185,8 @@ any1_pit upit1
 	.out2(pit_out2)
 );
 
+wire irq3;
+
 any1_pic upic1
 (
 	.rst_i(rst_i),		// reset
@@ -228,7 +230,7 @@ any1_pic upic1
 	.i29(pit_out2),	// garbage collector stop interrupt
 	.i30(pit_out1),	// garbage collector interrupt
 	.i31(pit_out0),	// time slice interrupt
-	.irqo(irq),
+	.irqo({irq3,irq}),
 	.nmii(1'b0),
 	.nmio(),
 	.causeo(cause)
@@ -255,7 +257,7 @@ any1oo ucpu1
     .hartid_i(hartid_i),
     .rst_i(rst_i),
     .clk_i(clk_i),
-//    .clk2x_i(clk2x_i),
+    .clk2x_i(clk2x_i),
 //    .clk4x_i(clk4x_i),
     .wc_clk_i(tm_clk_i),
 //    .div_clk_i(div_clk_i),

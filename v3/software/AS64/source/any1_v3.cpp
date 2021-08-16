@@ -164,7 +164,7 @@
 #define I_LDTUS 0x85
 #define I_LDOS	0x86
 
-#define I_LEA		0x91
+//#define I_LEA		0x91
 #define I_FLDO	0x92
 #define I_PLDO	0x93
 
@@ -273,6 +273,8 @@
 #define I_MTBASE	0x29
 #define I_MFBND	0x2A
 #define I_MTBND	0x2B
+#define I_MFSEL	0x2C
+#define I_MTSEL	0x2D
 
 #define I_FCMP	0x10
 #define I_FSEQ	0x11
@@ -2090,26 +2092,26 @@ static void ext11(int64_t val, bool mem)
 			if (!IsNBit(val, 67LL)) {
 				emit_insn(
 					((val >> 11LL) << 8LL) |
-					I_EXI0, false
+					I_EXI0, 9, false
 				);
 				emit_insn(
 					((val >> 39LL) << 8LL) |
-					I_EXI1, false
+					I_EXI1, 9, false
 				);
 				emit_insn(
 					((val >> 67LL) << 8LL) |
-					I_EXI2, false
+					I_EXI2, 9, false
 				);
 			}
 			// Fits into 67 bits
 			else {
 				emit_insn(
 					((val >> 11LL) << 8LL) |
-					I_EXI0, false
+					I_EXI0, 9, false
 				);
 				emit_insn(
 					((val >> 39LL) << 8LL) |
-					I_EXI1, false
+					I_EXI1, 9, false
 				);
 			}
 		}
@@ -2117,7 +2119,7 @@ static void ext11(int64_t val, bool mem)
 		else {
 			emit_insn(
 				((val >> 11LL) << 8LL) |
-				I_EXI0, false
+				I_EXI0, 9, false
 			);
 		}
 	}
@@ -3121,7 +3123,7 @@ static void process_mvbase(int oc)
 	p = inptr;
 	SkipSpaces();
 	// MTBASE
-	if (oc == 0x29 || oc == 0x2B) {
+	if (oc == 0x29 || oc == 0x2B || oc == 0x2D) {
 		NextToken();
 		if (token == '[') {
 			Rb = getRegisterX();
@@ -3131,7 +3133,7 @@ static void process_mvbase(int oc)
 		else
 			Rb = getRegisterX();
 		if (token == ',') {
-			any1_NextToken();
+			inptr;
 			Ra = getRegisterX();
 		}
 	}
@@ -4157,7 +4159,7 @@ static void process_store()
 		emit_insn(RA(Rc) | I_IMOD);
 		emit_insn(
 			FUNC4(opcode6) |
-			((Sc & 7LL) << 29LL) |
+			(((int64_t)Sc & 7LL) << 27LL) |
 			RT(0) |
 			RA(Ra) |
 			RB(Rs) |
@@ -4430,7 +4432,7 @@ static void process_load()
 
 	// Check for indexed mode
 	if (Ra >= 0 && Rb >= 0) {
-		emit_insn(FUNC4(opcode6) | ((Sc & 7LL) << 29LL) | RB(Rb)|RA(Ra)|RT(Rt)|(opcode6&0x80?I_LDxXZ:I_LDxX));
+		emit_insn(FUNC4(opcode6) | (((int64_t)Sc & 7LL) << 27LL) | RB(Rb)|RA(Ra)|RT(Rt)|(opcode6&0x80?I_LDxXZ:I_LDxX));
 		ScanToEOL();
 		return;
 	}
@@ -4484,7 +4486,7 @@ static void process_cache(int opcode6)
 	// Check for indexed mode
 	if (Ra >= 0 && Rb >= 0) {
 		error("Indexed mode not supported for CACHE");
-		emit_insn(FUNC4(opcode6) | ((Sc & 7LL) << 29LL) | RB(Rb) | RA(Ra) | RT(cmd) | ((opcode6 & 0x80) ? I_LDxXZ : I_LDxX));
+		emit_insn(FUNC4(opcode6) | (((int64_t)Sc & 7LL) << 27LL) | RB(Rb) | RA(Ra) | RT(cmd) | ((opcode6 & 0x80) ? I_LDxXZ : I_LDxX));
 		ScanToEOL();
 		return;
 	}
@@ -5851,9 +5853,11 @@ j1:
 	case tk_message: process_message(); break;
 	case tk_mfbase: process_mvbase(I_MFBASE); break;
 	case tk_mfbnd: process_mvbase(I_MFBND); break;
+	case tk_mfsel: process_mvbase(I_MFSEL); break;
 	case tk_mov: process_mov(I_MOV, 0x00); break;
 	case tk_mtbase: process_mvbase(I_MTBASE); break;
 	case tk_mtbnd: process_mvbase(I_MTBND); break;
+	case tk_mtsel: process_mvbase(I_MTSEL); break;
 	case tk_mux: process_cmove(4); break;
 	case tk_mvseg: process_rrop(); break;
 		//case tk_mulh: process_rrop(0x26, 0x3A); break;
@@ -6223,8 +6227,8 @@ void any1v3_processMaster()
 		parm2[tk_ldwu] = S_WYDE|0x80;
 		parm3[tk_ldwu] = 0x01;
 		jumptbl[tk_lea] = &process_load;
-		parm1[tk_lea] = 0x0F;
-		parm2[tk_lea] = 0x0F;
+		parm1[tk_lea] = 0x0E;
+		parm2[tk_lea] = 0x0E;
 		parm3[tk_lea] = 0x00;
 		jumptbl[tk_ldt] = &process_load;
 		parm1[tk_ldt] = S_TETRA;

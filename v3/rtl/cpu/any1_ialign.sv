@@ -49,6 +49,7 @@ begin
 	o.predict_taken <= i.predict_taken;
 	o.ir <= i.cacheline >> {i.ip[5:-1],2'b0};
 	o.ip <= i.ip;
+	o.cs <= i.cs;
 	o.pip <= i.pip;
 end
 

@@ -37,11 +37,12 @@
 
 import any1_pkg::*;
 
-module any1_TLB(rst_i, clk_i, asid_i, umode_i,xlaten_i,we_i,ladr_i,next_i,iacc_i,dacc_i,iadr_i,padr_o,acr_o,tlben_i,wrtlb_i,tlbadr_i,tlbdat_i,tlbdat_o,tlbmiss_o);
+module any1_TLB(rst_i, clk_i, rdy_o, asid_i, umode_i,xlaten_i,we_i,ladr_i,next_i,iacc_i,dacc_i,iadr_i,padr_o,acr_o,tlben_i,wrtlb_i,tlbadr_i,tlbdat_i,tlbdat_o,tlbmiss_o);
 parameter AWID=32;
 parameter RSTIP = 65'h1FFFFFFFFFFFE0180;
 input rst_i;
 input clk_i;
+output rdy_o;
 input [7:0] asid_i;
 input umode_i;
 input xlaten_i;
@@ -55,23 +56,29 @@ output Address padr_o;
 output reg [3:0] acr_o;
 input tlben_i;
 input wrtlb_i;
-input [11:0] tlbadr_i;
+input [15:0] tlbadr_i;
 input [63:0] tlbdat_i;
 output reg [63:0] tlbdat_o;
 output reg tlbmiss_o;
 parameter TRUE = 1'b1;
 parameter FALSE = 1'b0;
 
+Address adr_i;
+reg [2:0] state;
+parameter ST_RST = 3'd0;
+parameter ST_RUN = 3'd1;
+
 wire [AWID-1:-1] rstip = RSTIP;
-reg [63:0] tadri0, tadri1, tadri2, tadri3;
+reg [1:0] randway;
+TLBEntry tadri0, tadri1, tadri2, tadri3;
 reg wr0,wr1,wr2,wr3, wed;
 reg hit0,hit1,hit2,hit3;
-wire wrtlb1 = tlbadr_i[11:10]==2'd0 && wrtlb_i;
-wire wrtlb2 = tlbadr_i[11:10]==2'd1 && wrtlb_i;
-wire wrtlb3 = tlbadr_i[11:10]==2'd2 && wrtlb_i;
+wire wrtlb1 = tlbadr_i[15] ? randway==2'd0 : tlbadr_i[11:10]==2'd0 && wrtlb_i;
+wire wrtlb2 = tlbadr_i[15] ? randway==2'd1 : tlbadr_i[11:10]==2'd1 && wrtlb_i;
+wire wrtlb3 = tlbadr_i[15] ? randway==2'd2 : tlbadr_i[11:10]==2'd2 && wrtlb_i;
 wire wrtlb4 = tlbadr_i[11:10]==2'd3 && wrtlb_i;
 wire [63:0] tlbdato1,tlbdato2,tlbdato3,tlbdato4;
-wire [63:0] tadr0, tadr1, tadr2, tadr3;
+TLBEntry tadr0, tadr1, tadr2, tadr3;
 wire clk_g = clk_i;
 always @*
 case(tlbadr_i[11:10])
@@ -92,6 +99,71 @@ edge_det u5 (
   .ee()
 );
 
+reg [63:0] tlbdat_rst, tlbdati;
+reg [12:0] count;
+reg tlbwr0r, tlbwr1r, tlbwr2r, tlbwr3r;
+reg tlbeni;
+reg [9:0] tlbadri;
+
+always @(posedge clk_g)
+if (rst_i) begin
+	randway <= 2'd0;
+end
+else begin
+	if (!wrtlb_i) begin
+		randway <= randway + 2'd1;
+		if (randway==2'd2)
+			randway <= 2'd0;
+	end
+end
+
+always @(posedge clk_g)
+if (rst_i) begin
+	state <= 3'b001;
+	tlbeni <= 1'b1;		// forces ready low
+	tlbwr0r <= 1'b0;
+	tlbwr1r <= 1'b0;
+	tlbwr2r <= 1'b0;
+	tlbwr3r <= 1'b0;
+	count <= 13'd4080;	// Map only last 256kB
+end
+else begin
+case(state)
+3'b001:
+	begin
+		tlbeni <= 1'b1;
+		tlbwr0r <= 1'b0;
+		tlbwr1r <= 1'b0;
+		tlbwr2r <= 1'b0;
+		tlbwr3r <= 1'b0;
+		casez(count[12:0])
+//		13'b000??????????: begin tlbwr0r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h0,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
+//		13'b001??????????: begin tlbwr1r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h1,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
+//		13'b010??????????: begin tlbwr2r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h2,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
+		13'b011??????????: begin tlbwr3r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,16'h00FF,12'h000,2'b00,8'hFF,count[9:0]};	end // Map 16MB ROM/IO area
+		13'b1????????????: begin state <= 3'b010; tlbwr0r <= 1'b0; tlbwr1r <= 1'b0; tlbwr2r <= 1'b0; tlbwr3r <= 1'b0; end
+		endcase
+		count <= count + 2'd1;
+	end
+3'b010:	
+	begin
+		tlbeni  <= 1'b0;
+		tlbwr0r <= 1'b0;
+		tlbwr1r <= 1'b0;
+		tlbwr2r <= 1'b0;
+		tlbwr3r <= 1'b0;
+	end
+endcase
+end
+assign rdy_o = ~tlbeni;
+
+always_comb
+	tlbdati = state[0] ? tlbdat_rst : tlbdat_i;
+always_comb
+	tlbadri = state[0] ? count[9:0] : tlbadr_i;
+always_comb
+	adr_i = iacc_i ? iadr_i : ladr_i;
+
 // Dirty / Accessed bit write logic
 always @(posedge clk_g)
   wed <= we_i;
@@ -103,19 +175,27 @@ begin
   wr3 <= 1'b0;
   if (ne_xlat) begin
     if (hit0) begin
-      tadri0 <= {tadr0[63:55],wed,1'b1,tadr0[52:0]};
+    	tadri0 <= tadr0;
+    	tadri0.D <= wed;
+    	tadri0.A <= 1'b1;
       wr0 <= 1'b1;
     end
     if (hit1) begin
-      tadri1 <= {tadr1[63:55],wed,1'b1,tadr1[52:0]};
+    	tadri1 <= tadr1;
+    	tadri1.D <= wed;
+    	tadri1.A <= 1'b1;
       wr1 <= 1'b1;
     end
     if (hit2) begin
-      tadri2 <= {tadr2[63:55],wed,1'b1,tadr2[52:0]};
+    	tadri2 <= tadr2;
+    	tadri2.D <= wed;
+    	tadri2.A <= 1'b1;
       wr2 <= 1'b1;
     end
     if (hit3) begin
-      tadri3 <= {tadr3[63:55],wed,1'b1,tadr3[52:0]};
+    	tadri3 <= tadr3;
+    	tadri3.D <= wed;
+    	tadri3.A <= 1'b1;
       wr3 <= 1'b1;
     end
   end
@@ -123,60 +203,60 @@ end
 
 TLBRam u1 (
   .clka(clk_g),    // input wire clka
-  .ena(tlben_i),      // input wire ena
-  .wea(tlbwr1),      // input wire [0 : 0] wea
-  .addra(tlbadr_i[9:0]),  // input wire [9 : 0] addra
-  .dina(tlbdat_i),    // input wire [63 : 0] dina
+  .ena(tlben_i|tlbeni),      // input wire ena
+  .wea(tlbwr1|tlbwr0r),      // input wire [0 : 0] wea
+  .addra(tlbadri),  // input wire [9 : 0] addra
+  .dina(tlbdati),    // input wire [63 : 0] dina
   .douta(tlbdato1),  // output wire [63 : 0] douta
   .clkb(clk_g),    // input wire clkb
   .enb(xlaten_i),      // input wire enb
   .web(wr0),      // input wire [0 : 0] web
-  .addrb(ladr_i[23:14]),  // input wire [9 : 0] addrb
+  .addrb(adr_i[23:14]),  // input wire [9 : 0] addrb
   .dinb(tadr0i),    // input wire [63 : 0] dinb
   .doutb(tadr0)  // output wire [63 : 0] doutb
 );
 
 TLBRam u2 (
   .clka(clk_g),    // input wire clka
-  .ena(tlben_i),      // input wire ena
-  .wea(tlbwr2),      // input wire [0 : 0] wea
-  .addra(tlbadr_i[9:0]),  // input wire [9 : 0] addra
-  .dina(tlbdat_i),    // input wire [63 : 0] dina
+  .ena(tlben_i|tlbeni),      // input wire ena
+  .wea(tlbwr2|tlbwr1r),      // input wire [0 : 0] wea
+  .addra(tlbadri),  // input wire [9 : 0] addra
+  .dina(tlbdati),    // input wire [63 : 0] dina
   .douta(tlbdato2),  // output wire [63 : 0] douta
   .clkb(clk_g),    // input wire clkb
   .enb(xlaten_i),      // input wire enb
   .web(wr1),      // input wire [0 : 0] web
-  .addrb(ladr_i[23:14]),  // input wire [9 : 0] addrb
+  .addrb(adr_i[23:14]),  // input wire [9 : 0] addrb
   .dinb(tadr1i),    // input wire [63 : 0] dinb
   .doutb(tadr1)  // output wire [63 : 0] doutb
 );
 
 TLBRam u3 (
   .clka(clk_g),    // input wire clka
-  .ena(tlben_i),      // input wire ena
-  .wea(tlbwr3),      // input wire [0 : 0] wea
-  .addra(tlbadr_i[9:0]),  // input wire [9 : 0] addra
-  .dina(tlbdat_i),    // input wire [63 : 0] dina
+  .ena(tlben_i|tlbeni),      // input wire ena
+  .wea(tlbwr3|tlbwr2r),      // input wire [0 : 0] wea
+  .addra(tlbadri),  // input wire [9 : 0] addra
+  .dina(tlbdati),    // input wire [63 : 0] dina
   .douta(tlbdato3),  // output wire [63 : 0] douta
   .clkb(clk_g),    // input wire clkb
   .enb(xlaten_i),      // input wire enb
   .web(wr2),      // input wire [0 : 0] web
-  .addrb(ladr_i[23:14]),  // input wire [9 : 0] addrb
+  .addrb(adr_i[23:14]),  // input wire [9 : 0] addrb
   .dinb(tadr2i),    // input wire [63 : 0] dinb
   .doutb(tadr2)  // output wire [63 : 0] doutb
 );
 
 TLBRam u4 (
   .clka(clk_g),    // input wire clka
-  .ena(tlben_i),      // input wire ena
-  .wea(tlbwr4),      // input wire [0 : 0] wea
-  .addra(tlbadr_i[9:0]),  // input wire [9 : 0] addra
-  .dina(tlbdat_i),    // input wire [63 : 0] dina
+  .ena(tlben_i|tlbeni),      // input wire ena
+  .wea(tlbwr4|tlbwr3r),      // input wire [0 : 0] wea
+  .addra(tlbadri),  // input wire [9 : 0] addra
+  .dina(tlbdati),    // input wire [63 : 0] dina
   .douta(tlbdato4),  // output wire [63 : 0] douta
   .clkb(clk_g),    // input wire clkb
   .enb(xlaten_i),      // input wire enb
   .web(wr3),      // input wire [0 : 0] web
-  .addrb(ladr_i[23:14]),  // input wire [9 : 0] addrb
+  .addrb(adr_i[23:14]),  // input wire [9 : 0] addrb
   .dinb(tadr3i),    // input wire [63 : 0] dinb
   .doutb(tadr3)  // output wire [63 : 0] doutb
 );
@@ -195,37 +275,71 @@ else begin
   end
 	if (next_i)
 		padr_o <= padr_o + 6'd32;
-  else if (iacc_i)
-    padr_o <= iadr_i;
-  else if (dacc_i) begin
-    padr_o[13:-1] <= ladr_i[13:-1];
-	  if (!umode_i || ladr_i[AWID-1:24]=={AWID-24{1'b1}}) begin
+  else if (iacc_i) begin
+  	padr_o[13:-1] <= iadr_i[13:-1];
+//	  if (adr_i[AWID-1:24]=={AWID-24{1'b1}}) begin
+//	    tlbmiss_o <= FALSE;
+//	    padr_o[31:14] <= adr_i[31:14];
+//	    acr_o <= 4'b1111;
+//	  end
+//	  else
+	  if (tadr0.vpn==adr_i[31:24] && (tadr0.ASID==asid_i || tadr0.G)) begin
 	    tlbmiss_o <= FALSE;
-	    padr_o[AWID-1:14] <= ladr_i[AWID-1:14];
-	    acr_o <= 4'b1111;
-	  end
-	  else if (tadr0[AWID+7:32]==ladr_i[AWID-1:24] && (tadr0[63:56]==asid_i || tadr0[55])) begin
-	    tlbmiss_o <= FALSE;
-	    padr_o[AWID-1:14] <= tadr0[AWID-15:0];
-	    acr_o <= tadr0[51:48];
+	    padr_o[31:14] <= tadr0.ppn;
+	    acr_o <= {tadr0.C,tadr0.R,tadr0.W,tadr0.X};
 	    hit0 <= 1'b1;
 	  end
-	  else if (tadr1[AWID+7:32]==ladr_i[AWID-1:24] && (tadr1[63:56]==asid_i || tadr1[55])) begin
+	  else if (tadr1.vpn==adr_i[31:24] && (tadr1.ASID==asid_i || tadr1.G)) begin
 	    tlbmiss_o <= FALSE;
-	    padr_o[AWID-1:14] <= tadr1[AWID-15:0];
-	    acr_o <= tadr1[51:48];
+	    padr_o[31:14] <= tadr1.ppn;
+	    acr_o <= {tadr1.C,tadr1.R,tadr1.W,tadr1.X};
 	    hit1 <= 1'b1;
 	  end
-	  else if (tadr2[AWID+7:32]==ladr_i[AWID-1:24] && (tadr2[63:56]==asid_i || tadr2[55])) begin
+	  else if (tadr2.vpn==adr_i[31:24] && (tadr2.ASID==asid_i || tadr2.G)) begin
 	    tlbmiss_o <= FALSE;
-	    padr_o[AWID-1:14] <= tadr2[AWID-15:0];
-	    acr_o <= tadr2[51:48];
+	    padr_o[31:14] <= tadr2.ppn;
+	    acr_o <= {tadr2.C,tadr2.R,tadr2.W,tadr2.X};;
 	    hit2 <= 1'b1;
 	  end
-	  else if (tadr3[AWID+7:32]==ladr_i[AWID-1:24] && (tadr3[63:56]==asid_i || tadr3[55])) begin
+	  else if (tadr3.vpn==adr_i[31:24] && (tadr3.ASID==asid_i || tadr3.G)) begin
 	    tlbmiss_o <= FALSE;
-	    padr_o[AWID-1:14] <= tadr3[AWID-15:0];
-	    acr_o <= tadr3[51:48];
+	    padr_o[31:14] <= tadr3.ppn;
+	    acr_o <= {tadr3.C,tadr3.R,tadr3.W,tadr3.X};
+	    hit3 <= 1'b1;
+	  end
+	  else
+	    tlbmiss_o <= TRUE;
+  end
+  else if (dacc_i) begin
+    padr_o[13:-1] <= ladr_i[13:-1];
+//	  if (adr_i[AWID-1:24]=={AWID-24{1'b1}}) begin
+//	    tlbmiss_o <= FALSE;
+//	    padr_o[31:14] <= ladr_i[31:14];
+//	    acr_o <= 4'b1111;
+//	  end
+//	  else
+	  if (tadr0.vpn==adr_i[31:24] && (tadr0.ASID==asid_i || tadr0.G)) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[31:14] <= tadr0.ppn;
+	    acr_o <= {tadr0.C,tadr0.R,tadr0.W,tadr0.X};
+	    hit0 <= 1'b1;
+	  end
+	  else if (tadr1.vpn==adr_i[31:24] && (tadr1.ASID==asid_i || tadr1.G)) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[31:14] <= tadr1.ppn;
+	    acr_o <= {tadr1.C,tadr1.R,tadr1.W,tadr1.X};
+	    hit1 <= 1'b1;
+	  end
+	  else if (tadr2.vpn==adr_i[31:24] && (tadr2.ASID==asid_i || tadr2.G)) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[31:14] <= tadr2.ppn;
+	    acr_o <= {tadr2.C,tadr2.R,tadr2.W,tadr2.X};;
+	    hit2 <= 1'b1;
+	  end
+	  else if (tadr3.vpn==adr_i[31:24] && (tadr3.ASID==asid_i || tadr3.G)) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[31:14] <= tadr3.ppn;
+	    acr_o <= {tadr3.C,tadr3.R,tadr3.W,tadr3.X};
 	    hit3 <= 1'b1;
 	  end
 	  else

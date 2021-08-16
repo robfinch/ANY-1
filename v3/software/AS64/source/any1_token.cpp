@@ -2646,6 +2646,26 @@ int any1_NextToken()
 							return (token = tk_mtbase);
 						}
 						if ((inptr[1] == 'f' || inptr[1] == 'F') &&
+							(inptr[2] == 's' || inptr[2] == 'S') &&
+							(inptr[3] == 'e' || inptr[3] == 'E') &&
+							(inptr[4] == 'l' || inptr[4] == 'L') &&
+							isspaceOrDot(inptr[5])) {
+							inptr += 5;
+							tokenBuffer[tbndx] = tk_mfsel;
+							tbndx++;
+							return (token = tk_mfsel);
+						}
+						if ((inptr[1] == 't' || inptr[1] == 'T') &&
+							(inptr[2] == 's' || inptr[2] == 'S') &&
+							(inptr[3] == 'e' || inptr[3] == 'E') &&
+							(inptr[4] == 'l' || inptr[4] == 'L') &&
+							isspaceOrDot(inptr[5])) {
+							inptr += 5;
+							tokenBuffer[tbndx] = tk_mtsel;
+							tbndx++;
+							return (token = tk_mtsel);
+						}
+						if ((inptr[1] == 'f' || inptr[1] == 'F') &&
 							(inptr[2] == 'b' || inptr[2] == 'B') &&
 							(inptr[3] == 'n' || inptr[3] == 'N') &&
 							(inptr[4] == 'd' || inptr[4] == 'D') &&

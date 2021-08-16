@@ -32,6 +32,20 @@ std::string Rb()
 	return str;
 }
 
+std::string Rbi()
+{
+	char buf[40];
+	std::string str;
+	int Rb;
+
+	Rb = (insn >> 20LL) & 0x7fLL;
+	if (Rb & 0x40)
+		str = "$x" + std::string(_itoa(Rb & 0x3f, buf, 16));
+	else
+		str = "[$x" + std::string(_itoa(Rb & 0x1f, buf, 10)) + "]";
+	return str;
+}
+
 std::string Bb()
 {
 	char buf[40];
@@ -50,8 +64,11 @@ std::string Rc()
 {
 	char buf[40];
 	std::string str;
-	str = "$x" + std::string(_itoa((insn >> 16) & 0x1f,buf,10));
-	return str;
+	if ((insn >> 27LL) & 1LL)
+		str = "#$" + std::string(_itoa(((insn >> 19LL) << 5LL) | ((insn >> 14LL) & 0x1fLL), buf, 16));
+	else
+		str = "$x" + std::string(_itoa((insn >> 14LL) & 0x1f,buf,10));
+	return (str);
 }
 
 std::string Rt()
@@ -301,7 +318,7 @@ static std::string DisassemMbMe()
 	return std::string(buf);
 }
 
-static std::string DisassemIndexedAddress()
+static std::string DisassemIndexedAddress(int opt)
 {
   static char buf[50];
   int sir;
@@ -320,17 +337,24 @@ static std::string DisassemIndexedAddress()
 	//}
 	//else
 		str = std::string("");
-	if (Rb && Ra)
-		sprintf(buf,"[R%d+R%d", Ra, Rb);
-	else if (Ra) {
-		sprintf(buf,"[R%d]", Ra);
-		str += std::string(buf);
-		return str;
-	}
-	else if (Rb)
-		sprintf(buf,"[R%d", Rb);
+		if (opt) {
+			sprintf(buf, "[x%d+??", Ra);
+			str += std::string(buf);
+			goto j1;
+		}
+		else {
+			if (Rb && Ra)
+				sprintf(buf, "[R%d+R%d", Ra, Rb);
+			else if (Ra) {
+				sprintf(buf, "[R%d]", Ra);
+				str += std::string(buf);
+				return str;
+			}
+			else if (Rb)
+				sprintf(buf, "[R%d", Rb);
+		}
 	str += std::string(buf);
-
+j1:
 	if (sc > 1)
 		sprintf(buf, "*%d]", sc);
 	else
@@ -394,6 +418,7 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 	std::string str;
 	static int first = 1;
 	int Rbb = (insn >> 11LL) & 0x1fLL;
+	int nn;
 
 	if (first) {
 		immcnt = 0;
@@ -552,20 +577,21 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		break;
 	case ILDxX:
 		switch ((insn >> 32LL) & 15LL) {
-		case 0:	str = "LDBX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 1:	str = "LDWX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 2:	str = "LDTX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 3:	str = "LDOX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 13:	str = "LDMX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 14:	str = "LEAX   " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 0:	str = "LDBX   " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
+		case 1:	str = "LDWX   " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
+		case 2:	str = "LDTX   " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
+		case 3:	str = "LDOX   " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
+		case 13:	str = "LDMX   " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
+		case 14:	str = "LEAX   " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
 		}
 		break;
 	case ILDxXZ:
 		switch ((insn >> 32LL) & 15LL) {
-		case 0:	str = "LDBUX  " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 1:	str = "LDWUX  " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 2:	str = "LDTUX  " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 3:	str = "LDOUX  " + Rt() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 0:	str = "LDBUX  " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
+		case 1:	str = "LDWUX  " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
+		case 2:	str = "LDTUX  " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
+		case 3:	str = "LDOUX  " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
+		case 14:	str = "LEAX   " + Rt() + "," + DisassemIndexedAddress(0); immcnt = 0; return (str);
 		}
 		break;
 	case IPOP:
@@ -595,10 +621,10 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 		break;
 	case ISTxX:
 		switch ((insn >> 32LL) & 15LL) {
-		case 0:	str = "STBX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 1:	str = "STWX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 2:	str = "STTX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
-		case 3:	str = "STOX   " + Rb() + "," + DisassemIndexedAddress(); immcnt = 0; return (str);
+		case 0:	str = "STBX   " + Rb() + "," + DisassemIndexedAddress(1); immcnt = 0; return (str);
+		case 1:	str = "STWX   " + Rb() + "," + DisassemIndexedAddress(1); immcnt = 0; return (str);
+		case 2:	str = "STTX   " + Rb() + "," + DisassemIndexedAddress(1); immcnt = 0; return (str);
+		case 3:	str = "STOX   " + Rb() + "," + DisassemIndexedAddress(1); immcnt = 0; return (str);
 		}
 		break;
 	case IPUSH:
@@ -781,19 +807,45 @@ std::string Disassem(std::string sad, std::string sinsn, uint64_t dad, unsigned 
 			str = "MFBASE " + Rt() + ",[" + Rb() + "]";
 			return (str);
 		case IMTBND:
-			str = "MTBBND  [" + Rb() + "]," + Ra();
+			str = "MTBND  [" + Rb() + "]," + Ra();
 			return (str);
 		case IMFBND:
-			str = "MFBBND  " + Rt() + ",[" + Rb() + "]";
+			str = "MFBND  " + Rt() + ",[" + Rb() + "]";
 			return (str);
 		case IBASE:
 			str = "BASE   " + Rt() + "," + Ra() + "," + Rb();
+			return (str);
+		case IMTSEL:
+			str = "MTSEL  " + Rbi() + "," + Ra();
+			return (str);
+		case IMFSEL:
+			str = "MFSEL  " + Rt() + "," + Rbi();
 			return (str);
 		case ITLBRW:
 			str = "TLBRW  " + Rt() + "," + Ra() + "," + Rb();
 			return (str);
 		}
 		break;
+	case ICSR:
+		nn = ((insn >> 18LL) & 2LL) | ((insn >> 13LL) & 1LL);
+		switch (nn) {
+		case 0:
+			str = "CSRRD  " + Rt() + "," + Ra() + ",#" + DisassemConstant();
+			break;
+		case 1:
+			str = "CSRRW  " + Rt() + "," + Ra() + ",#" + DisassemConstant();
+			break;
+		case 2:
+			str = "CSRRS  " + Rt() + "," + Ra() + ",#" + DisassemConstant();
+			break;
+		case 3:
+			str = "CSRRC  " + Rt() + "," + Ra() + ",#" + DisassemConstant();
+			break;
+		}
+		return (str);
+	case IMOD:
+		str = "IMOD   " + Rt() + "," + Rc();
+		return (str);
 	}
 	immcnt = 0;
 	return "?????";

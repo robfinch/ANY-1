@@ -32,7 +32,7 @@
 #define IANDI   0x08
 #define IORI    0x09
 #define IXORI   0x0A
-
+#define ICSR		0x0F
 #define IDIVI		0x10
 #define IDIVUI	0x11
 #define IDIVSUI	0x12
@@ -108,7 +108,6 @@
 #define IFRM			0x24
 #define IFSYNC		0x36
 #define IREX		0x0D
-#define ICSR		0x0E
 #define IEXEC	0x0F
 
 #define IENTER	0x3C
@@ -130,6 +129,7 @@
 #define EXI2		0x52
 #define EXI3		0x53
 #define EXI4		0x54
+#define IMOD		0x58
 #define IREGLST0	0x5C
 #define IREGLST1	0x5D
 #define IREGLST2	0x5E
@@ -152,3 +152,7 @@
 #define IMTBASE	0x29
 #define IMFBND	0x2A
 #define IMTBND	0x2B
+#define IMFSEL	0x2C
+#define IMTSEL	0x2D
+
+#define CSR_DGDT	0x4051

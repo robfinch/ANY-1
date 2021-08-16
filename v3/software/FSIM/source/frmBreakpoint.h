@@ -3,9 +3,9 @@
 #include <string.h>
 #include <stdio.h>
 
-extern unsigned int breakpoints[30];
+extern uint64_t breakpoints[30];
 extern int numBreakpoints;
-extern unsigned int dataBreakpoints[30];
+extern uint64_t dataBreakpoints[30];
 extern int numDataBreakpoints;
 extern int runstop;
 
@@ -185,12 +185,12 @@ namespace E64 {
 #pragma endregion
 	private: System::Void btnAdd_Click(System::Object^  sender, System::EventArgs^  e) {
 				 char* str2 = (char*)(void*)Marshal::StringToHGlobalAnsi(this->textBoxBrkpt->Text);
-				 char buf[20];
+				 char buf[24];
 				 int kk;
-				 long bp;
-
+				 int64_t bp;
 				 std::string str;
-				 bp = strtoul(str2,0,16);
+
+				 bp = InsnBrkptToUint64();
 				 if (bp > 0) {
 					 if (numBreakpoints < 30) {
 						 breakpoints[numBreakpoints] = bp;
@@ -198,13 +198,13 @@ namespace E64 {
 					 }
 					 this->listBoxBrkpts->Items->Clear();
 					 for (kk = 0; kk < numBreakpoints; kk++) {
-						 sprintf(buf, "%06X", breakpoints[kk]);
+						 sprintf(buf, "%06I64X.%X", breakpoints[kk]>>1LL,((int)breakpoints[kk]&1) ? 8 : 0);
 						 str = std::string(buf);
 						 this->listBoxBrkpts->Items->Add(gcnew String(str.c_str()));
 					 }
 				 }
 				 str2 = (char*)(void*)Marshal::StringToHGlobalAnsi(this->textBoxDataBrkpt->Text);
-				 bp = strtoul(str2,0,16);
+				 bp = strtoull(str2,0,16);
 				 if (bp > 0) {
 					 if (numDataBreakpoints < 30) {
 						 dataBreakpoints[numDataBreakpoints] = bp;
@@ -212,7 +212,7 @@ namespace E64 {
 					 }
 					 this->listBoxBrkpts->Items->Clear();
 					 for (kk = 0; kk < numDataBreakpoints; kk++) {
-						 sprintf(buf, "%06X", dataBreakpoints[kk]);
+						 sprintf(buf, "%06I64X", dataBreakpoints[kk]);
 						 str = std::string(buf);
 						 this->listBoxDataBrkpts->Items->Add(gcnew String(str.c_str()));
 					 }
@@ -225,25 +225,42 @@ private: System::Void frmBreakpoint_Load(System::Object^  sender, System::EventA
 
 			 this->listBoxBrkpts->Items->Clear();
 			 for (kk = 0; kk < numBreakpoints; kk++) {
-				 sprintf(buf, "%06X", breakpoints[kk]);
+				 sprintf(buf, "%06I64X.%X", breakpoints[kk] >> 1LL, ((int)breakpoints[kk] & 1) ? 8 : 0);
 				 str = std::string(buf);
 				 this->listBoxBrkpts->Items->Add(gcnew String(str.c_str()));
 			 }
 			 this->listBoxDataBrkpts->Items->Clear();
 			 for (kk = 0; kk < numDataBreakpoints; kk++) {
-				 sprintf(buf, "%06X", dataBreakpoints[kk]);
+				 sprintf(buf, "%06I64X", dataBreakpoints[kk]);
 				 str = std::string(buf);
 				 this->listBoxDataBrkpts->Items->Add(gcnew String(str.c_str()));
 			 }
 			 
 		 }
+	private: System::UInt64 InsnBrkptToUint64() {
+		char* str2 = (char*)(void*)Marshal::StringToHGlobalAnsi(this->textBoxBrkpt->Text);
+		char* strdeci;
+		char buf[20];
+		std::string str;
+
+		int64_t bkp = strtoull(str2, 0, 16);
+		bkp <<= 1;
+		strdeci = strchr(str2, '.');
+		if (strdeci != nullptr) {
+			strdeci++;
+			if (strdeci[0] == '8')
+				bkp++;
+		}
+		return (bkp);
+	};
 private: System::Void btnRemove_Click(System::Object^  sender, System::EventArgs^  e) {
-				 char* str2 = (char*)(void*)Marshal::StringToHGlobalAnsi(this->textBoxBrkpt->Text);
+			char* str2 = (char*)(void*)Marshal::StringToHGlobalAnsi(this->textBoxBrkpt->Text);
+			char* strdeci;
 			 char buf[20];
 			 int kk,jj;
 			 std::string str;
-			 int bkp = strtoul(str2,0,16);
 
+			 int64_t bkp = InsnBrkptToUint64();
 			 for (kk = 0; kk < numBreakpoints; kk++) {
 				 if (bkp==breakpoints[kk]) {
 					 for (jj = kk +1; jj < 30; jj++)
@@ -255,13 +272,13 @@ private: System::Void btnRemove_Click(System::Object^  sender, System::EventArgs
 			 numBreakpoints--;
 			 this->listBoxBrkpts->Items->Clear();
 			 for (kk = 0; kk < numBreakpoints; kk++) {
-				 sprintf(buf, "%06X", breakpoints[kk]);
+				 sprintf(buf, "%06I64X.%X", breakpoints[kk] >> 1LL, ((int)breakpoints[kk] & 1) ? 8 : 0);
 				 str = std::string(buf);
 				 this->listBoxBrkpts->Items->Add(gcnew String(str.c_str()));
 			 }
 
 			 str2 = (char*)(void*)Marshal::StringToHGlobalAnsi(this->textBoxDataBrkpt->Text);
-			 bkp = strtoul(str2,0,16);
+			 bkp = strtoull(str2,0,16);
 			 for (kk = 0; kk < numDataBreakpoints; kk++) {
 				 if (bkp==dataBreakpoints[kk]) {
 					 for (jj = kk +1; jj < 30; jj++)
@@ -273,7 +290,7 @@ private: System::Void btnRemove_Click(System::Object^  sender, System::EventArgs
 			 numDataBreakpoints--;
 			 this->listBoxDataBrkpts->Items->Clear();
 			 for (kk = 0; kk < numDataBreakpoints; kk++) {
-				 sprintf(buf, "%06X", dataBreakpoints[kk]);
+				 sprintf(buf, "%06I64X", dataBreakpoints[kk]);
 				 str = std::string(buf);
 				 this->listBoxDataBrkpts->Items->Add(gcnew String(str.c_str()));
 			 }

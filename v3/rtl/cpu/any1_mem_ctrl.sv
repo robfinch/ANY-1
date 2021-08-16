@@ -37,18 +37,22 @@
 
 import any1_pkg::*;
 
-module any1_mem_ctrl(rst,clk,UserMode,MUserMode,omode,ASID,sregfile,ip,ihit,ifStall,ic_line,
+module any1_mem_ctrl(rst,clk,tlbclk,UserMode,MUserMode,omode,ASID,ea_seg,
+	sregfile,cs,ip,ihit,ifStall,ic_line,
 	fifoToCtrl_i,fifoToCtrl_full,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
 	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
-	dat_i, dat_o, sr_o, cr_o, rb_i, dce, keys);
+	dat_i, dat_o, sr_o, cr_o, rb_i, dce, keys, arange, gdt, ldt);
 parameter AWID=32;
 input rst;
 input clk;
+input tlbclk;
 input UserMode;
 input MUserMode;
 input [2:0] omode;
 input [7:0] ASID;
-input [63:0] sregfile [0:15];
+output reg [9:0] ea_seg;
+input [19:0] sregfile;
+input SegDesc cs;
 input Address ip;
 output reg ihit;
 input ifStall;
@@ -79,6 +83,9 @@ output reg cr_o;
 input rb_i;
 output reg dce;							// data cache enable
 input [19:0] keys [0:7];
+input [2:0] arange;
+input [63:0] gdt;
+input [63:0] ldt;
 
 parameter TRUE = 1'b1;
 parameter FALSE = 1'b0;
@@ -87,6 +94,7 @@ parameter LOW = 1'b0;
 
 parameter IO_KEY_ADR	= 16'hFF88;
 
+parameter MEMORY_INIT = 6'd0;
 parameter MEMORY1 = 6'd1;
 parameter MEMORY2 = 6'd2;
 parameter MEMORY3 = 6'd3;
@@ -107,6 +115,7 @@ parameter KEYCHK_ERR = 6'd17;
 parameter TLB1 = 6'd21;
 parameter TLB2 = 6'd22;
 parameter TLB3 = 6'd23;
+parameter IFETCH0 = 6'd30;
 parameter IFETCH1 = 6'd31;
 parameter IFETCH2 = 6'd32;
 parameter IFETCH3 = 6'd33;
@@ -152,19 +161,38 @@ reg memreq_rd = 0;
 MemoryResponse memresp;
 reg zero_data = 0;
 
-Address ea;
+Address csip;
 always_comb
- 	ea = {memreq.adr[AWID-1:AWID-4],memreq.adr[AWID-5:-1] >> shr_ma};	// Keep same segment
+	csip = ip[AWID-1:-1] + {cs.base,7'h0};
+
+Address ea;
+Address afilt;
+
+// Get segment selection
+// +9 has extra +1 to account for addresses starting at :-1]
+always_comb
+	ea_seg = memreq.adr >> 6'd54;
+	
+// Filter out the segment selection from the request address
+always_comb
+	for (n = -1; n < AWID; n = n + 1)
+		if (n > 53)
+			afilt = 1'b0;
+		else
+			afilt = memreq.adr[n];
+
+always_comb
+ 	ea = {afilt >> shr_ma};	// Keep same segment
 
 reg [7:-1] ealow;
-wire [3:0] segsel = ea[AWID-1:AWID-4];
-wire [3:0] ea_acr = sregfile[segsel][3:0];
-wire [3:0] pc_acr = sregfile[ip[AWID-1:AWID-4]][3:0];
+wire [3:0] segsel = ea >> ({arange,3'b0} + 4'd8);
+wire [3:0] ea_acr = sregfile[3:0];
+wire [3:0] pc_acr = cs[3:0];
 
 reg [63:0] sel;
 reg [63:0] nsel;
 reg [255:0] dat, dati;
-reg [63:0] datis;
+reg [127:0] datis;
 always_comb datis <= dati >> {ealow[3:-1],2'b0};
 `ifdef CPU_B64
 reg [15:0] sel;
@@ -332,7 +360,7 @@ icache_blkmem uicm (
   .dina(ici[pL1ICacheLineSize-1:0]),    // input wire [511 : 0] dina
   .clkb(~clk),    // input wire clkb
   .enb(!ifStall),      // input wire enb
-  .addrb({ic_rway,ip[12:6]}),  // input wire [8 : 0] addrb
+  .addrb({ic_rway,csip[12:6]}),  // input wire [8 : 0] addrb
   .doutb(ic_line)  // output wire [511 : 0] doutb
 );
 
@@ -344,10 +372,10 @@ reg ihit1c;
 reg ihit1d;
 always_comb
 begin
-  ihit1a = ictag[0][ip[12:6]]==ip[AWID-1:6] && icvalid[0][ip[12:6]]==TRUE;
-  ihit1b = ictag[1][ip[12:6]]==ip[AWID-1:6] && icvalid[1][ip[12:6]]==TRUE;
-  ihit1c = ictag[2][ip[12:6]]==ip[AWID-1:6] && icvalid[2][ip[12:6]]==TRUE;
-  ihit1d = ictag[3][ip[12:6]]==ip[AWID-1:6] && icvalid[3][ip[12:6]]==TRUE;
+  ihit1a = ictag[0][csip[12:6]]==csip[AWID-1:6] && icvalid[0][csip[12:6]]==TRUE;
+  ihit1b = ictag[1][csip[12:6]]==csip[AWID-1:6] && icvalid[1][csip[12:6]]==TRUE;
+  ihit1c = ictag[2][csip[12:6]]==csip[AWID-1:6] && icvalid[2][csip[12:6]]==TRUE;
+  ihit1d = ictag[3][csip[12:6]]==csip[AWID-1:6] && icvalid[3][csip[12:6]]==TRUE;
 	ihit = ihit1a|ihit1b|ihit1c|ihit1d;
 end
 
@@ -375,10 +403,10 @@ end
 always_comb
 begin
   case(1'b1)
-  ihit1a: ic_tag <= ictag[0][ip[12:6]];
-  ihit1b: ic_tag <= ictag[1][ip[12:6]];
-  ihit1c: ic_tag <= ictag[2][ip[12:6]];
-  ihit1d: ic_tag <= ictag[3][ip[12:6]];
+  ihit1a: ic_tag <= ictag[0][csip[12:6]];
+  ihit1b: ic_tag <= ictag[1][csip[12:6]];
+  ihit1c: ic_tag <= ictag[2][csip[12:6]];
+  ihit1d: ic_tag <= ictag[3][csip[12:6]];
   default:  ic_tag <= prev_ic_tag;
   endcase
 end
@@ -540,6 +568,7 @@ always_ff @(posedge clk)
 reg xlaten;
 reg tlben, tlbwr;
 wire tlbmiss;
+wire tlbrdy;
 wire [3:0] tlbacr;
 wire [63:0] tlbdato;
 reg [63:0] tlb_ia, tlb_ib;
@@ -547,7 +576,8 @@ reg inext;
 
 any1_TLB utlb (
   .rst_i(rst),
-  .clk_i(clk),
+  .clk_i(tlbclk),
+  .rdy_o(tlbrdy),
   .asid_i(ASID),
   .umode_i(vpa_o ? UserMode : MUserMode),
   .xlaten_i(xlaten),
@@ -557,14 +587,42 @@ any1_TLB utlb (
   .iacc_i(iaccess),
   .dacc_i(daccess),
   .iadr_i(iadr),
-  .padr_o(adr_o), // ToDo: fix this for icache access
+  .padr_o(adr_o),
   .acr_o(tlbacr),
   .tlben_i(tlben),
   .wrtlb_i(tlbwr),
-  .tlbadr_i(tlb_ia[11:0]),
+  .tlbadr_i(tlb_ia[15:0]),
   .tlbdat_i(tlb_ib),
   .tlbdat_o(tlbdato),
   .tlbmiss_o(tlbmiss)
+);
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Descriptor cache
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+reg [63:0] limit;
+reg wr_desc;
+reg [9:0] desc_index;
+SegDesc desc_out;
+
+always_comb
+	limit <= {6'd0,desc_out.limit};
+
+desc_cache_blkram udesc1
+(
+  .clka(~clk),    // input wire clka
+  .ena(1'b1),      // input wire ena
+  .wea(1'b0),      // input wire [0 : 0] wea
+  .addra(ea_seg),  // input wire [9 : 0] addra
+  .dina(128'h0),    // input wire [127 : 0] dina
+  .douta(desc_out),  // output wire [127 : 0] douta
+  .clkb(clk),    // input wire clkb
+  .enb(1'b1),      // input wire enb
+  .web(wr_desc),      // input wire [0 : 0] web
+  .addrb(desc_index),  // input wire [9 : 0] addrb
+  .dinb(memresp.res),    // input wire [127 : 0] dinb
+  .doutb()  // output wire [127 : 0] doutb
 );
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -599,6 +657,7 @@ if (rst) begin
 	ic_wway <= 2'b00;
 	dcache_wr <= FALSE;
 	dwait <= 3'd0;
+	iaccess <= FALSE;
 	daccess <= FALSE;
 	ici <= 512'd0;
 	dci <= 640'd0;
@@ -607,18 +666,29 @@ if (rst) begin
 	memresp.res <= 128'd0;
 	memresp.ret <= FALSE;
 	memresp.call <= FALSE;
+	memresp.ldcs <= FALSE;
+	desc_index <= 10'd0;
+	goto (MEMORY_INIT);
 end
 else begin
 	inext <= FALSE;
-	iaccess <= FALSE;
 	ic_update <= 1'b0;
 	memresp.fifo_wr <= FALSE;
 	dcache_wr <= FALSE;
 	tlbwr <= FALSE;
+	wr_desc <= FALSE;
 
 	case(state)
-	MEMORY1:
+	MEMORY_INIT:
 		begin
+			wr_desc <= TRUE;
+			memresp.res <= 128'hFFFFFFFFFFFFFFC4_000000000000003F;
+			desc_index <= desc_index + 2'd1;
+			if (desc_index==10'd8)
+				goto (MEMORY1);
+		end
+	MEMORY1:
+		if (tlbrdy) begin
 			iaccess <= FALSE;
 			daccess <= FALSE;
 		  icnt <= 5'd0;
@@ -627,20 +697,8 @@ else begin
 			if (!ihit && fifoToCtrl_empty) begin
 				waycnt <= waycnt + 2'd1;
 				// On a miss goto load I$ process unless a hit in the victim cache.
-				// Use ipo to hold onto the original ip value. The ip value might
-				// change during a cache load due to a branch. We also want the start
-				// of the cache line identified as the access will span into the next
-				// cache line.
-				ipo <= ip;
-		    iadr <= {ip[AWID-1:6],7'h0};
 		    iaccess <= TRUE;
-				gosub (IFETCH1);
-				for (n = 0; n < 5; n = n + 1) begin
-					if (ivtag[n]==ip[AWID-1:6] && ivvalid[n]) begin
-						vcn <= n;
-			    	gosub (IFETCH4);
-		    	end
-				end
+				gosub (IFETCH0);
 			end
 			if (!fifoToCtrl_empty) begin
 				memreq_rd <= TRUE;
@@ -657,7 +715,9 @@ else begin
 			memresp.cause <= {8'h00,FLT_NONE};
 			memresp.badAddr <= 33'd0;
 			memresp.ret <= FALSE;
+			memresp.jali <= memreq.func==M_JALI;
 			memresp.call <= memreq.func==M_CALL;
+			memresp.ldcs <= FALSE;
 			ealow <= ea[7:-1];
 			// Detect cache controller commands
   		case(memreq.func)
@@ -678,17 +738,63 @@ else begin
 				    memresp.cmt <= TRUE;
 						memresp.fifo_wr <= TRUE;
 						memresp.res <= 128'd0;
+						goto (MEMORY1);
+					end
+				LDDESC:
+					begin
+						desc_index <= memreq.dat[9:0];
+			    	daccess <= TRUE;
+    		  	tEA(ea);
+	      		xlaten <= TRUE;
+	      		// Setup proper select lines
+			      sel <= {32'h0,memreq.sel} << ea[3:-1];
+						goto (MEMORY3);
 					end
 				default:
 					begin
+			    	if (afilt > limit) begin
+							memresp.tid <= memreq.tid;
+							memresp.step <= memreq.step;
+							memresp.res <= memreq.adr;
+					    memresp.cmt <= TRUE;
+							memresp.fifo_wr <= TRUE;
+							memresp.res <= 128'd0;
+							memresp.badAddr <= memreq.adr;
+			    		memresp.cause <= FLT_SGB;
+							goto (MEMORY1);
+			    	end
+			    	else begin
+				    	daccess <= TRUE;
+	    		  	tEA(ea);
+		      		xlaten <= TRUE;
+		      		// Setup proper select lines
+				      sel <= {32'h0,memreq.sel} << ea[3:-1];
+				  		goto (MEMORY3);
+			  		end
+					end
+				endcase
+			M_JALI:
+				begin
+		    	if (afilt > limit) begin
+						memresp.tid <= memreq.tid;
+						memresp.step <= memreq.step;
+						memresp.res <= memreq.adr;
+				    memresp.cmt <= TRUE;
+						memresp.fifo_wr <= TRUE;
+						memresp.res <= 128'd0;
+						memresp.badAddr <= memreq.adr;
+		    		memresp.cause <= FLT_SGB;
+						goto (MEMORY1);
+		    	end
+		    	else begin
 			    	daccess <= TRUE;
 	    		  tEA(ea);
 	      		xlaten <= TRUE;
 	      		// Setup proper select lines
 			      sel <= {32'h0,memreq.sel} << ea[3:-1];
 			  		goto (MEMORY3);
-					end
-				endcase
+		  		end
+				end
 			CACHE2:
 				begin
 					ic_invline <= memreq.dat[2:0]==3'd1;
@@ -706,6 +812,7 @@ else begin
 					memresp.res <= 128'd0;
 					ret();
 				end
+			/*
 			RTS2:
 				begin
 					memresp.ret <= TRUE;
@@ -716,16 +823,29 @@ else begin
 		      sel <= {32'h0,memreq.sel} << ea[3:-1];
 		  		goto (MEMORY3);
 				end
+			*/
 			STORE,M_CALL:
 				begin
-		    	daccess <= TRUE;
-    		  tEA(ea);
-      		xlaten <= TRUE;
-      		// Setup proper select lines
-		      sel <= zero_data ? 32'h0003 << ea[3:-1] : {32'h0,memreq.sel} << ea[3:-1];
-		      // Shift output data into position
-    		  dat <= zero_data ? 256'd0 : {128'd0,memreq.dat} << {ea[3:-1],2'b0};
-		  		goto (MEMORY3);
+					if (afilt > limit) begin
+						memresp.tid <= memreq.tid;
+						memresp.step <= memreq.step;
+						memresp.res <= memreq.adr;
+				    memresp.cmt <= TRUE;
+						memresp.fifo_wr <= TRUE;
+						memresp.res <= 128'd0;
+						memresp.badAddr <= memreq.adr;
+			    	memresp.cause <= FLT_SGB;
+			    end
+			    else begin
+			    	daccess <= TRUE;
+	    		  tEA(ea);
+	      		xlaten <= TRUE;
+	      		// Setup proper select lines
+			      sel <= zero_data ? 32'h0003 << ea[3:-1] : {32'h0,memreq.sel} << ea[3:-1];
+			      // Shift output data into position
+	    		  dat <= zero_data ? 256'd0 : {128'd0,memreq.dat} << {ea[3:-1],2'b0};
+			  		goto (MEMORY3);
+		  		end
 				end
 			default:	ret();	// unknown operation
 			endcase
@@ -784,7 +904,7 @@ else begin
 	    dwait <= 3'd0;
 	    goto (MEMORY6);
 			if (tlbmiss) 
-				tTLBMiss({ea,1'b0});
+				tTLBMiss(ea);
 	    else if (memreq.func != CACHE) begin
 	    	vda_o <= HIGH;
 	      cyc_o <= HIGH;
@@ -794,7 +914,7 @@ else begin
 //	      sel_o <= sel[15:0];
 	      dat_o <= dat[127:0];
 	      case(memreq.func)
-	      LOAD,LOADZ,RTS2:
+	      LOAD,LOADZ,M_JALI://,RTS2:
 	      	begin
 	     			sr_o <= memreq.func2==LDOR;
   	    		if (dhit) begin
@@ -858,7 +978,7 @@ else begin
 		      goto (MEMORY8);
 		    else begin
 		      case(memreq.func)
-		      LOAD,LOADZ,RTS2:
+		      LOAD,LOADZ,M_JALI://,RTS2:
 		      	begin
 		      		if (dce & dhit)
 		      			dati <= datil >> {adr_o[5:3],6'b0};
@@ -940,9 +1060,9 @@ else begin
 	//    dadr <= adr_o;
 	    goto (MEMORY12);
 			if (tlbmiss)
-				tTLBMiss({ea,1'b0});
+				tTLBMiss(ea);
 			else begin
-				if (dhit && (memreq.func==LOAD || memreq.func==LOADZ|| memreq.func==RTS2) && dce)
+				if (dhit && (memreq.func==LOAD || memreq.func==LOADZ || memreq.func==M_JALI/*|| memreq.func==RTS2*/) && dce)
 		 			tDeactivateBus();
 				else begin
 	      	stb_o <= HIGH;
@@ -984,7 +1104,7 @@ else begin
 	  if (~ack_i) begin
 	    begin
 	      case(memreq.func)
-	      LOAD,LOADZ,RTS2:
+	      LOAD,LOADZ,M_JALI://,RTS2:
 	      	begin
 	      		if (dhit & dce)
 	      			dati <= datil >> {adr_o[5:3],6'b0};
@@ -1024,7 +1144,7 @@ else begin
 
 	DATA_ALIGN:
 	  begin
-	  	if ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==RTS2) & ~dhit & dcachable & dce)
+	  	if ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==M_JALI /*|| memreq.func==RTS2*/) & ~dhit & dcachable & dce)
 	  		goto (DFETCH2);
 	  	else
 	    	ret();
@@ -1042,6 +1162,14 @@ else begin
 		    	LDT:	begin memresp.res <= {{32{datis[31]}},datis[31:0]}; end
 		    	LDO:	begin memresp.res <= datis[63:0]; end
 		    	LDOR:	begin memresp.res <= datis[63:0]; end
+		    	LDOB:	begin memresp.res <= datis[63:0]; end
+		    	LDDESC:
+		    		begin
+		    			memresp.res <= datis[127:0];
+		    			wr_desc <= TRUE;
+		    			if (desc_index==10'd7)
+		    				memresp.ldcs <= TRUE;
+		    		end
 		    	default:	memresp.res <= 128'h0;
 		    	endcase
 	    	end
@@ -1053,10 +1181,29 @@ else begin
 		    	LDT:	begin memresp.res <= {32'd0,datis[31:0]}; end
 		    	LDO:	begin memresp.res <= datis[63:0]; end
 		    	LDOR:	begin memresp.res <= datis[63:0]; end
+		    	LDOB:	begin memresp.res <= datis[63:0]; end
+		    	LDDESC:
+		    		begin
+		    			memresp.res <= datis[127:0];
+		    			wr_desc <= TRUE;
+		    			if (desc_index==10'd7)
+		    				memresp.ldcs <= TRUE;
+		    		end
 		    	default:	memresp.res <= 128'h0;
 		    	endcase
 	    	end
-    	RTS2:	begin memresp.res <= datis[63:0]; memresp.ret <= TRUE; end
+	    M_JALI:
+	    	begin
+		    	case(memreq.func)
+		    	LDB:	begin memresp.res <= {{56{datis[7]}},datis[7:0]}; end
+		    	LDW:	begin memresp.res <= {{48{datis[15]}},datis[15:0]}; end
+		    	LDT:	begin memresp.res <= {{32{datis[31]}},datis[31:0]}; end
+		    	LDO:	begin memresp.res <= datis[63:0]; end
+		    	default:	memresp.res <= 128'h0;
+		    	endcase
+		    	memresp.jali <= TRUE;
+		    end
+//    	RTS2:	begin memresp.res <= datis[63:0]; memresp.ret <= TRUE; end
 	    default:  ;
 	    endcase
 	  end
@@ -1076,6 +1223,22 @@ else begin
 	   	ret();
 		end
 
+	// Use ipo to hold onto the original ip value. The ip value might
+	// change during a cache load due to a branch. We also want the start
+	// of the cache line identified as the access will span into the next
+	// cache line.
+	IFETCH0:
+		begin
+			ipo <= csip;
+			iadr <= csip;
+			goto (IFETCH1);
+			for (n = 0; n < 5; n = n + 1) begin
+				if (ivtag[n]==csip[AWID-1:6] && ivvalid[n]) begin
+					vcn <= n;
+		    	goto (IFETCH4);
+	    	end
+			end
+		end
 	// Hardware subroutine to fetch instruction cache line
 	IFETCH1:
 	  if (!ack_i) begin
@@ -1159,7 +1322,7 @@ else begin
 		  begin
 	  		goto (DFETCH4);
 	  		if (tlbmiss)
-	  			tTLBMiss(adr_o);
+	  			tTLBMiss(ea);//adr_o);
 			  // First time in, set to miss address, after that increment
 	      dadr <= {adr_o[AWID-1:6],7'h0};
 		  end
@@ -1243,7 +1406,7 @@ else begin
 		  begin
 	  		goto (KYLD4);
 	  		if (tlbmiss)
-	  			tTLBMiss(adr_o);
+	  			tTLBMiss(ea);//adr_o);
 				else
 				  // First time in, set to miss address, after that increment
 				  daccess <= TRUE;
@@ -1319,14 +1482,14 @@ endtask
 task tEA;
 input Address iea;
 begin
-  if (MUserMode && (memreq.func==STORE || memreq.func==M_CALL) && !ea_acr[1])
+  if ((memreq.func==STORE || memreq.func==M_CALL) && !ea_acr[1])
     memresp.cause <= {8'h80,FLT_WRV};
-  else if (MUserMode && (memreq.func==LOAD || memreq.func==LOADZ || memreq.func==RTS2) && !ea_acr[2])
+  else if ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==M_JALI /*|| memreq.func==RTS2*/) && !ea_acr[2])
     memresp.cause <= {8'h80,FLT_RDV};
-	if (!MUserMode || iea[AWID-1:24]=={AWID-24{1'b1}})
-		dadr <= iea;
-	else
-		dadr <= iea[AWID-5:-1] + {sregfile[segsel][AWID-1:4],15'd0};
+//	if (iea[AWID-1:24]=={AWID-24{1'b1}})
+//		dadr <= iea;
+//	else
+		dadr <= iea[AWID-5:-1] + {desc_out.base,7'd0};
 end
 endtask
 
@@ -1337,7 +1500,7 @@ begin
   // PMA Check
   for (n = 0; n < 8; n = n + 1)
     if (adr_o[31:4] >= PMA_LB[n] && adr_o[31:4] <= PMA_UB[n]) begin
-      if ((memreq.func==STORE && !PMA_AT[n][1]) || ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==RTS2) && !PMA_AT[n][2]))
+      if ((memreq.func==STORE && !PMA_AT[n][1]) || ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==M_JALI /*|| memreq.func==RTS2*/) && !PMA_AT[n][2]))
 		    memresp.cause <= {8'h80,FLT_PMA};
 		  dcachable <= PMA_AT[n][3];
     end

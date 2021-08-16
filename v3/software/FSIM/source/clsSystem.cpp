@@ -270,6 +270,7 @@ j1:
 		unsigned __int8 sc;
 		unsigned __int8 st;
 		uint64_t rv;
+		ipin &= 0x1ffffffffLL;
 		uint64_t ip = (cpu1.tlb.Map(cpu1.asid,ipin>>1LL) << 1LL) | (ipin & 1LL);
 		if (ip < 134217728 * 2) {
 			rv = memory[ip >> 3];

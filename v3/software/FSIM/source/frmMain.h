@@ -23,7 +23,7 @@
 extern clsCPU cpu1;
 extern clsPIC pic1;
 extern clsSystem system1;
-extern unsigned int breakpoints[30];
+extern uint64_t breakpoints[30];
 extern volatile unsigned int interval1024;
 extern volatile unsigned int interval30;
 extern bool irq1024Hz;

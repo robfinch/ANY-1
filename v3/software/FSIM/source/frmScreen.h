@@ -33,11 +33,11 @@ namespace E64 {
 			//
 			this->SetStyle(ControlStyles::AllPaintingInWmPaint
 				| ControlStyles::Opaque, true);
-			myfont = gcnew System::Drawing::Font("Courier New", 6);
+			myfont = gcnew System::Drawing::Font("Courier New", 8);
 			ur.X = 0;
 			ur.Y = 0;
-			ur.Width = 80*8;
-			ur.Height = 31*8;
+			ur.Width = 56*12;
+			ur.Height = 31*12;
 		}
 
 	protected:
@@ -51,14 +51,17 @@ namespace E64 {
 				delete components;
 			}
 		}
+	private: System::ComponentModel::IContainer^ components;
+	protected:
 
 	private:
 		/// <summary>
 		/// Required designer variable.
 		/// </summary>
-		System::ComponentModel::Container ^components;
+
 		System::Drawing::Rectangle ur;
-		System::Drawing::Font^ myfont;
+	private: System::Windows::Forms::Timer^ timer1;
+				 System::Drawing::Font^ myfont;
 
 #pragma region Windows Form Designer generated code
 		/// <summary>
@@ -67,13 +70,21 @@ namespace E64 {
 		/// </summary>
 		void InitializeComponent(void)
 		{
+			this->components = (gcnew System::ComponentModel::Container());
+			this->timer1 = (gcnew System::Windows::Forms::Timer(this->components));
 			this->SuspendLayout();
+			// 
+			// timer1
+			// 
+			this->timer1->Enabled = true;
+			this->timer1->Interval = 1000;
+			this->timer1->Tick += gcnew System::EventHandler(this, &frmScreen::timer1_Tick);
 			// 
 			// frmScreen
 			// 
 			this->AutoScaleDimensions = System::Drawing::SizeF(6, 13);
 			this->AutoScaleMode = System::Windows::Forms::AutoScaleMode::Font;
-			this->ClientSize = System::Drawing::Size(882, 334);
+			this->ClientSize = System::Drawing::Size(726, 385);
 			this->Name = L"frmScreen";
 			this->Text = L"FEM Screen";
 			this->Paint += gcnew System::Windows::Forms::PaintEventHandler(this, &frmScreen::frmScreen_Paint);
@@ -97,7 +108,7 @@ namespace E64 {
 				 char buf[10];
 				 unsigned int ndx;
 				 int r,g,b;
-				 unsigned int v;
+				 uint64_t v;
 				 std::string str;
 				 Graphics^ gr = e->Graphics;
 				 SolidBrush^ bkbr;
@@ -120,46 +131,53 @@ namespace E64 {
 				 bkbr = gcnew System::Drawing::SolidBrush(System::Drawing::Color::Blue);
 				 fgbr = gcnew System::Drawing::SolidBrush(System::Drawing::Color::White);
 
-				 for (xx = ur.X; xx < ur.X + ur.Width; xx += 8) {
-					 for (yy = ur.Y; yy < ur.Y + ur.Height; yy += 8) {
-						 ndx = (xx/8 + yy/8 * 84);
+				 for (xx = ur.X; xx < ur.X + ur.Width; xx += 12) {
+					 for (yy = ur.Y; yy < ur.Y + ur.Height; yy += 12) {
+						 ndx = (xx/12 + yy/12 * 56) * 2;
 //						 if (system1.VideoMemDirty[ndx]) {
-							v = system1.VideoMem[ndx];
-							r = ((((v >> 10) >> 9) >> 6) & 7) << 5;
-							g = ((((v >> 10) >> 9) >> 3) & 7) << 5;
-							b = ((((v >> 10) >> 9) >> 0) & 7) << 5;
+							v = system1.VideoMem[ndx] | ((uint64_t)system1.VideoMem[ndx+1] << 32LL);
+							r = (((v >> 30) & 0x7fLL) << 1LL);
+							g = (((v >> 23) & 0x7fLL) << 1LL);
+							b = (((v >> 16) & 0x7fLL) << 1LL);
 							bkbr->Color = col->FromArgb(255,r,g,b);
-							gr->FillRectangle(bkbr,xx,yy,8,8);
-							r = ((((v >> 10)) >> 6) & 7) << 5;
-							g = ((((v >> 10)) >> 3) & 7)<< 5;
-							b = ((((v >> 10)) >> 0) & 7)<< 5;
+							gr->FillRectangle(bkbr,xx,yy,12,12);
+							r = (((v >> 51) & 0x7fLL) << 1LL);
+							g = (((v >> 44) & 0x7fLL) << 1LL);
+							b = (((v >> 37) & 0x7FLL) << 1LL);
 							fgbr->Color = col->FromArgb(255,r,g,b);
-							sprintf(buf,"%c",ScreenToAscii(system1.VideoMem[ndx]&0xff));
+							sprintf(buf,"%c",(char)(v & 0xffLL));
 							str = std::string(buf);
 							gr->DrawString(gcnew String(str.c_str()),myfont,fgbr,xx,yy);
-							system1.VideoMemDirty[ndx] = false;
+							system1.VideoMemDirty[ndx>>1] = false;
 //						 }
 					 }
 				 }
-				minx = 640;
-				miny = 248;
+				minx = 672;
+				miny = 372;
 				maxx = 0;
 				maxy = 0;
 				for (nn = 0; nn < 4096; nn++) {
 					if (system1.VideoMemDirty[nn]) {
-						xx = nn % 84;
-						yy = nn / 84;
+						xx = nn % 56;
+						yy = nn / 56;
 						maxx = max(xx,maxx);
 						maxy = max(yy,maxy);
 						minx = min(xx,minx);
 						miny = min(yy,miny);
 					}
 				}
-				ur.X = minx<<3;
-				ur.Y = miny<<3;
-				ur.Width = (maxx - minx)<<3;
-				ur.Height = (maxy - miny)<<3;
+				ur.X = minx * 12;
+				ur.Y = miny * 12;
+				ur.Width = (maxx - minx) * 12;
+				ur.Height = (maxy - miny) * 12;
 				this->Invalidate(ur);
 			 }
-	};
+	private: System::Void timer1_Tick(System::Object^ sender, System::EventArgs^ e) {
+		ur.X = 0;
+		ur.Y = 0;
+		ur.Width = 672;
+		ur.Height = 372;
+		this->Refresh();
+	}
+};
 }
