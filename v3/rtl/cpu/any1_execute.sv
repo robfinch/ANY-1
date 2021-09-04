@@ -1189,6 +1189,7 @@ else begin
 					tMod();
 				end
 `endif				
+			SYNC:	execo.wr_fu <= FALSE;
 			CSAVE:		tStore(2'b10);
 			CRESTORE:	tLoad(2'b10);
 //			BASE:	begin execo.res.val <= (|omode & ~robi.ir[28]) ? robi.ia.val : (robi.ia.val & ~amask) | ({robi.ib.val[3:0],8'b0} << {arange,3'b0}); tMod(); end
@@ -1876,6 +1877,7 @@ begin
 	execo.update <= TRUE;
 	execo.cmt <= FALSE;
 	execo.cmt2 <= FALSE;
+	execo.wr_fu <= FALSE;
 end
 endtask
 
@@ -1884,6 +1886,7 @@ begin
 	execo.takb <= ex_takb;
 	execo.res.val <= fnIncIP(robi.ip);
 	tMod();
+	execo.wr_fu <= robi.Rt!=5'd0;
 	if (brMispredict) begin
 		a2d_rst <= TRUE;
 		d2x_rst <= TRUE;

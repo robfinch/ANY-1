@@ -220,8 +220,6 @@
 #define I_MULSU	0x16
 #define I_PERM	0x17
 #define I_DIF		0x18
-#define I_SLL		0x19
-#define I_SLLI	0x1A
 //#define I_BYTNDX2	0x1A
 #define I_WYDNDX2	0x1B
 #define I_MULF		0x1C
@@ -2758,8 +2756,8 @@ static void process_jal(int64_t oc, int opt)
             error("Illegal jump address mode");
             Ra = 0;
         }
-		if (Ra==regPC)	// program counter relative ?
-			addr -= code_address;
+		//if (Ra==regPC)	// program counter relative ?
+		//	addr -= code_address;
 	}
 	val = addr;
 	if (Ra == 0) {
@@ -4188,12 +4186,12 @@ static void process_store()
 		else
 			val -= data_base_address;
 	}
-	else if (Ra == regPC) {
-		val -= code_address;
-		if (val & 1LL)
-			error("Store: unaligned data");
-		val >>= 1LL;
-	}
+	//else if (Ra == regPC) {
+	//	val -= code_address;
+	//	if (val & 1LL)
+	//		error("Store: unaligned data");
+	//	val >>= 1LL;
+	//}
 	if (lsm) {
 		emit_insn(((rglist >> 2LL) << 8LL) | (rglist & 3LL) | 0x5C);
 	}
@@ -4414,12 +4412,12 @@ static void process_load()
 		else
 			val -= data_base_address;
 	}
-	else if (Ra == regPC) {
-		val -= code_address;
-		if (val & 1LL)
-			error("Load: unaligned data");
-		val >>= 1LL;
-	}
+	//else if (Ra == regPC) {
+	//	val -= code_address;
+	//	if (val & 1LL)
+	//		error("Load: unaligned data");
+	//	val >>= 1LL;
+	//}
 
 	/*
 	if (val & 1LL)
@@ -4490,12 +4488,12 @@ static void process_cache(int opcode6)
 		ScanToEOL();
 		return;
 	}
-	if (Ra == regPC) {
-		val -= code_address;
-		if (val & 1LL)
-			error("Cache: unaligned data");
-		val >>= 1LL;
-	}
+	//if (Ra == regPC) {
+	//	val -= code_address;
+	//	if (val & 1LL)
+	//		error("Cache: unaligned data");
+	//	val >>= 1LL;
+	//}
 	if (Ra <= 0) Ra = 0x40;
 	if (IsNBit(val, 12)) {
 		emit_insn(FUNC4(opcode6) | ((val & 0xfffLL) << 20LL) | RA(Ra) | RT(cmd) | ((opcode6 & 0x80) ? I_LDxX : I_LDx));
@@ -4957,7 +4955,7 @@ static void process_shifti(int64_t op4)
 		emit_insn((val << 13) | (Rt << 8LL) | I_SRLI20, 5);
 	else
 		emit_insn(
-			FUNC6(vm_shift ? (op4 == I_SRL ? 0x0F : 0x0E) : op4 + 1) |
+			FUNC6(vm_shift ? (op4 == I_SRL ? 0x0F : 0x0E) : op4) |
 			(vm_shift ? I_VM : I_R2) |
 			RT(Rt) |
 			RA(Ra) |

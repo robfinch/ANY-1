@@ -1463,14 +1463,14 @@ always_ff @(posedge clk_g)
 
 always_comb
 if (rst_i) begin
-	memreq.fifo_wr = FALSE;
+	memreq.fifo_wr <= FALSE;
 	memreq.tid <= 8'h7F;
 	memreq.step <= 6'd0;
 	memreq.adr <= 33'd0;
 	memreq.dat <= 64'd0;
 	memreq.sel <= 32'h0;
 	memreq.func2 <= 4'd0;
-	memreq.func = 3'd0;
+	memreq.func <= 3'd0;
 end
 else begin
 	memreq.tid <= membufi1.rid;
@@ -1501,6 +1501,12 @@ else begin
 				else
 					memreq.adr <= {gdt[63:8],8'h00};
 			end
+		TLBRW:
+			begin
+				memreq.func <= TLB;
+				memreq.adr <= membufi1.ia;
+				memreq.dat <= membufi1.ib;
+			end
 		default:	;
 		endcase
 	JALI: begin
@@ -1516,7 +1522,7 @@ else begin
 	default:	
 		memreq.func <= LOAD;
 	endcase
-	memreq.fifo_wr <= membufi_wr;
+	memreq.fifo_wr <= membufi1.wr;
 end
 
 wire [5:0] tidx = memresp.tid[5:0];
@@ -1732,7 +1738,7 @@ if (rst_i) begin
 	rob_d <= 48'd0;
 	rob_q <= 48'd0;
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
-		rob[n] <= {$bits(sReorderEntry){1'b0}};	// Set verything false
+		rob[n] <= {$bits(sReorderEntry){1'b0}};	// Set everything false
 		rob[n].rid <= n[5:0];
 		rob[n].ip <= RSTIP;
 		rob[n].ir <= NOP_INSN;
@@ -1999,14 +2005,15 @@ else begin
 			6'd20:	begin micro_ip <= 6'd0;  a2d_out.ir <= {16'h0010,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; ip <= fnIPInc(ip); end			// ADD $SP,$SP,#16
 			// LEAVE Ra,#Adj
 			6'd21:	begin micro_ip <= 6'd22; a2d_out.ir <= {OR,2'd0,7'd0,1'b0,5'd29,1'b0,micro_ir[12:8],R2};	end		// MOV $SP,$FP
-			6'd22:	begin micro_ip <= 6'd23; a2d_out.ir <= {4'd3,12'hFF8,1'b0,micro_ir[12:8],1'b0,5'd29,LDx}; end		// LDO $FP,-8[$SP]
-			6'd23:	begin micro_ip <= 6'd24; a2d_out.ir <= {4'd3,12'd0,1'b0,micro_ir[12:8],1'b0,micro_ir[18:14],LDx}; end		// LDO $RA,[$SP]
-			6'd24:	begin micro_ip <= 6'd25; a2d_out.ir <= {1'b0,micro_ir[31:20],3'b000,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; ip <= fnIPInc(ip); end			// ADD $SP,$SP,#Amt
-			6'd25:	begin micro_ip <= 6'd0;  a2d_out.ir <= {16'h0000,1'b0,micro_ir[18:14],1'b0,5'd0,JALR}; ip <= fnIPInc(ip); end		// JALR $X0,[$Ra]
+			6'd22:	begin micro_ip <= 6'd23; a2d_out.ir <= {4'd3,12'h000,1'b0,micro_ir[12:8],1'b0,5'd29,LDx}; end		// LDO $FP,[$SP]
+			6'd23:	begin micro_ip <= 6'd24; a2d_out.ir <= {4'd3,12'h010,1'b0,micro_ir[12:8],1'b0,micro_ir[18:14],LDx}; end		// LDO $RA,16[$SP]
+ 			6'd24:	begin micro_ip <= 6'd25; a2d_out.ir <= {16'h0060,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; end			// ADD $SP,$SP,#96
+ 			6'd25:	begin micro_ip <= 6'd26; a2d_out.ir <= {1'b0,micro_ir[31:20],3'b000,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; ip <= fnIPInc(ip); end			// ADD $SP,$SP,#Amt
+			6'd26:	begin micro_ip <= 6'd0;  a2d_out.ir <= {16'h0000,1'b0,micro_ir[18:14],1'b0,5'd0,JALR}; ip <= fnIPInc(ip); end		// JALR $X0,[$Ra]
 			// BSR	Label
-			6'd26:	begin micro_ip <= 6'd27; a2d_out.ir <= {micro_ir[35:10],2'd1,BAL}; end		// BAL $X1,Address
-			6'd27:	begin micro_ip <= 6'd28; a2d_out.ir <= {16'hFFF8,1'b0,5'd30,1'b0,5'd30,ADDI};	ip <= fnIPInc(ip); end			// SUB $SP,$SP,#8
-			6'd28:	begin micro_ip <= 6'd0;  a2d_out.ir <= {4'd3,5'd0,2'd0,5'd1,1'b0,5'd30,6'd0,STx}; ip <= fnIPInc(ip); end		// STO $X1,[$SP]
+			6'd27:	begin micro_ip <= 6'd28; a2d_out.ir <= {micro_ir[35:10],2'd1,BAL}; end		// BAL $X1,Address
+			6'd28:	begin micro_ip <= 6'd29; a2d_out.ir <= {16'hFFF8,1'b0,5'd30,1'b0,5'd30,ADDI};	ip <= fnIPInc(ip); end			// SUB $SP,$SP,#8
+			6'd29:	begin micro_ip <= 6'd0;  a2d_out.ir <= {4'd3,5'd0,2'd0,5'd1,1'b0,5'd30,6'd0,STx}; ip <= fnIPInc(ip); end		// STO $X1,[$SP]
 			// ENTER FAR
 			6'd32: 	begin micro_ip <= 6'd33; a2d_out.ir <= {16'hFFA0,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; end						// ADD $SP,$SP,#-96
 			6'd33:	begin micro_ip <= 6'd34; a2d_out.ir <= {4'd3,5'h00,2'd0,5'd29,1'b0,micro_ir[12:8],6'h00,STx}; end							// STO $FP,[$SP]
@@ -2021,8 +2028,9 @@ else begin
 			6'd43:	begin micro_ip <= 6'd44; a2d_out.ir <= {4'd3,12'h000,1'b0,micro_ir[12:8],1'b0,5'd29,LDx}; end							// LDO $FP,[$SP]
 			6'd44:	begin micro_ip <= 6'd45; a2d_out.ir <= {4'd3,12'h010,1'b0,micro_ir[12:8],1'b0,micro_ir[18:14],LDx}; end		// LDO $RA,16[$SP]
 			6'd45:	begin micro_ip <= 6'd46; a2d_out.ir <= {4'hB,12'h010,1'b0,micro_ir[12:8],1'b0,5'd15,LDx}; end							// LDO $B15,16[$SP]
-			6'd46:	begin micro_ip <= 6'd47; a2d_out.ir <= {1'b0,micro_ir[31:20],3'b000,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; ip <= fnIPInc(ip); end			// ADD $SP,$SP,#Amt
-			6'd47:	begin micro_ip <= 6'd0;  a2d_out.ir <= {16'h0000,1'b0,micro_ir[18:14],1'b0,5'd0,JALR}; ip <= fnIPInc(ip); end		// JALR $X0,[$Ra]
+ 			6'd46:	begin micro_ip <= 6'd47; a2d_out.ir <= {16'h0060,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; end			// ADD $SP,$SP,#96
+			6'd47:	begin micro_ip <= 6'd48; a2d_out.ir <= {1'b0,micro_ir[31:20],3'b000,1'b0,micro_ir[12:8],1'b0,micro_ir[12:8],ADDI}; ip <= fnIPInc(ip); end			// ADD $SP,$SP,#Amt
+			6'd48:	begin micro_ip <= 6'd0;  a2d_out.ir <= {16'h0000,1'b0,micro_ir[18:14],1'b0,5'd0,JALR}; ip <= fnIPInc(ip); end		// JALR $X0,[$Ra]
 			// DEFCAT
 			6'd50:	begin micro_ip <= 6'd51; a2d_out.ir <= {4'd3,12'h000,1'b0,5'd29,1'b0,micro_ir[18:14],LDx}; end							// LDO $Tn,[$FP]
 			6'd51:	begin micro_ip <= 6'd52; a2d_out.ir <= {4'd3,12'h020,1'b0,micro_ir[18:14],1'b0,micro_ir[24:20],LDx}; end		// LDO $Tn+1,32[$Tn]
@@ -2069,7 +2077,7 @@ else begin
 			if (a2d_in.v) begin
 				micro_ir <= a2d_in.ir;
 				a2d_out.ir <= NOP_INSN;
-				micro_ip <= 6'd26;
+				micro_ip <= 6'd27;
 				ip <= a2d_in.ip;
 			end
 		SYS:
@@ -2130,8 +2138,8 @@ else begin
 	// Instruction Align
 	// All work done with combo logic above.
 	$display("Instruction Align");
-	$display("in:  ip: %h:%h  ir:%h", a2d_in.ip[AWID-1:0], a2d_in.ir);
-	$display("out: ip: %h:%h  ir:%h", a2d_out.ip[AWID-1:0], a2d_out.ir);
+	$display("in:  ip: %h:%h  ir:%h", cs_desc.base, a2d_in.ip[AWID-1:0], a2d_in.ir);
+	$display("out: ip: %h:%h  ir:%h", cs_desc.base, a2d_out.ip[AWID-1:0], a2d_out.ir);
 //	if (pop_f2ad)
 //		rob[a2d_in.rid].ir <= a2d_in.ir;
 //	if (pop_a2d)
@@ -2337,6 +2345,7 @@ else begin
 					wb_redirecti.current_ip <= rob[rob_deq].ip;
 					wb_redirecti.current_cs <= cs;
 					wb_redirecti.xrid <= rob_deq;
+					wb_redirecti.wr <= TRUE;
 					wb2if_wr <= TRUE;
 					for (n = 0; n < ROB_ENTRIES; n = n + 1)
 						rob[n].v <= INV;
@@ -2351,11 +2360,12 @@ else begin
 					badaddr[3'd4] <= rob[rob_deq].badAddr;
 					wb_a2d_rst <= TRUE;
 					wb_d2x_rst <= TRUE;
-					wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,5'h00};
+					wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
 					wb_redirecti.redirect_cs <= svec[3'd4];
 					wb_redirecti.current_ip <= rob[rob_deq].ip;
 					wb_redirecti.current_cs <= cs;
 					wb_redirecti.xrid <= rob_deq;
+					wb_redirecti.wr <= TRUE;
 					wb2if_wr <= TRUE;
 					for (n = 0; n < ROB_ENTRIES; n = n + 1)
 						rob[n].v <= INV;
@@ -2385,6 +2395,7 @@ else begin
 							wb_redirecti.current_cs <= cs;
 							wb_redirecti.xrid <= rob_deq;
 							wb_redirecti.step <= 6'd0;
+							wb_redirecti.wr <= TRUE;
 							wb2if_wr <= TRUE;
 							for (n = 0; n < ROB_ENTRIES; n = n + 1)
 								rob[n].v <= INV;
@@ -2400,6 +2411,7 @@ else begin
 							wb_redirecti.current_cs <= cs;
 							wb_redirecti.xrid <= rob_deq;
 							wb_redirecti.step <= 6'd0;
+							wb_redirecti.wr <= TRUE;
 							wb2if_wr <= TRUE;
 							for (n = 0; n < ROB_ENTRIES; n = n + 1)
 								rob[n].v <= INV;
@@ -2420,10 +2432,16 @@ else begin
 							begin
 								wb_a2d_rst <= TRUE;
 								wb_d2x_rst <= TRUE;
-								wb_redirecti.redirect_ip <= rob[rob_deq].ip + 4'd9;
+								wb_redirecti.redirect_ip <= fnIPInc(rob[rob_deq].ip);
+								wb_redirecti.redirect_cs <= cs;
 								wb_redirecti.current_ip <= rob[rob_deq].ip;
+								wb_redirecti.current_cs <= cs;
 								wb_redirecti.xrid <= rob_deq;
+								wb_redirecti.step <= 6'd0;
+								wb_redirecti.wr <= TRUE;
 								wb2if_wr <= TRUE;
+								for (n = 0; n < ROB_ENTRIES; n = n + 1)
+									rob[n].v <= INV;
 							end
 						DI:
 							begin
@@ -2547,10 +2565,6 @@ else begin
 		else if (rob[rob_deq].v==INV) begin
 			tDeque1();
 		end
-	end
-	//????
-	else begin
-		tDeque1();
 	end
 	
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -3100,11 +3114,13 @@ task tQueue;
 begin
 	prev_rob_que <= rob_que;
 	rob[rob_que].rob_q <= rob_q;
+/*
 	if (~ridv[rob_que]) begin
 		rob[rob_que].v <= INV;
 		ridv[rob_que] <= 1'b1;
 	end
 	else
+*/
 		rob[rob_que].v <= a2d_out.v && !branch_invalidating;
 	rob[rob_que].dec <= FALSE;
 	rob[rob_que].out <= FALSE;
@@ -3145,7 +3161,7 @@ begin
 		rob[rob_que].cause <= 16'h8000|cause_i;
 		rob[rob_deq].irq_level <= irq_i;
 	end
-	else if (a2d_out.ip > {a2d_out.cs.limit,6'h3f})
+	else if (a2d_out.ip > {a2d_out.cs.limit,7'h7f})
 		rob[rob_que].cause <= FLT_SGB;
 	else
 		rob[rob_que].cause <= FLT_NONE;
@@ -3173,11 +3189,13 @@ begin
 `ifdef SUPPORT_EXEC
 	if (rob[rob_dec].exec)
 		tResetSrcs(dec_latestID);
-`endif			
+`endif
+/*			
 	if (~ridv[rob_dec]) begin
 		rob[rob_dec].v <= INV;
 		ridv[rob_dec] <= 1'b1;
 	end
+*/
 	rob[rob_dec].ui <= decbuf.ui;
 	rob[rob_dec].is_vec <= decbuf.is_vec;
 	rob[rob_dec].is_mod <= decbuf.is_mod;
@@ -3306,6 +3324,7 @@ begin
 			rob[rob_dec].cmt2 <= TRUE;
 			rob[rob_dec].out <= TRUE;
 			rob[rob_dec].exi <= TRUE;
+			rob[rob_dec].imm <= rob[prev_rob_dec].imm;
 			rob[rob_dec].imm[127:95] <= {{128-123{exbufi[35]}},exbufi.ir[35:8]};
 		end
 	EXI4:
@@ -3314,6 +3333,7 @@ begin
 			rob[rob_dec].cmt2 <= TRUE;
 			rob[rob_dec].out <= TRUE;
 			rob[rob_dec].exi <= TRUE;
+			rob[rob_dec].imm <= rob[prev_rob_dec].imm;
 			rob[rob_dec].imm[127:123] <= exbufi.ir[12:8];
 		end
 	IMOD:

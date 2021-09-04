@@ -39,7 +39,7 @@ import any1_pkg::*;
 
 module any1_TLB(rst_i, clk_i, rdy_o, asid_i, umode_i,xlaten_i,we_i,ladr_i,next_i,iacc_i,dacc_i,iadr_i,padr_o,acr_o,tlben_i,wrtlb_i,tlbadr_i,tlbdat_i,tlbdat_o,tlbmiss_o);
 parameter AWID=32;
-parameter RSTIP = 65'h1FFFFFFFFFFFE0180;
+parameter RSTIP = {64'hFFFFFFFFFFFC0300,1'b0};
 input rst_i;
 input clk_i;
 output rdy_o;
@@ -125,7 +125,7 @@ if (rst_i) begin
 	tlbwr1r <= 1'b0;
 	tlbwr2r <= 1'b0;
 	tlbwr3r <= 1'b0;
-	count <= 13'd4080;	// Map only last 256kB
+	count <= 13'h0FF0;	// Map only last 256kB
 end
 else begin
 case(state)
@@ -136,12 +136,12 @@ case(state)
 		tlbwr1r <= 1'b0;
 		tlbwr2r <= 1'b0;
 		tlbwr3r <= 1'b0;
-		casez(count[12:0])
-//		13'b000??????????: begin tlbwr0r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h0,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
-//		13'b001??????????: begin tlbwr1r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h1,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
-//		13'b010??????????: begin tlbwr2r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h2,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
-		13'b011??????????: begin tlbwr3r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,16'h00FF,12'h000,2'b00,8'hFF,count[9:0]};	end // Map 16MB ROM/IO area
-		13'b1????????????: begin state <= 3'b010; tlbwr0r <= 1'b0; tlbwr1r <= 1'b0; tlbwr2r <= 1'b0; tlbwr3r <= 1'b0; end
+		casez(count[12:10])
+//		13'b000: begin tlbwr0r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h0,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
+//		13'b001: begin tlbwr1r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h1,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
+//		13'b010: begin tlbwr2r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h2,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
+		13'b011: begin tlbwr3r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,16'h00FF,12'h000,2'b00,8'hFF,count[9:0]};	end // Map 16MB ROM/IO area
+		13'b1??: begin state <= 3'b010; tlbwr0r <= 1'b0; tlbwr1r <= 1'b0; tlbwr2r <= 1'b0; tlbwr3r <= 1'b0; end
 		endcase
 		count <= count + 2'd1;
 	end

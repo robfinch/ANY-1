@@ -48,7 +48,9 @@ FILENAME	EQU		0x006C0
 FILEBUF		EQU		0x7F600
 OSRA			EQU		0x006F8
 OSSP			EQU		0x00700
-TXTUNF		EQU		OSSP+8
+OSGP			EQU		OSSP+8
+OSGP1			EQU		OSGP+8
+TXTUNF		EQU		OSGP1+8
 VARBGN		EQU		TXTUNF+8
 VAREND		EQU		VARBGN+8
 LOPVAR		EQU		VAREND+8
@@ -83,7 +85,7 @@ ENDMEM		EQU		0xF0000	; end of available memory
 STACKOFFS	EQU		0x00FF8		; stack offset
 
 
-TINYBASIC_BASE		equ		$18000*2
+TINYBASIC_BASE		equ		$FFFD8000*2
 
 	code
 	org	TINYBASIC_BASE
@@ -91,8 +93,37 @@ TINYBASIC_BASE		equ		$18000*2
 dcb	"TINY_BASIC",0,0,0,0,0,0
 dct	tblib_table,0
 
-		code
-		align	16
+	align	16
+TinyBasic_init .proc
+	; set TinyBasic data segment
+	csrrd	$a2,#CSR_DGDT
+	ldi		$a1,#$000000000040003E	; 4MB boundary
+	sto		$a1,0030*16[$a2]
+	ldi		$a1,#$00000000000FFFC0	; 1 MB
+	sto		$a1,0030*16+8[$a2]
+	ldi		$a0,#0030
+	ldi		$a1,#00030
+	mtsel	[$a0],$a1
+	; set Read-only segment (last 64k)
+	ldi		$a1,#$FFFFFFFFFFFF003C
+	sto		$a1,0031*16[$a2]
+	ldi		$a1,#$000000000000FFC0	; 64kB
+	sto		$a1,0031*16+8[$a2]
+	ldi		$a0,#0031
+	ldi		$a1,#00031
+	mtsel	[$a0],$a1
+	; set TinyBasic stack segment
+	ldi		$a1,#$FFFFFFFFFF40803E
+	sto		$a1,0032*16[$a2]
+	ldi		$a1,#$0000000000000FC0	; 4kB
+	sto		$a1,0032*16+8[$a2]
+	ldi		$a0,#0032						; App#3 SS
+	ldi		$a1,#00032					; App#3 SS
+	mtsel	[$a0],$a1
+	sync
+	ret
+.endp TinyBasic_init
+
 ;
 ; Standard jump table. You can change these addresses if you are
 ; customizing this interpreter for a different environment.
@@ -122,29 +153,23 @@ GOBYE:
 
 	align	16
 CSTART	.proc
-	; set TinyBasic data segment
-	ldi		$a1,#$0000000000400006	; 4MB boundary
-	ldi		$a0,#$030
-	mtbase	[$a0],$a1
-	; set Read-only segment
-	ldi		$a1,#$FFFFFFFFFFFC0004
-	ldi		$a0,#$03C
-	mtbase	[$a0],$a1
-	sync
+	call	TinyBasic_init
+	mov		$t0,$gp
+	mov		$t1,$gp1
 	ldi		$gp,#0
-	ldi		$a0,#$030
+	ldi		$a0,#0030
 	base	$gp,$gp,$a0
 	ldi		$gp1,#0
-	ldi		$a0,#$03C
+	ldi		$a0,#0031
 	base	$gp1,$gp1,$a0
 	sync
 	; Save off the link register and OS sp value
+	sto		$t0,OSGP[$gp]
+	sto		$t1,OSGP1[$gp]
 	sto		$ra,OSRA[$gp]
 	sto		$sp,OSSP[$gp]
-	ldi		$a1,#$FFFFFFFFFF40C006
-	ldi		$a0,#$03A						; App#3 SS
+	ldi		$a0,#0032						; App#3 SS
 	di		#4
-	mtbase	[$a0],$a1
 	ldi		$sp,#STACKOFFS	; initialize stack pointer
 	base	$sp,$sp,$a0
 	ldi		$a0,#14							; Get current tid
@@ -2994,15 +3019,22 @@ INCH .proc
 	align	16
 BYEBYE	.proc
 ;	call	ReleaseIOFocus
-  ldi   $a0,#22     ; release I/O focus
-  brk   #240
 	ldo		$sp,OSSP[$gp]
 	ldo		$ra,OSRA[$gp]
+	ldo		$t0,OSGP[$gp]
+	ldo		$t1,OSGP1[$gp]
+	mov		$gp,$t0
+	mov		$gp1,$t1
+  ldi   $a0,#22     ; release I/O focus
+  brk   #240
 	ldi   $a0,#34     ; activate Monitor
 	brk   #240
 .endp
 
 	rodata
+	; base register is $FFFFFFFFFFFF0000
+	org		$4000
+
 	align	64
 ;******************************************************************
 ;

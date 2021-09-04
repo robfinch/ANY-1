@@ -284,7 +284,7 @@ void DumpSymbols()
             if (dp->segment == codeseg)
               fprintf(ofp, "%c %-40s %6s  %06I64x.%1x %4llu %d %d\n", dp->hasPhaseErr ? '*' : ' ', nmTable.GetName(dp->name), segname(dp->segment), (dp->value.low >> 1) ? 8 : 0, (int)dp->value.low & 1, dp->size, dp->addressBits, dp->referenceCount);
             else
-              fprintf(ofp, "%c %-40s %6s  %06I64x   %4llu %d %d\n", dp->hasPhaseErr ? '*' : ' ', nmTable.GetName(dp->name), segname(dp->segment), (int)dp->value.low & 1, dp->size, dp->addressBits, dp->referenceCount);
+              fprintf(ofp, "%c %-40s %6s  %06I64x   %4llu %d %d\n", dp->hasPhaseErr ? '*' : ' ', nmTable.GetName(dp->name), segname(dp->segment), dp->value.low, dp->size, dp->addressBits, dp->referenceCount);
           }
           else
             fprintf(ofp, "%c %-40s %6s  %06I64x %4llu %d %d\n", dp->hasPhaseErr ? '*' : ' ', nmTable.GetName(dp->name), segname(dp->segment), (int)dp->value.low, dp->size, dp->addressBits, dp->referenceCount);

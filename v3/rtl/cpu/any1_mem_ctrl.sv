@@ -140,7 +140,7 @@ parameter KYLD6 = 6'd56;
 parameter KYLD7 = 6'd57;
 parameter MEMORY1a = 6'd60;
 
-integer n;
+integer m,n;
 genvar g;
 
 reg [5:0] shr_ma;
@@ -175,11 +175,11 @@ always_comb
 	
 // Filter out the segment selection from the request address
 always_comb
-	for (n = -1; n < AWID; n = n + 1)
-		if (n > 53)
+	for (m = -1; m < AWID; m = m + 1)
+		if (m > 53)
 			afilt = 1'b0;
 		else
-			afilt = memreq.adr[n];
+			afilt = memreq.adr[m];
 
 always_comb
  	ea = {afilt >> shr_ma};	// Keep same segment
@@ -835,6 +835,7 @@ else begin
 						memresp.res <= 128'd0;
 						memresp.badAddr <= memreq.adr;
 			    	memresp.cause <= FLT_SGB;
+						goto (MEMORY1);
 			    end
 			    else begin
 			    	daccess <= TRUE;

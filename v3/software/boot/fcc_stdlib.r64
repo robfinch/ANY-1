@@ -1,0 +1,29 @@
+STDLIB_BASE		equ		$FFFFFFFFFFFC4000*2
+__data_base		equ		0034
+__rodata_base	equ		0035
+
+	code
+	org	STDLIB_BASE
+
+dcb	"FCC_STDLIB",0,0,0,0,0,0
+dct	lib_table,0
+
+	align	16
+FCC_STDLIB_init .proc
+	; set data segment
+	ldi		$a1,#$0000000000004006	; 16kB boundary
+	ldi		$a0,#__data_base
+	mtbase	[$a0],$a1
+	; set Read-only segment (last 64k)
+	ldi		$a1,#$FFFFFFFFFFFF0004
+	ldi		$a0,#__rodata_base
+	mtbase	[$a0],$a1
+	sync
+	ret
+.endp FCC_STDLIB_init
+
+.include "../c_standard_lib-master/c_standard_lib-master/c_standard_lib.l64"
+
+	rodata
+lib_table:
+	.symtab

@@ -167,6 +167,7 @@ enum {
 			tk_dep,
      tk_dh,
      tk_dh_htbl,
+     tk_di,
      tk_div,
      tk_divi,
      tk_divu,

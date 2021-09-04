@@ -466,12 +466,13 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 						decbuf.mtcs <= TRUE;
 					end
 				DI:			begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; decbuf.needRb <= TRUE; decbuf.di <= TRUE; end
+				SYNC:		begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; end
 				default:	;
 				endcase
 			end
 		CSR:	begin decbuf.Rt <= {1'b0,ir[12:8]}; decbuf.Rtvec <= FALSE; decbuf.Ra <= {1'b0,ir.r2.Ra}; decbuf.Ravec <= FALSE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; end
 		RGLST0,RGLST1,RGLST2,RGLST3:	begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; decbuf.Ravec <= FALSE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= FALSE; end
-		EXI0,EXI1,EXI2:	begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; decbuf.Ravec <= FALSE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= FALSE; end
+		EXI0,EXI1,EXI2,EXI3,EXI4:	begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; decbuf.Ravec <= FALSE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= FALSE; end
 		BRMOD:	begin decbuf.ui <= FALSE; decbuf.Rt <= {4'b0,ir.r2.Rt[1:0]}; decbuf.Rc <= {1'b0,ir.im.Tc1,ir.im.Rc}; decbuf.Rtvec <= FALSE; end
 		IMOD,STRIDE:	begin decbuf.ui <= FALSE; decbuf.Rc <= {ir.im.Tc2,ir.im.Tc1,ir.im.Rc}; end
 		VIMOD,VSTRIDE:	begin decbuf.ui <= FALSE; decbuf.Ravec <= TRUE; decbuf.Rbvec <= TRUE; decbuf.ui <= FALSE; decbuf.Rc <= {ir.im.Tc2,ir.im.Tc1,ir.im.Rc}; end
