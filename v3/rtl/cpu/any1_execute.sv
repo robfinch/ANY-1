@@ -37,7 +37,7 @@
 
 import any1_pkg::*;
 
-module any1_execute(rst,clk,robi,execo,mulreci,divreci,membufi,fpreci,rob_exec,ex_redirect,
+module any1_execute(rst,clk,robi,cc,execo,mulreci,divreci,membufi,fpreci,rob_exec,ex_redirect,
 	a2d_rst,d2x_rst,ex_takb,csrro,irq_i,cause_i,brAddrMispredict,out,tid,
 	restore_rfsrc,set_wfi,vregfilesrc,vl,rob_x,rob_q,
 	ld_vtmp, vtmp, new_vtmp, graphi, rd_trace, trace_dout,
@@ -46,6 +46,7 @@ module any1_execute(rst,clk,robi,execo,mulreci,divreci,membufi,fpreci,rob_exec,e
 input rst;
 input clk;
 input sReorderEntry robi;
+input CauseCode cc;
 output sExecuteOut execo;
 output sALUrec mulreci;
 output sALUrec divreci;
@@ -101,8 +102,6 @@ begin
 	fnIncIP5 = {ptr[AWID-1:24],ptr[23:-1] + 4'd5};
 end
 endfunction
-
-wire [63:0] amask = 64'hFFFFFFFFFFFFFFF0 << {arange,3'b0};	// 0,8,16,24,32,40,48,56
 
 wire [7:0] vs = VALUE_SIZE;
 wire d_vsllv = (robi.ir.r2.opcode==VR2) && robi.ir.r2.func==VSLLV;
@@ -261,7 +260,7 @@ else begin
 		execo.ip <= robi.ip;
 		execo.step <= robi.step;
 		execo.ia <= robi.ia;
-		execo.cause <= robi.cause;
+		execo.cause <= cc;
 		execo.out <= FALSE;
 		execo.takb <= FALSE;
 		execo.wr_fu <= FALSE;
@@ -278,7 +277,7 @@ else begin
 			robi.imm);
 
 		// If the instruction is exceptioned, then ignore executing it.
-		if (robi.ui || robi.cause != 16'h0000) begin
+		if (cc != 16'h0000) begin
 			exvec <= 4'd4;
 			execo.cmt <= TRUE;
 			execo.cmt2 <= TRUE;
@@ -1161,7 +1160,7 @@ else begin
 				end
 			PFI:
 				begin
-	      	if (irq_i != 1'b0)
+	      	if (irq_i != 3'b0)
 			    	execo.cause <= 16'h8000|cause_i;
 			    tMod();
 		  	end

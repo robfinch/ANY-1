@@ -73,9 +73,9 @@ reg [1:0] randway;
 TLBEntry tadri0, tadri1, tadri2, tadri3;
 reg wr0,wr1,wr2,wr3, wed;
 reg hit0,hit1,hit2,hit3;
-wire wrtlb1 = tlbadr_i[15] ? randway==2'd0 : tlbadr_i[11:10]==2'd0 && wrtlb_i;
-wire wrtlb2 = tlbadr_i[15] ? randway==2'd1 : tlbadr_i[11:10]==2'd1 && wrtlb_i;
-wire wrtlb3 = tlbadr_i[15] ? randway==2'd2 : tlbadr_i[11:10]==2'd2 && wrtlb_i;
+wire wrtlb1 = (tlbadr_i[15] ? randway==2'd0 : tlbadr_i[11:10]==2'd0) && wrtlb_i;
+wire wrtlb2 = (tlbadr_i[15] ? randway==2'd1 : tlbadr_i[11:10]==2'd1) && wrtlb_i;
+wire wrtlb3 = (tlbadr_i[15] ? randway==2'd2 : tlbadr_i[11:10]==2'd2) && wrtlb_i;
 wire wrtlb4 = tlbadr_i[11:10]==2'd3 && wrtlb_i;
 wire [63:0] tlbdato1,tlbdato2,tlbdato3,tlbdato4;
 TLBEntry tadr0, tadr1, tadr2, tadr3;
@@ -117,6 +117,7 @@ else begin
 	end
 end
 
+reg [9:0] rcount;
 always @(posedge clk_g)
 if (rst_i) begin
 	state <= 3'b001;
@@ -140,7 +141,7 @@ case(state)
 //		13'b000: begin tlbwr0r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h0,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
 //		13'b001: begin tlbwr1r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h1,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
 //		13'b010: begin tlbwr2r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,14'h2,count[11:10],12'h000,8'h00,count[11:0]};	end // Map 16MB RAM area
-		13'b011: begin tlbwr3r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,16'h00FF,12'h000,2'b00,8'hFF,count[9:0]};	end // Map 16MB ROM/IO area
+		13'b011: begin tlbwr3r <= 1'b1; tlbdat_rst <= {8'h00,8'hEF,20'h000FF,8'h000,2'b00,8'hFF,count[9:0]};	rcount <= count[9:0]; end // Map 16MB ROM/IO area
 		13'b1??: begin state <= 3'b010; tlbwr0r <= 1'b0; tlbwr1r <= 1'b0; tlbwr2r <= 1'b0; tlbwr3r <= 1'b0; end
 		endcase
 		count <= count + 2'd1;
@@ -160,7 +161,7 @@ assign rdy_o = ~tlbeni;
 always_comb
 	tlbdati = state[0] ? tlbdat_rst : tlbdat_i;
 always_comb
-	tlbadri = state[0] ? count[9:0] : tlbadr_i;
+	tlbadri = state[0] ? rcount : tlbadr_i;
 always_comb
 	adr_i = iacc_i ? iadr_i : ladr_i;
 
@@ -204,7 +205,7 @@ end
 TLBRam u1 (
   .clka(clk_g),    // input wire clka
   .ena(tlben_i|tlbeni),      // input wire ena
-  .wea(tlbwr1|tlbwr0r),      // input wire [0 : 0] wea
+  .wea(wrtlb1|tlbwr0r),      // input wire [0 : 0] wea
   .addra(tlbadri),  // input wire [9 : 0] addra
   .dina(tlbdati),    // input wire [63 : 0] dina
   .douta(tlbdato1),  // output wire [63 : 0] douta
@@ -219,7 +220,7 @@ TLBRam u1 (
 TLBRam u2 (
   .clka(clk_g),    // input wire clka
   .ena(tlben_i|tlbeni),      // input wire ena
-  .wea(tlbwr2|tlbwr1r),      // input wire [0 : 0] wea
+  .wea(wrtlb2|tlbwr1r),      // input wire [0 : 0] wea
   .addra(tlbadri),  // input wire [9 : 0] addra
   .dina(tlbdati),    // input wire [63 : 0] dina
   .douta(tlbdato2),  // output wire [63 : 0] douta
@@ -234,7 +235,7 @@ TLBRam u2 (
 TLBRam u3 (
   .clka(clk_g),    // input wire clka
   .ena(tlben_i|tlbeni),      // input wire ena
-  .wea(tlbwr3|tlbwr2r),      // input wire [0 : 0] wea
+  .wea(wrtlb3|tlbwr2r),      // input wire [0 : 0] wea
   .addra(tlbadri),  // input wire [9 : 0] addra
   .dina(tlbdati),    // input wire [63 : 0] dina
   .douta(tlbdato3),  // output wire [63 : 0] douta
@@ -249,7 +250,7 @@ TLBRam u3 (
 TLBRam u4 (
   .clka(clk_g),    // input wire clka
   .ena(tlben_i|tlbeni),      // input wire ena
-  .wea(tlbwr4|tlbwr3r),      // input wire [0 : 0] wea
+  .wea(wrtlb4|tlbwr3r),      // input wire [0 : 0] wea
   .addra(tlbadri),  // input wire [9 : 0] addra
   .dina(tlbdati),    // input wire [63 : 0] dina
   .douta(tlbdato4),  // output wire [63 : 0] douta
@@ -283,32 +284,40 @@ else begin
 //	    acr_o <= 4'b1111;
 //	  end
 //	  else
-	  if (tadr0.vpn==adr_i[31:24] && (tadr0.ASID==asid_i || tadr0.G)) begin
+		if (!xlaten_i) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[31:14] <= iadr_i[31:14];
+	    acr_o <= 4'h15;
+	    hit0 <= 1'b1;
+		end
+	  else if (tadr0.vpn==iadr_i[31:24] && (tadr0.ASID==asid_i || tadr0.G)) begin
 	    tlbmiss_o <= FALSE;
 	    padr_o[31:14] <= tadr0.ppn;
 	    acr_o <= {tadr0.C,tadr0.R,tadr0.W,tadr0.X};
 	    hit0 <= 1'b1;
 	  end
-	  else if (tadr1.vpn==adr_i[31:24] && (tadr1.ASID==asid_i || tadr1.G)) begin
+	  else if (tadr1.vpn==iadr_i[31:24] && (tadr1.ASID==asid_i || tadr1.G)) begin
 	    tlbmiss_o <= FALSE;
 	    padr_o[31:14] <= tadr1.ppn;
 	    acr_o <= {tadr1.C,tadr1.R,tadr1.W,tadr1.X};
 	    hit1 <= 1'b1;
 	  end
-	  else if (tadr2.vpn==adr_i[31:24] && (tadr2.ASID==asid_i || tadr2.G)) begin
+	  else if (tadr2.vpn==iadr_i[31:24] && (tadr2.ASID==asid_i || tadr2.G)) begin
 	    tlbmiss_o <= FALSE;
 	    padr_o[31:14] <= tadr2.ppn;
 	    acr_o <= {tadr2.C,tadr2.R,tadr2.W,tadr2.X};;
 	    hit2 <= 1'b1;
 	  end
-	  else if (tadr3.vpn==adr_i[31:24] && (tadr3.ASID==asid_i || tadr3.G)) begin
+	  else if (tadr3.vpn==iadr_i[31:24] && (tadr3.ASID==asid_i || tadr3.G)) begin
 	    tlbmiss_o <= FALSE;
 	    padr_o[31:14] <= tadr3.ppn;
 	    acr_o <= {tadr3.C,tadr3.R,tadr3.W,tadr3.X};
 	    hit3 <= 1'b1;
 	  end
-	  else
+	  else begin
+	  	padr_o[31:0] <= 32'h00000000;
 	    tlbmiss_o <= TRUE;
+	  end
   end
   else if (dacc_i) begin
     padr_o[13:-1] <= ladr_i[13:-1];
@@ -318,32 +327,40 @@ else begin
 //	    acr_o <= 4'b1111;
 //	  end
 //	  else
-	  if (tadr0.vpn==adr_i[31:24] && (tadr0.ASID==asid_i || tadr0.G)) begin
+		if (!xlaten_i) begin
+	    tlbmiss_o <= FALSE;
+	    padr_o[31:14] <= ladr_i[31:14];
+	    acr_o <= 4'h15;
+	    hit0 <= 1'b1;
+		end
+	  else if (tadr0.vpn==ladr_i[31:24] && (tadr0.ASID==asid_i || tadr0.G)) begin
 	    tlbmiss_o <= FALSE;
 	    padr_o[31:14] <= tadr0.ppn;
 	    acr_o <= {tadr0.C,tadr0.R,tadr0.W,tadr0.X};
 	    hit0 <= 1'b1;
 	  end
-	  else if (tadr1.vpn==adr_i[31:24] && (tadr1.ASID==asid_i || tadr1.G)) begin
+	  else if (tadr1.vpn==ladr_i[31:24] && (tadr1.ASID==asid_i || tadr1.G)) begin
 	    tlbmiss_o <= FALSE;
 	    padr_o[31:14] <= tadr1.ppn;
 	    acr_o <= {tadr1.C,tadr1.R,tadr1.W,tadr1.X};
 	    hit1 <= 1'b1;
 	  end
-	  else if (tadr2.vpn==adr_i[31:24] && (tadr2.ASID==asid_i || tadr2.G)) begin
+	  else if (tadr2.vpn==ladr_i[31:24] && (tadr2.ASID==asid_i || tadr2.G)) begin
 	    tlbmiss_o <= FALSE;
 	    padr_o[31:14] <= tadr2.ppn;
 	    acr_o <= {tadr2.C,tadr2.R,tadr2.W,tadr2.X};;
 	    hit2 <= 1'b1;
 	  end
-	  else if (tadr3.vpn==adr_i[31:24] && (tadr3.ASID==asid_i || tadr3.G)) begin
+	  else if (tadr3.vpn==ladr_i[31:24] && (tadr3.ASID==asid_i || tadr3.G)) begin
 	    tlbmiss_o <= FALSE;
 	    padr_o[31:14] <= tadr3.ppn;
 	    acr_o <= {tadr3.C,tadr3.R,tadr3.W,tadr3.X};
 	    hit3 <= 1'b1;
 	  end
-	  else
+	  else begin
+	  	padr_o <= 32'h0;
 	    tlbmiss_o <= TRUE;
+	  end
   end
   else
   	padr_o <= padr_o;

@@ -110,15 +110,17 @@ _ExceptionTable():
 	org		ROMADDR+$300*2
 MachineStart .proc
   ; Map 16kB GDT area
-	ldi			$t0,#$8000000000000C00	; entry number = $000, way = 3, write = true
-	ldi			$t1,#$008E000000000000
-	tlbrw		$x0,$t0,$t1
-	ldi			$t0,#$8000000000000C04	; entry number = $004, way = 3, write = true
-	ldi			$t1,#$008E000000000004
+;	ldi			$t0,#$8000000000000C00	; entry number = $000, way = 3, write = true
+;	ldi			$t1,#$008E000000000000
+;	tlbrw		$x0,$t0,$t1
+	ldi			$t0,#$8000000000000D00	; entry number = $100, way = 3, write = true
+	ldi			$t1,#$008E000FF003FD00
 	tlbrw		$x0,$t0,$t1
 	; Setup segments, codeseg already set at reset.
 	; set data segment
-	csrrd	$a2,#CSR_DGDT
+	ldi			$a2,#$FF4000FF
+	csrrw		$x0,#CSR_DGDT,$a2
+;	csrrd		$a2,#CSR_DGDT
 	and		$a2,$a2,#-256
 	ldi		$a1,#$000000000000003E	; 0MB boundary
 	sto		$a1,0000*16[$a2]

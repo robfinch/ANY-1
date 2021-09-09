@@ -67,7 +67,7 @@ output sr_o;		// set memory reservation
 output cr_o;		// clear memory reservation
 input rb_i;					// input memory still reserved bit
 
-integer j,k,n,m,n1;
+integer j,k,n,m,n1,n2,n3;
 genvar g;
 wire clk_g;
 wire acki = ack_i;
@@ -86,6 +86,7 @@ sDecode decbuf;
 sExecute exbufi, exbufo;
 sMemoryIO membufi,membufi1;
 sReorderEntry [ROB_ENTRIES-1:0] rob;
+CauseCode [ROB_ENTRIES-1:0] cc;
 sALUrec mulreci,mulreco, divreci, divreco, fpreci,fpreco;
 sGraphicsOp graphi,grapho;
 sFuncUnit memfu;
@@ -93,6 +94,7 @@ reg [2:0] mod_cnt;
 sInstAlignOut [7:0] mod_list;
 wire ihit;
 reg deferJmp;
+reg [127:0] immbuf;
 
 reg x2mul_wr,x2mul_rd;
 wire x2mul_full,x2mul_empty;
@@ -113,7 +115,6 @@ reg [2:0] fp_state;
 reg [2:0] gr_state;
 reg [63:0] csrro;
 reg [47:0] rob_q, rob_d;
-wire [47:0] rob_x;
 wire [pL1ICacheLineSize-1:0] ic_line;
 
 function [7:0] fnBackupCnt;
@@ -169,6 +170,21 @@ begin
 end
 endfunction
 
+function Address fnIPDec;
+input Address pc;
+begin
+//	fnIPInc = {pc[AWID-1:24],pc[23:-1] + (is_20bit[pc[3:-1]] ? 4'd5 : 4'd9)};
+	fnIPDec = {pc[AWID-1:24],pc[23:-1] - 4'd9};
+end
+endfunction
+
+function Address fnIncIP5;
+input Address ptr;
+begin
+	fnIncIP5 = {ptr[AWID-1:24],ptr[23:-1] + 4'd5};
+end
+endfunction
+
 function [ROB_ENTRIES-1:0] fnOlderInst;
 input [5:0] ridi;
 input [5:0] qp;		// que position
@@ -196,6 +212,13 @@ begin
 end
 endfunction
 
+function [5:0] fnQm1;
+input [5:0] q;
+begin
+	fnQm1 = q > 0 ? q - 2'd1 : ROB_ENTRIES - 1;
+end
+endfunction
+
 function [ROB_ENTRIES-1:0] fnNewerInst;
 input [5:0] ridi;
 integer n;
@@ -205,6 +228,114 @@ begin
 	end
 end
 endfunction
+
+wire [7:0] vs = VALUE_SIZE;
+wire d_vsllv = (rob[rob_exec].ir.r2.opcode==VR2) && rob[rob_exec].ir.r2.func==VSLLV;
+wire d_vsrlv = (rob[rob_exec].ir.r2.opcode==VR2) && rob[rob_exec].ir.r2.func==VSRLV;
+
+wire [127:0] sll_out = {rob[rob_exec].ib.val,rob[rob_exec].ia.val} << rob[rob_exec].ic.val[5:0];
+wire [127:0] sll_out2 = {64'd0,rob[rob_exec].ia.val} << rob[rob_exec].ib.val[5:0];
+wire [127:0] srl_out2 = {rob[rob_exec].ia.val,64'd0} >> rob[rob_exec].ib.val[5:0];
+wire [127:0] slli_out2 = {64'd0,rob[rob_exec].ia.val} << rob[rob_exec].imm[5:0];
+wire [127:0] srli_out2 = {rob[rob_exec].ia.val,64'd0} >> rob[rob_exec].imm[5:0];
+
+wire brMispredict = ex_takb != rob[rob_exec].predict_taken;//exbufi.predict_taken;
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Count: leading zeros, leading ones, population.
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+wire [6:0] cntlzo, cntloo, cntpopo;
+
+cntlz64 uclz1 (rob[rob_exec].ia.val, cntlzo);
+cntlo64 uclo1 (rob[rob_exec].ia.val, cntloo);
+cntpop64 ucpop1 (rob[rob_exec].ia.val, cntpopo);
+
+wire [6:0] ffoo, floo, lsm_pc;
+ffo96 uffo1 ({32'd0,rob[rob_exec].ia.val}, ffoo);
+flo96 uflo1 ({32'h0,rob[rob_exec].ia.val}, floo);
+
+cntpop64 upop2 ({34'd0,rob[rob_exec].ir[35:8],rob[rob_exec].ir[1:0]}, lsm_pc);
+
+reg [4:0] Rm;
+reg done;
+always @*
+begin
+	m = 0;
+	done = FALSE;
+	for (n = 0; n < 36; n = n + 1) begin
+		if (lsm_mask[n] && !done && (n > 7 || n < 2)) begin
+			Rm = m;
+			done = TRUE;
+		end
+		if (n > 7 || n < 2)
+			m = m + 1;
+	end
+end
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Bitfield
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Value bf_out;
+any1_bitfield ubf1
+(
+	.inst(rob[rob_exec].ir),
+	.a(rob[rob_exec].ia),
+	.b(rob[rob_exec].ib),
+	.c(rob[rob_exec].ic),
+	.d(rob[rob_exec].id),
+	.o(bf_out),
+	.masko()
+);
+
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Bit Matrix Multiply
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Value bmm_o;
+BMM ubmm1
+(
+	.op(rob[rob_exec].ir[1:0]),
+	.a(rob[rob_exec].ia),
+	.b(rob[rob_exec].ib),
+	.o(bmm_o)
+);
+
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+// Floating Point
+// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+wire fa_inf, fa_xz, fa_vz;
+wire fa_qnan, fa_snan, fa_nan;
+wire fb_qnan, fb_snan, fb_nan;
+wire [63:0] fcmp_o;
+wire cmpnan,cmpsnan;
+
+`ifdef SUPPORT_FLOAT
+fpDecomp u12 (.i(rob[rob_exec].ia.val), .sgn(), .exp(), .man(), .fract(), .xz(fa_xz), .mz(), .vz(fa_vz), .inf(fa_inf), .xinf(), .qnan(fa_qnan), .snan(fa_snan), .nan(fa_nan));
+fpDecomp u13 (.i(rob[rob_exec].ib.val), .sgn(), .exp(), .man(), .fract(), .xz(), .mz(), .vz(), .inf(), .xinf(), .qnan(fb_qnan), .snan(fb_snan), .nan(fb_nan));
+
+fpCompare u1 (
+	.a(rob[rob_exec].ia.val),
+	.b(rob[rob_exec].ib.val),
+	.o(fcmp_o),
+	.nan(cmpnan),
+	.snan(cmpsnan)
+);
+`endif
+
+reg [VALUE_SIZE-1:0] diff;
+always_comb
+	diff = rob[rob_exec].ia - rob[rob_exec].ib;
+
+	// Execute
+	// Lots to do here.
+	// Simple single cycle instructions are executed directly and the reorder buffer updated.
+	// Multi-cycle instructions are placed in instruction queues.
+	
+reg [5:0] last_tid;
+reg [5:0] count;			// count for STM
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Multiply / Divide support logic
@@ -277,7 +408,6 @@ sregfile_blkram usgr2 (
   .doutb(sgram_bo)  // output wire [63 : 0] doutb
 );
 
-wire restore_rfsrc;
 Rid vregfilesrc [0:63];					// bit 7 = 0 = regfile, 1 = reorder buffer
 Rid vm_regfilesrc [0:7];
 
@@ -344,6 +474,9 @@ Value scratch [0:7];
 Value stuff0, stuff1;				// return value registers
 Address tcbptr;							// task control block pointer
 reg [63:0] cr0;
+wire pe = cr0[0];
+wire bounds_chk = cr0[1];
+wire wde = cr0[2];
 wire bpe = cr0[32];
 wire btben = cr0[33];
 wire dce;
@@ -413,7 +546,7 @@ wire MMachineMode = memmode==3'b011;
 assign MUserMode = memmode==3'b000;
 
 reg shr_ma;
-wire [15:0] selx;
+wire [31:0] selx;
 any1_select ua1sel
 (
 	.ir(rob[memreq.tid[5:0]].ir),
@@ -500,7 +633,7 @@ any1_agen uagen
 // Trace
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 reg wr_trace;
-wire rd_trace;
+reg rd_trace;
 reg wr_whole_address;
 reg [5:0] br_hcnt;
 reg [5:0] br_rcnt;
@@ -676,7 +809,6 @@ assign a2d_full = 1'b0;
 assign a2d_v = 1'b1;
 assign ifStall = !ihit || d2x_full;	// || push_vec;
 reg dcStall,dcStall1,vecStall;
-wire a2d_rst,d2x_rst;
 reg wb_a2d_rst,wb_d2x_rst;
 
 reg pop_f2ad,pop_a2dd,pop_d2xd;
@@ -798,7 +930,7 @@ end
 end
 endgenerate
 
-wire [ROB_ENTRIES-1:0] newer_than_execo = fnNewerInst(execo.rid);
+wire [ROB_ENTRIES-1:0] newer_than_execo = fnNewerInst(rob[rob_exec].rid);
 wire [ROB_ENTRIES-1:0] newer_than_wb = fnNewerInst(wb_redirecto.xrid);
 wire [ROB_ENTRIES-1:0] newer_than_mem = fnNewerInst(mem_redirecti.xrid);
 wire [ROB_ENTRIES-1:0] newer_than_ex = fnNewerInst(ex_redirecti.xrid);
@@ -849,7 +981,7 @@ begin
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		if (m==rob_que)
 			done = 1;
-		if (!(rob[m].cmt && rob[m].cause==16'h0 || !rob[m].v) && !done && m != ridi)
+		if (!(rob[m].cmt && cc[m]==16'h0 || !rob[m].v) && !done && m != ridi)
 			pos = m;
 		m = m - 1;
 		if (m < 0)
@@ -891,7 +1023,6 @@ end
 else
 	regValid = 	rg[6] ||
 							rg[4:0]==5'd0 ||
-							rg[4:0]==5'd31 ||
 							regfilesrc[rg[4:0]].rf == 1'd0 ||
 							rob[regfilesrc[rg[4:0]].rid].cmt
 							;
@@ -1040,7 +1171,6 @@ edge_det uedwb2if (.rst(rst_i), .clk(clk_g), .i(wb2if_redirect_v), .pe(pe_wb2if_
 edge_det uedex2if (.rst(rst_i), .clk(clk_g), .i(ex2if_redirect_v), .pe(pe_ex2if_redirect_v), .ne(ne_ex2if_redirect_v), .ee());
 edge_det uedmem2if (.rst(rst_i), .clk(clk_g), .i(mem2if_redirect_v), .pe(pe_mem2if_redirect_v), .ne(ne_mem2if_redirect_v), .ee());
 
-sExecuteOut execo;
 wire brAddrMispredict = exbufi.pip != ex_redirecti.redirect_ip;//exRedirectIp;
 
 reg do_ex_branch, do_mem_branch, do_wb_branch;
@@ -1282,7 +1412,6 @@ wire [5:0] fltfunct5 = fpreco.ir.r2.func;
 reg [FPWID-1:0] fcmp_res, ftoi_res, itof_res, fres;
 wire [2:0] rmq = rm3==3'b111 ? rm : rm3;
 
-Value fcmp_o;
 wire [EX:0] fas_o, fmul_o, fdiv_o, fsqrt_o;
 wire [EX:0] fma_o;
 wire fma_uf;
@@ -1290,21 +1419,22 @@ wire mul_of, div_of;
 wire mul_uf, div_uf;
 wire norm_nx;
 wire sqrt_done;
-wire cmpnan, cmpsnan;
+wire cmpsnan;
 reg [EX:0] fnorm_i;
 wire [MSB+3:0] fnorm_o;
 reg ld;
 reg ld1;
 wire sqrneg, sqrinf;
-wire fa_inf, fa_xz, fa_vz;
-wire fa_qnan, fa_snan, fa_nan;
-wire fb_qnan, fb_snan, fb_nan;
+wire fa_xz, fa_vz;
+wire fa_inf2;
+wire fa_snan2, fa_nan2, fa_qnan2;
+wire fb_snan2, fb_nan2, fb_qnan2;
 wire finf, fdn;
 always @(posedge clk_g)
 	ld1 <= ld;
 `ifdef SUPPORT_FLOAT
-fpDecomp u12 (.i(fpreco.a.val), .sgn(), .exp(), .man(), .fract(), .xz(fa_xz), .mz(), .vz(fa_vz), .inf(fa_inf), .xinf(), .qnan(fa_qnan), .snan(fa_snan), .nan(fa_nan));
-fpDecomp u13 (.i(fpreco.b.val), .sgn(), .exp(), .man(), .fract(), .xz(), .mz(), .vz(), .inf(), .xinf(), .qnan(fb_qnan), .snan(fb_snan), .nan(fb_nan));
+fpDecomp udc12 (.i(fpreco.a.val), .sgn(), .exp(), .man(), .fract(), .xz(fa_xz), .mz(), .vz(fa_vz), .inf(fa_inf2), .xinf(), .qnan(fa_qnan2), .snan(fa_snan2), .nan(fa_nan2));
+fpDecomp udc13 (.i(fpreco.b.val), .sgn(), .exp(), .man(), .fract(), .xz(), .mz(), .vz(), .inf(), .xinf(), .qnan(fb_qnan2), .snan(fb_snan2), .nan(fb_nan2));
 
 assign fcmp_res = fcmp_o[1] ? {FPWID{1'd1}} : fcmp_o[0] ? 1'd0 : 1'd1;
 i2f u2 (.clk(clk_g), .ce(1'b1), .op(~fpreco.ir.r2.Rb[0]), .rm(rmq), .i(fpreco.a.val), .o(itof_res));
@@ -1402,17 +1532,19 @@ any1_point_transform uptt1
 reg [4:0] ctx_reg;
 reg ld_vtmp;
 reg [63:0] new_vtmp;
-wire [63:0] vtmp;
+reg [63:0] vtmp;
 reg [5:0] tid;
-sReorderEntry robi;
-always_comb robi <= rob[safe_rob_exec];
+//sReorderEntry rob[rob_exec];
+//always_comb rob[rob_exec] <= rob[safe_rob_exec];
 
-wire [3:0] exvec;
+reg [3:0] exvec;
+/*
 any1_execute uex1(
 	.rst(rst_i),
 	.clk(clk_g),
-	.robi(robi),
-	.execo(execo),
+	.rob[rob_exec](rob[rob_exec]),
+	.cc(cc[safe_rob_exec]),
+	.rob[rob_exec](rob[rob_exec]),
 	.mulreci(mulreci),
 	.divreci(divreci),
 	.membufi(membufi),
@@ -1433,7 +1565,7 @@ any1_execute uex1(
 	.ld_vtmp(ld_vtmp),
 	.new_vtmp(new_vtmp),
 	.vtmp(vtmp),
-	.out(execo.out),
+	.out(rob[rob_exec].out),
 	.tid(tid),
 	.rd_trace(rd_trace),
 	.trace_dout(trace_dout),
@@ -1447,7 +1579,7 @@ any1_execute uex1(
 	.omode(omode),
 	.cs(cs)
 );
-
+*/
 MemoryRequest memreq;
 MemoryResponse memresp;
 wire memreq_full;
@@ -1496,15 +1628,16 @@ else begin
 			begin
 				memreq.func <= LOAD;
 				memreq.func2 <= LDDESC;
-				if (membufi1.ib[16])
-					memreq.adr <= {ldt[63:8],8'h00};
+				// Extra '0' appended for [:-1]
+				if (membufi1.ia[16])
+					memreq.adr <= {ldt[63:8],9'h00} + {membufi1.ia[15:0],5'h0};
 				else
-					memreq.adr <= {gdt[63:8],8'h00};
+					memreq.adr <= {gdt[63:8],9'h00} + {membufi1.ia[15:0],5'h0};
 			end
 		TLBRW:
 			begin
 				memreq.func <= TLB;
-				memreq.adr <= membufi1.ia;
+				memreq.adr <= {membufi1.ia,1'b0};
 				memreq.dat <= membufi1.ib;
 			end
 		default:	;
@@ -1543,6 +1676,8 @@ any1_mem_ctrl umc1
 	.omode(omode),
 	.ASID(ASID),
 	.ea_seg(ea_seg),
+	.bounds_chk(bounds_chk),
+	.pe(pe),
 	.sregfile(sgram_ao),
 	.cs(cs_desc),
 	.ip(ip),
@@ -1656,7 +1791,7 @@ assign dec_latestID = fnLatestID(rob_dec);
 //assign mem_latestID = fnLatestID(mem_redirecti.xrid);
 wire RegBitList [ROB_ENTRIES-1:0] wb_latestID = fnLatestID(wb_redirecto.xrid);
 
-always_comb
+always @*
 	tReadCSR(csrro,rob[safe_rob_exec].imm[15:0]);
 
 reg [47:0] exec_misses;
@@ -1720,9 +1855,1245 @@ always_comb rob_que_m1 = rob_que==6'd0 ? ROB_ENTRIES -1 : rob_que - 2'd1;
 always_comb branch_invalidating = ihit && (wb_redirecti.wr || mem_redirecti.wr || ex_redirecti.wr);
 Address mod_ip;
 Instruction tir;
+reg [5:0] cmt_exec;
 
 reg [5:0] micro_ip;
- 
+
+reg fu0_cmt = FALSE;
+wire cd_cmt_exec;
+change_det #(6) ucd1 (.rst(rst_i), .clk(clk_g), .ce(1'b1), .i(rob_exec), .cd(cd_cmt_exec));
+
+reg rob_cmt;
+reg rob_vcmt;
+Value exres;
+always_comb
+begin
+	rob_cmt <= TRUE;
+		casez(rob[rob_exec].ir.r2.opcode)
+		8'h7?:
+			case(rob[rob_exec].ir[3:0])
+			4'd0:
+				case(rob[rob_exec].ir[12:8])
+				5'd0:
+					case(rob[rob_exec].ir[19:13])
+					7'd120:	; // RTI (handled at WRITEBACK)
+					7'd121:	;	// PFI
+		  		7'd123:	;	// WFI
+					default:	;	// BRK
+					endcase
+				default:
+					tLoadEx(2'b00);
+				endcase
+			4'd1:	tLoadEx(2'b00);
+			4'd2:	tStoreEx(2'b00);
+			4'd3:	tStoreEx(2'b00);
+			4'd4:
+				case(rob[rob_exec].ir[19:18])
+				2'd0:	;
+				2'd1:	begin exres.val <= rob[rob_exec].ia.val; tModEx(); end	// MOV
+				2'd2: begin exres.val <= rob[rob_exec].ia.val + rob[rob_exec].ib.val; tModEx(); end	// ADD
+				2'd3: begin exres.val <= rob[rob_exec].ia.val & rob[rob_exec].ib.val; tModEx(); end	// AND
+				endcase
+			4'd5:	begin  exres.val <= rob[rob_exec].ia.val + rob[rob_exec].imm; tModEx(); end
+			4'd6:	begin  exres.val <= rob[rob_exec].ia.val & rob[rob_exec].imm; tModEx(); end
+			4'd7:	begin  exres.val <= rob[rob_exec].ia.val | rob[rob_exec].imm; tModEx(); end
+			4'd8:	txBranchEx();
+			4'd9:	txBranchEx();
+			4'd10:	;
+			4'd11:	begin  exres.val <= rob[rob_exec].imm; tModEx(); end	// LDI
+			4'd12:
+				case(rob[rob_exec].ir[19:18])
+				2'd0:	begin  exres.val <= rob[rob_exec].ia.val << rob[rob_exec].imm[4:0]; tModEx(); end
+				2'd1:	begin  exres.val <= rob[rob_exec].ia.val >> rob[rob_exec].imm[4:0]; tModEx(); end
+				2'd2:	begin  exres.val <= rob[rob_exec].ia.val[VALUE_SIZE-1] ? ~({VALUE_SIZE{1'b1}} >> rob[rob_exec].imm[4:0]) | rob[rob_exec].ia.val >> rob[rob_exec].imm[4:0] : rob[rob_exec].ia.val >> rob[rob_exec].imm[4:0]; tModEx(); end
+				2'd3:
+					begin
+						case({rob[rob_exec].ir[17:16],rob[rob_exec].ir[12:11]})
+						4'd0:	begin  exres.val <= rob[rob_exec].ia.val - rob[rob_exec].ib.val; tModEx(); end
+						4'd1: begin  exres.val <= rob[rob_exec].ia.val | rob[rob_exec].ib.val; tModEx(); end
+						4'd2: begin  exres.val <= rob[rob_exec].ia.val ^ rob[rob_exec].ib.val; tModEx(); end
+						4'd3: begin  exres.val <= ~(rob[rob_exec].ia.val & rob[rob_exec].ib.val); tModEx(); end
+						4'd4: begin  exres.val <= ~(rob[rob_exec].ia.val | rob[rob_exec].ib.val); tModEx(); end
+						default:	;
+						endcase
+					end
+				endcase
+			4'd14:	tLoadEx(2'b00);
+			4'd15:	tStoreEx(2'b00);
+			default:	;
+			endcase
+		BRK:	begin tModEx(); end
+		NOP:	tModEx();
+		R3:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				SLLP:	begin  exres.val <= sll_out[63:0]; tModEx(); end
+				/*
+				PTRDIF:	
+					begin
+						//exres.tag <= TAG_INT;
+						// We want A-B to return a negative if B > A.
+						exres.val <= diff[VALUE_SIZE-1] ? ~(64'hFFFFFFFFFFFFFFFF >> rob[rob_exec].ic.val[4:0]) | (diff >> rob[rob_exec].ic.val[4:0]) : (diff >> rob[rob_exec].ic.val[4:0]);
+						tModEx();
+					end
+				*/
+				CHK:
+					case(rob[rob_exec].ir.r2.func)
+					3'd0:
+						if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].ib.val)) begin
+							tModEx();
+						end
+					3'd1:
+						if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].ib.val)) begin
+							tModEx();
+						end
+					3'd2:
+						if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].ib.val)) begin
+							tModEx();
+						end
+					3'd3:
+						if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].ib.val)) begin
+							tModEx();
+						end
+					3'd4:
+						if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].ib.val))) begin
+							tModEx();
+						end
+					3'd5:
+						if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].ib.val))) begin
+							tModEx();
+						end
+					3'd6:
+						if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val))) begin
+							tModEx();
+						end
+					3'd7:
+						if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val))) begin
+							tModEx();
+						end
+					default:
+						begin
+							tModEx();
+						end
+					endcase
+				MUX:
+					begin
+					 
+					for (n3 = 0; n3 < VALUE_SIZE; n3 = n3 + 1)
+						exres.val[n3] = rob[rob_exec].ia.val[n3] ? rob[rob_exec].ib.val[n3] : rob[rob_exec].ic.val[n3];
+					end
+				CMOVNZ:	begin  exres.val <= (rob[rob_exec].ic.val!=64'd0) ? rob[rob_exec].ia.val : rob[rob_exec].ib.val; tModEx(); end
+				default:	;
+				endcase
+			end
+		R2:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				ADD:	begin	 exres.val <= rob[rob_exec].ia.val + rob[rob_exec].ib.val; tModEx(); end
+				SUB:	begin	 exres.val <= rob[rob_exec].ia.val - rob[rob_exec].ib.val; tModEx(); end
+				AND:	begin	 exres.val <= rob[rob_exec].ia.val & rob[rob_exec].ib.val; tModEx(); end
+				OR:		begin	 exres.val <= rob[rob_exec].ia.val | rob[rob_exec].ib.val; tModEx(); end
+				XOR:	begin	 exres.val <= rob[rob_exec].ia.val ^ rob[rob_exec].ib.val; tModEx(); end
+`ifdef SUPPORT_MYST				
+				MYST:	begin  exres.val <= {rob[rob_exec].id.val[35:29],rob[rob_exec].ir[28:8],rob[rob_exec].id.val[7:0]}; tModEx(); end
+`endif					
+				BMMOR,BMMXOR,BMMTOR,BMMTXOR:	begin  exres.val <= bmm_o; tModEx(); end
+				SLL:	begin  exres.val <= sll_out2[VALUE_SIZE-1:0]; tModEx(); end
+				SLLI:	begin  exres.val <= slli_out2[VALUE_SIZE-1:0]; tModEx(); end
+				SRL:	begin  exres.val <= srl_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tModEx(); end
+				SRLI:	begin  exres.val <= srli_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tModEx(); end
+				ROL:	begin  exres.val <= sll_out2[VALUE_SIZE-1:0]|sll_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tModEx(); end
+				ROLI:	begin  exres.val <= slli_out2[VALUE_SIZE-1:0]|slli_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tModEx(); end
+				ROR:	begin  exres.val <= srl_out2[VALUE_SIZE-1:0]|srl_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tModEx(); end
+				RORI:	begin  exres.val <= srli_out2[VALUE_SIZE-1:0]|srli_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tModEx(); end
+				SRA:	begin  exres.val <= rob[rob_exec].ia.val[VALUE_SIZE-1] ? ~({VALUE_SIZE{1'b1}} >> rob[rob_exec].ib.val[5:0]) | srl_out2[VALUE_SIZE*2-1:VALUE_SIZE] : srl_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tModEx(); end
+				SRAI:	begin  exres.val <= rob[rob_exec].ia.val[VALUE_SIZE-1] ? ~({VALUE_SIZE{1'b1}} >> rob[rob_exec].imm[5:0]) | srli_out2[VALUE_SIZE*2-1:VALUE_SIZE] : srli_out2[VALUE_SIZE*2-1:VALUE_SIZE]; tModEx(); end
+				DIF:
+					begin
+						 
+						exres <= $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val) ?
+							rob[rob_exec].ib.val - rob[rob_exec].ia.val : rob[rob_exec].ia.val - rob[rob_exec].ib.val;
+						tModEx();
+					end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
+					begin
+						tModEx();
+						rob_cmt <= FALSE;
+					end
+				DIV,DIVU,DIVSU:
+					begin
+						tModEx();
+						rob_cmt <= FALSE;
+					end
+				MULF:	begin  exres.val <= rob[rob_exec].ia.val[23:0] * rob[rob_exec].ib.val[15:0]; tModEx(); end
+				CMP:	begin  exres.val <= $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val) ? -64'd1 : $signed(rob[rob_exec].ia.val) == $signed(rob[rob_exec].ib.val) ? 64'd0 : 64'd1; tModEx(); end
+				SEQ:	begin  exres.val <= rob[rob_exec].ia.val == rob[rob_exec].ib.val; tModEx(); end
+				SNE:	begin  exres.val <= rob[rob_exec].ia.val != rob[rob_exec].ib.val; tModEx(); end
+				SLT:	begin  exres.val <= $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val); tModEx(); end
+				SGE:	begin  exres.val <= $signed(rob[rob_exec].ia.val) >= $signed(rob[rob_exec].ib.val); tModEx(); end
+				SLTU:	begin  exres.val <= rob[rob_exec].ia.val < rob[rob_exec].ib.val; tModEx(); end
+				SGEU:	begin  exres.val <= rob[rob_exec].ia.val >= rob[rob_exec].ib.val; tModEx(); end
+				default:	;
+				endcase
+			end
+		R1:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				ABS:	begin  exres.val <= rob[rob_exec].ia[63] ? -rob[rob_exec].ia : rob[rob_exec].ia; tModEx(); end
+				NABS:	begin  exres.val <= rob[rob_exec].ia[63] ? rob[rob_exec].ia : -rob[rob_exec].ia; tModEx(); end
+				NEG:	begin  exres.val <= -rob[rob_exec].ia; tModEx(); end
+				NOT:	begin  exres.val <= rob[rob_exec].ia==64'd0 ? 64'd1 : 64'd0; tModEx(); end
+				CTLZ:	begin  exres.val <= cntlzo; tModEx(); end
+				CTPOP:	begin  exres.val <= cntpopo; tModEx(); end
+				V2BITS:	begin
+									 
+									if (rob[rob_exec].step==0) begin
+										if (rob[rob_exec].vmask[0]) begin
+											exres.val <= {63'd0,rob[rob_exec].ia.val[0]};
+										end
+										else if (rob[rob_exec].irmod.im.z) begin
+											exres.val <= 64'd0;
+										end
+									end
+									else begin
+										if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+											exres.val <= vtmp | (rob[rob_exec].ia.val[0] << rob[rob_exec].step);
+										end
+									end
+									tModEx(); 
+								end
+`ifdef SUPPORT_GRAPHICS								
+				TRANSFORM:
+					begin
+						tModEx();
+						rob_cmt <= FALSE;
+					end
+				CLIP:
+					begin
+						 
+						exres.val <=
+							((rob[rob_exec].ia.val[31:0] < gr_target.ul.x) ||
+							 	(rob[rob_exec].ia.val[63:32] < gr_target.ul.y) ||
+							 	(rob[rob_exec].ia.val[31:0] >= gr_target.lr.x) ||
+							 	(rob[rob_exec].ia.val[63:32] >= gr_target.lr.y) ||
+							 	clip_en && (
+									(rob[rob_exec].ia.val[31:0] < gr_clip.ul.x) ||
+							 		(rob[rob_exec].ia.val[63:32] < gr_clip.ul.y) ||
+							 		(rob[rob_exec].ia.val[31:0] >= gr_clip.lr.x) ||
+							 		(rob[rob_exec].ia.val[63:32] >= gr_clip.lr.y) ||	
+							 	));
+					end
+`endif					
+				default:	;
+				endcase
+			end
+`ifdef SUPPORT_FLOAT			
+		F1,VF1:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				FABS:	begin  exres.val <= {1'b0,rob[rob_exec].ia.val[62:0]}; tModEx(); end
+				FNABS:begin  exres.val <= {1'b1,rob[rob_exec].ia.val[62:0]}; tModEx(); end
+				FNEG:	begin  exres.val <= {~rob[rob_exec].ia.val[63],rob[rob_exec].ia.val[62:0]}; tModEx(); end
+				I2F,F2I,FSQRT:
+					begin
+						tModEx(); 
+						rob_cmt <= FALSE;
+					end
+				FRM:	begin  exres.val <= rob[rob_exec].ia.val; tModEx(); end
+				default:	;
+				endcase
+			end
+		F2,VF2:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				CPYSGN: begin  exres.val <= { rob[rob_exec].ib.val[63],rob[rob_exec].ia.val[62:0]}; tModEx(); end
+				SGNINV: begin  exres.val <= {~rob[rob_exec].ib.val[63],rob[rob_exec].ia.val[62:0]}; tModEx(); end
+				FADD,FSUB,FMUL,FDIV:
+					begin
+						tModEx(); 
+						rob_cmt <= FALSE;
+					end
+				FMIN:	// FMIN	
+					begin
+						 
+						if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
+							exres.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+						else if (fa_qnan & !fb_nan)
+							exres.val <= rob[rob_exec].ib.val;
+						else if (!fa_nan & fb_qnan)
+							exres.val <= rob[rob_exec].ia.val;
+						else if (fcmp_o[1])
+							exres.val <= rob[rob_exec].ia.val;
+						else
+							exres.val <= rob[rob_exec].ib.val;
+						tModEx();
+					end
+				FMAX:	// FMAX
+					begin
+						 
+						if ((fa_snan|fb_snan)||(fa_qnan&fb_qnan))
+							exres.val <= 64'h7FFFFFFFFFFFFFFF;	// canonical NaN
+						else if (fa_qnan & !fb_nan)
+							exres.val <= rob[rob_exec].ib.val;
+						else if (!fa_nan & fb_qnan)
+							exres.val <= rob[rob_exec].ia.val;
+						else if (fcmp_o[1])
+							exres.val <= rob[rob_exec].ib.val;
+						else
+							exres.val <= rob[rob_exec].ia.val;
+						tModEx();
+					end
+				FCMP:	begin  exres.val <=  cmpnan ? 64'h4000000000000000 : fcmp_o[1] ? 64'hBFF0000000000000 : fcmp_o[0] ? 64'd0 : 64'h3FF0000000000000;	tModEx(); end	//2,-1,0,1 
+				FCMPB:begin	 exres.val <=  fcmp_o; tModEx(); end
+				FSEQ:	begin  exres.val <=  fcmp_o[0] & ~cmpnan; tModEx(); end
+				FSNE: begin  exres.val <= ~fcmp_o[0] & ~cmpnan; tModEx(); end
+				FSLT:	begin  exres.val <=  fcmp_o[1] & ~cmpnan; tModEx(); end
+				FSLE:	begin  exres.val <=  fcmp_o[2] & ~cmpnan; tModEx(); end
+				FSETM:
+					if (rob[rob_exec].step==6'd0) begin
+						 
+						exres.val <= 64'd0;
+						case(rob[rob_exec].ir[13:11])
+						3'd0:	begin exres.val[rob[rob_exec].step] <=  fcmp_o[0]; end
+						3'd1:	begin exres.val[rob[rob_exec].step] <= ~fcmp_o[0]; end
+						3'd2:	begin exres.val[rob[rob_exec].step] <=  fcmp_o[1]; end
+						3'd3:	begin exres.val[rob[rob_exec].step] <=  fcmp_o[2]; end
+						default:	;
+						endcase
+						tModEx();
+					end
+					else begin
+						 
+						exres.val <= vtmp;
+						case(rob[rob_exec].ir[13:11])
+						3'd0:	begin exres.val[rob[rob_exec].step] <=  fcmp_o[0]; end
+						3'd1:	begin exres.val[rob[rob_exec].step] <= ~fcmp_o[0]; end
+						3'd2:	begin exres.val[rob[rob_exec].step] <=  fcmp_o[1]; end
+						3'd3:	begin exres.val[rob[rob_exec].step] <=  fcmp_o[2]; end
+						default:	;
+						endcase
+						tModEx();
+					end
+				default:	;
+				endcase
+			end
+		F3,VF3:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				MADD,MSUB,NMADD,NMSUB:
+					begin
+						tModEx(); 
+						rob_cmt <= FALSE;
+					end
+				default:	;
+				endcase
+			end
+`endif
+		ADDI:	begin  exres.val <= rob[rob_exec].ia.val + rob[rob_exec].imm; tModEx(); end
+		SUBFI:begin  exres.val <= rob[rob_exec].imm - rob[rob_exec].ia.val; tModEx(); end
+		ANDI:	begin  exres.val <= rob[rob_exec].ia.val & rob[rob_exec].imm; tModEx(); end
+		ORI:	begin  exres.val <= rob[rob_exec].ia.val | rob[rob_exec].imm; tModEx(); end
+		XORI:	begin  exres.val <= rob[rob_exec].ia.val ^ rob[rob_exec].imm; tModEx(); end
+		ADDIP:begin  exres.val <= rob[rob_exec].ip + {rob[rob_exec].imm,14'b0}; tModEx(); end
+`ifdef SUPPORT_MYST
+		MYSTI:	begin  exres.val <= {rob[rob_exec].id.val[35:20],rob[rob_exec].ir[19:8],rob[rob_exec].id.val[7:0]}; rob[rob_exec].myst <= TRUE; tModEx(); end
+`endif
+		MULI,MULUI,MULSUI:
+				begin
+					begin
+						tModEx(); 
+						rob_cmt <= FALSE;
+					end
+				end
+		DIVI,DIVUI,DIVSUI:
+				begin
+					begin
+						tModEx(); 
+						rob_cmt <= FALSE;
+					end
+				end
+		MULFI:begin  exres.val <= rob[rob_exec].ia.val[23:0] * rob[rob_exec].imm[15:0]; tModEx(); end
+		SEQI:	begin  exres.val <= rob[rob_exec].ia.val == rob[rob_exec].imm; tModEx(); end
+		SNEI:	begin  exres.val <= rob[rob_exec].ia != rob[rob_exec].imm; tModEx(); end
+		SLTI:	begin  exres.val <= $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm); tModEx(); end
+		SGTI:	begin  exres.val <= $signed(rob[rob_exec].ia.val) > $signed(rob[rob_exec].imm); tModEx(); end
+		SLTUI:	begin  exres.val <= rob[rob_exec].ia.val < rob[rob_exec].imm; tModEx(); end
+		SGTUI:	begin  exres.val <= rob[rob_exec].ia.val > rob[rob_exec].imm; tModEx(); end
+		BTFLD:	begin  exres.val <= bf_out.val; tModEx(); end
+    BYTNDX:
+	    begin
+	    	 
+	    	if (rob[rob_exec].ir.r2.func[6:3]!=4'd0) begin
+	        if (rob[rob_exec].ia.val[7:0]==rob[rob_exec].imm[7:0])
+	          exres.val <= 64'd0;
+	        else if (rob[rob_exec].ia.val[15:8]==rob[rob_exec].imm[7:0])
+	          exres.val <= 64'd1;
+	        else if (rob[rob_exec].ia.val[23:16]==rob[rob_exec].imm[7:0])
+	          exres.val <= 64'd2;
+	        else if (rob[rob_exec].ia.val[31:24]==rob[rob_exec].imm[7:0])
+	          exres.val <= 64'd3;
+	        else if (rob[rob_exec].ia.val[39:32]==rob[rob_exec].imm[7:0])
+	          exres.val <= 64'd4;
+	        else if (rob[rob_exec].ia.val[47:40]==rob[rob_exec].imm[7:0])
+	          exres.val <= 64'd5;
+	        else if (rob[rob_exec].ia.val[55:40]==rob[rob_exec].imm[7:0])
+	          exres.val <= 64'd6;
+	        else if (rob[rob_exec].ia.val[63:56]==rob[rob_exec].imm[7:0])
+	          exres.val <= 64'd7;
+	        else
+	          exres.val <= {64{1'b1}};  // -1
+	      end
+	      else begin
+	        if (rob[rob_exec].ia.val[7:0]==rob[rob_exec].ib.val[7:0])
+	          exres.val <= 64'd0;
+	        else if (rob[rob_exec].ia.val[15:8]==rob[rob_exec].ib.val[7:0])
+	          exres.val <= 64'd1;
+	        else if (rob[rob_exec].ia.val[23:16]==rob[rob_exec].ib.val[7:0])
+	          exres.val <= 64'd2;
+	        else if (rob[rob_exec].ia.val[31:24]==rob[rob_exec].ib.val[7:0])
+	          exres.val <= 64'd3;
+	        else if (rob[rob_exec].ia.val[39:32]==rob[rob_exec].ib.val[7:0])
+	          exres.val <= 64'd4;
+	        else if (rob[rob_exec].ia.val[47:40]==rob[rob_exec].ib.val[7:0])
+	          exres.val <= 64'd5;
+	        else if (rob[rob_exec].ia.val[55:40]==rob[rob_exec].ib.val[7:0])
+	          exres.val <= 64'd6;
+	        else if (rob[rob_exec].ia.val[63:56]==rob[rob_exec].ib.val[7:0])
+	          exres.val <= 64'd7;
+	        else
+	          exres.val <= {64{1'b1}};  // -1
+	      end
+	      tModEx();
+	    end
+`ifdef U10NDX
+    U10NDX:
+    begin
+    	 
+    	if (rob[rob_exec].ir.sz==4'd1) begin
+        if (rob[rob_exec].ia.val[9:0]==rob[rob_exec].imm[9:0])
+          exres.val <= 64'd0;
+        else if (rob[rob_exec].ia.val[19:10]==rob[rob_exec].imm[9:0])
+          exres.val <= 64'd1;
+        else if (rob[rob_exec].ia.val[29:20]==rob[rob_exec].imm[9:0])
+          exres.val <= 64'd2;
+        else if (rob[rob_exec].ia.val[39:30]==rob[rob_exec].imm[9:0])
+          exres.val <= 64'd3;
+        else if (rob[rob_exec].ia.val[49:40]==rob[rob_exec].imm[9:0])
+          exres.val <= 64'd4;
+        else if (rob[rob_exec].ia.val[59:50]==rob[rob_exec].imm[9:0])
+          exres.val <= 64'd5;
+        else
+          exres.val <= {64{1'b1}};  // -1
+      end
+      else begin
+        if (rob[rob_exec].ia.val[9:0]==rob[rob_exec].ib.val[9:0])
+          exres.val <= 64'd0;
+        else if (rob[rob_exec].ia.val[19:10]==rob[rob_exec].ib.val[9:0])
+          exres.val <= 64'd1;
+        else if (rob[rob_exec].ia.val[29:20]==rob[rob_exec].ib.val[9:0])
+          exres.val <= 64'd2;
+        else if (rob[rob_exec].ia.val[39:30]==rob[rob_exec].ib.val[9:0])
+          exres.val <= 64'd3;
+        else if (rob[rob_exec].ia.val[49:40]==rob[rob_exec].ib.val[9:0])
+          exres.val <= 64'd4;
+        else if (rob[rob_exec].ia.val[59:50]==rob[rob_exec].ib.val[9:0])
+          exres.val <= 64'd5;
+        else
+          exres.val <= {64{1'b1}};  // -1
+      end
+      tModEx();
+    end
+`endif
+    U21NDX:
+			begin
+				 
+	    	if (rob[rob_exec].ir.r2.func[6:3]!=4'd0) begin
+	        if (rob[rob_exec].ia.val[20:0]==rob[rob_exec].imm[20:0])
+	          exres.val <= 64'd0;
+	        else if (rob[rob_exec].ia.val[41:21]==rob[rob_exec].imm[20:0])
+	          exres.val <= 64'd1;
+	        else if (rob[rob_exec].ia.val[62:42]==rob[rob_exec].imm[20:0])
+	          exres.val <= 64'd2;
+	        else
+	          exres.val <= {64{1'b1}};  // -1
+	      end
+	      else begin
+	        if (rob[rob_exec].ia.val[20:0]==rob[rob_exec].ib.val[20:0])
+	          exres.val <= 64'd0;
+	        else if (rob[rob_exec].ia.val[41:21]==rob[rob_exec].ib.val[20:0])
+	          exres.val <= 64'd1;
+	        else if (rob[rob_exec].ia.val[62:42]==rob[rob_exec].ib.val[20:0])
+	          exres.val <= 64'd2;
+	        else
+	          exres.val <= {64{1'b1}};  // -1
+	      end
+	      tModEx();
+	    end
+    PERM:
+			begin
+				 
+	    	if (rob[rob_exec].ir.r2.func!=4'd0) begin
+	    		exres.val[7:0] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm[2:0],3'b0};
+	    		exres.val[15:8] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm[5:3],3'b0};
+	    		exres.val[23:16] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm[8:6],3'b0};
+	    		exres.val[31:24] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm[11:9],3'b0};
+	    		exres.val[39:32] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm[14:12],3'b0};
+	    		exres.val[47:40] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm[17:15],3'b0};
+	    		exres.val[55:48] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm[20:18],3'b0};
+	    		exres.val[63:56] <= rob[rob_exec].ia.val >> {rob[rob_exec].imm[23:21],3'b0};
+					tModEx();
+				end
+				else if (rob[rob_exec].ibv) begin
+	    		exres.val[7:0] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[2:0],3'b0};
+	    		exres.val[15:8] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[5:3],3'b0};
+	    		exres.val[23:16] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[8:6],3'b0};
+	    		exres.val[31:24] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[11:9],3'b0};
+	    		exres.val[39:32] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[14:12],3'b0};
+	    		exres.val[47:40] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[17:15],3'b0};
+	    		exres.val[55:48] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[20:18],3'b0};
+	    		exres.val[63:56] <= rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[23:21],3'b0};
+					tModEx();
+				end
+			end    	
+		CHKI:
+			begin
+				case(rob[rob_exec].ir.r2.Rt[2:0])
+				3'd0:
+					if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].imm)) begin
+						tModEx();
+					end
+				3'd1:
+					if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].imm)) begin
+						tModEx();
+					end
+				3'd2:
+					if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].imm)) begin
+						tModEx();
+					end
+				3'd3:
+					if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].imm)) begin
+						tModEx();
+					end
+				3'd4:
+					if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].imm))) begin
+						tModEx();
+					end
+				3'd5:
+					if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].imm))) begin
+						tModEx();
+					end
+				3'd6:
+					if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm))) begin
+						tModEx();
+					end
+				3'd7:
+					if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm))) begin
+						tModEx();
+					end
+				endcase
+			end
+		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS,BBC:
+			txBranchEx();
+		JALR:	exres.val <= fnIPInc(rob[rob_exec].ip);
+		JAL:
+			begin
+				//rob[rob_exec].jump <= TRUE;
+				//rob[rob_exec].jump_tgt <= rob[rob_exec].imm;
+				exres.val <= fnIPInc(rob[rob_exec].ip);
+				rob_cmt <= FALSE;
+			end
+		BAL:	tBalEx(FALSE);
+		JALI:
+			begin
+				exres.val <= 64'hDEADDEADDEADEAD;
+				rob_cmt <= FALSE;
+			end
+`ifdef SUPPORT_CALL_RET			
+		CALL:
+			begin
+				tModEx();
+				exres.val <= rob[rob_exec].ia.val - 4'd8;	// decrement SP
+				rob_cmt <= FALSE;
+			end
+		RTS:
+			begin
+				exres.val <= rob[rob_exec].ia.val + {rob[rob_exec].imm[63:3],3'b0};	// increment SP
+				rob_cmt <= FALSE;
+			end
+`endif			
+		LEA,LDx,LDxX,LDxZ,LDxXZ:
+			tLoadEx(2'b01);
+		STx,STxX:
+			tStoreEx(2'b01);
+		LDSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			begin
+			if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+				tModEx();
+				rob_cmt <= FALSE;
+			end
+			else if (rob[rob_exec].irmod.im.z)
+				tDoOpEx(64'd0);
+			else begin
+				tDoOpEx(64'd0);
+			end
+			end
+		STSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+				tModEx();
+				rob_cmt <= FALSE;
+			end
+			else if (rob[rob_exec].irmod.im.z) begin
+				tModEx();
+				rob_cmt <= FALSE;
+			end
+			else begin
+				tDoOpEx(64'd0);
+			end
+			end
+		CVLDSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+				tModEx();
+				rob_cmt <= FALSE;
+			end
+			else if (rob[rob_exec].irmod.im.z)
+				tDoOpEx(64'd0);
+			else begin
+				tDoOpEx(64'd0);
+			end
+			end
+		CVSTSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+				tModEx();
+				rob_cmt <= FALSE;
+			end
+			else begin
+				tDoOpEx(64'd0);
+			end
+			end
+		CSR:
+			begin
+				case({rob[rob_exec].ir.r2.Ta,rob[rob_exec].ir.r2.Tt})
+				CSRR:	begin  exres <= csrro; end
+				CSRW,CSRS,CSRC:	;
+//				CSRRW:	exres <= csrro;
+				default:	;
+				endcase
+		    tModEx();
+			end
+		SYS:
+			case(rob[rob_exec].ir.r2.func)
+			POPQ:
+				begin
+					case(rob[rob_exec].ia[5:0])
+					6'd15:	
+						begin
+							exres <= trace_dout;
+							tModEx();
+						end
+					default:	;
+					endcase
+				end
+			POPQI:
+				begin
+					case(rob[rob_exec].ir.r2.Ra)
+					6'd15:	
+						begin
+							 
+							exres <= trace_dout;
+							tModEx();
+						end
+					default:	;
+					endcase
+				end
+			PEEKQ:
+				begin
+					case(rob[rob_exec].ia[5:0])
+					6'd15:	
+						begin
+							 
+							exres <= trace_dout;
+							tModEx();
+						end
+					default:	;
+					endcase
+				end
+			PEEKQI:
+				begin
+					case(rob[rob_exec].ir.r2.Ra)
+					6'd15:	
+						begin
+							 
+							exres <= trace_dout;
+							tModEx();
+						end
+					default:	;
+					endcase
+				end
+			PFI:
+				begin
+			    tModEx();
+		  	end
+		  WFI:	begin tModEx(); end
+			TLBRW:
+				begin
+					tModEx();
+					rob_cmt <= FALSE;
+				end
+`ifdef SUPPORT_EXEC
+			EXEC:
+				begin
+					exres.val <= rob[rob_exec].ia.val;
+					tModEx();
+				end
+`endif				
+			SYNC:	;
+			CSAVE:		tStoreEx(2'b10);
+			CRESTORE:	tLoadEx(2'b10);
+//			BASE:	begin exres.val <= (|omode & ~rob[rob_exec].ir[28]) ? rob[rob_exec].ia.val : (rob[rob_exec].ia.val & ~amask) | ({rob[rob_exec].ib.val[3:0],8'b0} << {arange,3'b0}); tModEx(); end
+			BASE:	begin  exres.val <= (rob[rob_exec].ib.val[9:0] << 6'd54); tModEx(); end
+			MFSEL:	begin  exres.val <= rob[rob_exec].ib.val; tModEx(); end
+			MFBND:	begin  exres.val <= rob[rob_exec].ib.val; tModEx(); end
+			MTBND:	begin  exres.val <= rob[rob_exec].ia.val; tModEx(); end
+			MTSEL:	begin	 exres.val <= rob[rob_exec].ia.val; tLoadEx(2'b11);	end
+			default:	;
+			endcase
+		// Some of the modifiers should never execute because they are committed
+		// immediately at decode.
+		RGLST0,RGLST1,RGLST2,RGLST3:	tModEx();
+		EXI0,EXI1,EXI2:	tModEx();
+		IMOD:
+			begin
+				tModEx();
+			end
+		BRMOD:
+			begin
+				tModEx();
+			end
+		STRIDE:
+			begin
+				tModEx();
+			end
+		8'hFF:
+			;//rob_exec <= rob_exec;
+`ifdef SUPPORT_VECTOR
+		VR1:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				ABS:	begin
+								 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									exres.val <= rob[rob_exec].ia[63] ? -rob[rob_exec].ia : rob[rob_exec].ia;
+								end
+								else if (rob[rob_exec].irmod.im.z)
+									exres.val <= 64'd0;
+						  end
+				NABS:	begin
+								 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									exres.val <= rob[rob_exec].ia[63] ? rob[rob_exec].ia : -rob[rob_exec].ia;
+								end
+								else if (rob[rob_exec].irmod.im.z)
+									exres.val <= 64'd0;
+						  end
+				NEG:	begin
+								 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									exres.val <= -rob[rob_exec].ia;
+								end
+								else if (rob[rob_exec].irmod.im.z)
+									exres.val <= 64'd0;
+						  end
+				NOT:	begin
+								 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									exres.val <= rob[rob_exec].ia==64'd0 ? 64'd1 : 64'd0;
+								end
+								else if (rob[rob_exec].irmod.im.z)
+									exres.val <= 64'd0;
+							end
+				CTLZ:	begin
+								 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									exres.val <= cntlzo;
+								end
+								else if (rob[rob_exec].irmod.im.z)
+									exres.val <= 64'd0;
+							end
+				CTPOP:begin
+								 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									exres.val <= cntpopo;
+								end
+								else if (rob[rob_exec].irmod.im.z)
+									exres.val <= 64'd0;
+							end
+				V2BITS:	
+					if (rob[rob_exec].iav) begin
+						if (rob[rob_exec].step==0) begin
+							if (rob[rob_exec].vmask[0]) begin
+								 
+								exres.val <= {63'd0,rob[rob_exec].ia.val[0]};
+							end
+							else if (rob[rob_exec].irmod.im.z) begin
+								 
+								exres.val <= 64'd0;
+							end
+						end
+						else begin
+							if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+								 
+								exres.val <= vtmp | (rob[rob_exec].ia.val[0] << rob[rob_exec].step);
+							end
+						end
+						tModEx();
+						if (rob[rob_exec].step + 2'd1 >= vl)
+							rob[rob_exec].vcmt <= TRUE;
+					end
+				BITS2V:
+					if (rob[rob_exec].iav) begin
+						tDoOpEx(rob[rob_exec].ia.val[rob[rob_exec].step]);
+					end
+				VCMPRSS:
+					begin
+						exres <= rob[rob_exec].ia;
+						tModEx();
+					end
+				VCIDX:
+					begin
+						exres <= rob[rob_exec].ia * rob[rob_exec].step;
+						tModEx();
+					end
+				VSCAN:
+					begin
+						exres.val <= vtmp;
+						if (rob[rob_exec].step==6'd0) begin
+							exres.val <= 64'd0;
+						end
+						tModEx();
+					end
+				default:	;
+				endcase
+			end
+		VR2:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				ADD:	tDoOpEx(rob[rob_exec].ia.val + rob[rob_exec].ib.val);
+				SUB:	tDoOpEx(rob[rob_exec].ia.val - rob[rob_exec].ib.val);
+				AND:	tDoOpEx(rob[rob_exec].ia.val & rob[rob_exec].ib.val);
+				OR:		tDoOpEx(rob[rob_exec].ia.val | rob[rob_exec].ib.val);
+				XOR:	tDoOpEx(rob[rob_exec].ia.val ^ rob[rob_exec].ib.val);
+				SLL:	tDoOpEx(rob[rob_exec].ia.val << rob[rob_exec].ib.val[5:0]);
+				SLLI:	tDoOpEx(rob[rob_exec].ia.val << {rob[rob_exec].ir.r2.Tb[0],rob[rob_exec].ir.r2.Rb[4:0]});
+				SRL:	tDoOpEx(exres.val <= rob[rob_exec].ia.val >> rob[rob_exec].ib.val[5:0]);
+				SRLI:	tDoOpEx(exres.val <= rob[rob_exec].ia.val >> {rob[rob_exec].ir.r2.Tb[0],rob[rob_exec].ir.r2.Rb[4:0]});
+				DIF:
+					begin
+						tDoOpEx($signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val) ?
+							rob[rob_exec].ib.val - rob[rob_exec].ia.val : rob[rob_exec].ia.val - rob[rob_exec].ib.val);
+					end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
+					begin
+						tModEx();
+						rob_cmt <= FALSE;
+					end
+				DIV,DIVU,DIVSU:
+					begin
+						tModEx();
+						rob_cmt <= FALSE;
+					end
+				MULF:	tDoOpEx(rob[rob_exec].ia.val[23:0] * rob[rob_exec].ib.val[15:0]);
+				CMP:	tDoOpEx($signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val) ? -64'd1 : $signed(rob[rob_exec].ia.val) == $signed(rob[rob_exec].ib.val) ? 64'd0 : 64'd1);
+				SEQ:	tDoOpEx(rob[rob_exec].ia.val == rob[rob_exec].ib.val);
+				SNE:	tDoOpEx(rob[rob_exec].ia.val != rob[rob_exec].ib.val);
+				SLT:	tDoOpEx($signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val));
+				SGE:	tDoOpEx($signed(rob[rob_exec].ia.val) >= $signed(rob[rob_exec].ib.val));
+				SLTU:	tDoOpEx(rob[rob_exec].ia.val < rob[rob_exec].ib.val);
+				SGEU:	tDoOpEx(rob[rob_exec].ia.val >= rob[rob_exec].ib.val);
+				SETM:
+					if (rob[rob_exec].step==6'd0) begin
+						exres.val <= 64'd0;
+						case(rob[rob_exec].ir[13:11])
+						3'd0:	begin  exres.val[rob[rob_exec].step] <= rob[rob_exec].ia.val==rob[rob_exec].ib.val; end
+						3'd1:	begin  exres.val[rob[rob_exec].step] <= rob[rob_exec].ia.val!=rob[rob_exec].ib.val; end
+						3'd2:	begin  exres.val[rob[rob_exec].step] <= $signed(rob[rob_exec].ia.val)< $signed(rob[rob_exec].ib.val); end
+						3'd3:	begin  exres.val[rob[rob_exec].step] <= $signed(rob[rob_exec].ia.val)<=$signed(rob[rob_exec].ib.val); end
+						3'd4:	begin  exres.val[rob[rob_exec].step] <= rob[rob_exec].ia.val< rob[rob_exec].ib.val; end
+						3'd5:	begin  exres.val[rob[rob_exec].step] <= rob[rob_exec].ia.val<=rob[rob_exec].ib.val; end
+						default:	;
+						endcase
+						tModEx();
+					end
+					else begin
+						exres.val <= vtmp;
+						case(rob[rob_exec].ir[13:11])
+						3'd0:	begin  exres.val[rob[rob_exec].step] <= rob[rob_exec].ia.val==rob[rob_exec].ib.val; end
+						3'd1:	begin  exres.val[rob[rob_exec].step] <= rob[rob_exec].ia.val!=rob[rob_exec].ib.val; end
+						3'd2:	begin  exres.val[rob[rob_exec].step] <= $signed(rob[rob_exec].ia.val)< $signed(rob[rob_exec].ib.val); end
+						3'd3:	begin  exres.val[rob[rob_exec].step] <= $signed(rob[rob_exec].ia.val)<=$signed(rob[rob_exec].ib.val); end
+						3'd4:	begin  exres.val[rob[rob_exec].step] <= rob[rob_exec].ia.val< rob[rob_exec].ib.val; end
+						3'd5:	begin  exres.val[rob[rob_exec].step] <= rob[rob_exec].ia.val<=rob[rob_exec].ib.val; end
+						default:	;
+						endcase
+						tModEx();
+					end
+				VEX:
+					if (rob[rob_exec].step_v) begin
+						 
+						exres.val <= rob[rob_exec].ib;
+						tModEx();
+					end
+				VEINS:
+					if (rob[rob_exec].step_v)
+						tDoOpEx(rob[rob_exec].ib);
+				VSLLV:
+					begin
+						if ({2'b0,rob[rob_exec].ia_ele} + rob[rob_exec].ib.val[11:6] <= vl) begin
+							exres_ele <= rob[rob_exec].ia_ele + rob[rob_exec].ib.val[11:6];
+							tDoOpEx(sll_out2[63:0]|vtmp);
+						end
+						else begin
+							exres_ele <= rob[rob_exec].ia_ele - vl - 2'd1;
+							tDoOpEx(64'd0);
+						end
+					end
+				VSRLV:
+					begin
+						if (rob[rob_exec].ia_ele >= rob[rob_exec].ib.val[11:6]) begin
+							exres_ele <= rob[rob_exec].ia_ele - rob[rob_exec].ib.val[11:6];
+							tDoOpEx(vtmp|srl_out2[127:64]);
+						end
+						else begin
+							exres_ele <= rob[rob_exec].ia_ele;
+							tDoOpEx(64'd0);
+						end
+					end
+`ifdef SUPPORT_MYST				
+				MYST:	begin  exres.val <= {rob[rob_exec].id.val[35:29],rob[rob_exec].ir[28:8],rob[rob_exec].id.val[7:0]}; tModEx(); end
+`endif					
+				default:	;
+				endcase
+			end
+		VR3:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				SLLP:	tDoOpEx(exres.val <= sll_out[63:0]);
+				PTRDIF:	tDoOpEx(((rob[rob_exec].ia.val < rob[rob_exec].ib.val) ? rob[rob_exec].ib.val - rob[rob_exec].ia.val : rob[rob_exec].ia.val - rob[rob_exec].ib.val) >> rob[rob_exec].ic.val[4:0]);
+				CHK:
+					case(rob[rob_exec].ir.r2.func)
+					3'd0:
+						if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].ib.val)) begin
+							tModEx();
+						end
+					3'd1:
+						if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].ib.val)) begin
+							tModEx();
+						end
+					3'd2:
+						if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].ib.val)) begin
+							tModEx();
+						end
+					3'd3:
+						if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].ib.val)) begin
+							tModEx();
+						end
+					3'd4:
+						if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].ib.val))) begin
+							tModEx();
+						end
+					3'd5:
+						if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].ib.val))) begin
+							tModEx();
+						end
+					3'd6:
+						if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val))) begin
+							tModEx();
+						end
+					3'd7:
+						if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val))) begin
+							tModEx();
+						end
+					default:
+						begin
+							tModEx();
+						end
+					endcase
+				default:	;
+				endcase
+			end
+		VADDI:	tDoOpEx(rob[rob_exec].ia.val + rob[rob_exec].imm);
+		VSUBFI:	tDoOpEx(rob[rob_exec].imm - rob[rob_exec].ia.val);
+		VANDI:	tDoOpEx(rob[rob_exec].ia.val & rob[rob_exec].imm);
+		VORI:		tDoOpEx(rob[rob_exec].ia.val | rob[rob_exec].imm);
+		VXORI:	tDoOpEx(rob[rob_exec].ia.val ^ rob[rob_exec].imm);
+		VMULI,VMULUI,VMULSUI:
+				begin
+					begin
+						tModEx(); 
+						rob_cmt <= FALSE;
+					end
+				end
+		VDIVI,VDIVUI,VDIVSUI:
+				begin
+					begin
+						tModEx(); 
+						rob_cmt <= FALSE;
+					end
+				end
+		VMULFI:	tDoOpEx(rob[rob_exec].ia.val[23:0] * rob[rob_exec].imm[15:0]);
+		VSEQI:	tDoOpEx(rob[rob_exec].ia.val == rob[rob_exec].imm);
+		VSNEI:	tDoOpEx(rob[rob_exec].ia != rob[rob_exec].imm);
+		VSLTI:	tDoOpEx($signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm));
+		VSGTI:	tDoOpEx($signed(rob[rob_exec].ia.val) > $signed(rob[rob_exec].imm));
+		VSLTUI:	tDoOpEx(rob[rob_exec].ia.val < rob[rob_exec].imm);
+		VSGTUI:	tDoOpEx(rob[rob_exec].ia.val > rob[rob_exec].imm);
+		VBTFLD:	tDoOpEx(bf_out.val);
+    VBYTNDX:
+	    begin
+	   		if (vtmp==64'd0 | rob[rob_exec].Rt[6]) begin
+		    	if (rob[rob_exec].ir.r2.func[6:3]!=4'd0) begin
+		        if (rob[rob_exec].ia.val[7:0]==rob[rob_exec].imm[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'b0});
+		        end
+		        else if (rob[rob_exec].ia.val[15:8]==rob[rob_exec].imm[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd1});
+		        end
+		        else if (rob[rob_exec].ia.val[23:16]==rob[rob_exec].imm[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd2});
+		        end
+		        else if (rob[rob_exec].ia.val[31:24]==rob[rob_exec].imm[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd3});
+		        end
+		        else if (rob[rob_exec].ia.val[39:32]==rob[rob_exec].imm[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd4});
+		        end
+		        else if (rob[rob_exec].ia.val[47:40]==rob[rob_exec].imm[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd5});
+		        end
+		        else if (rob[rob_exec].ia.val[55:40]==rob[rob_exec].imm[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd6});
+		        end
+		        else if (rob[rob_exec].ia.val[63:56]==rob[rob_exec].imm[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd7});
+		        end
+		        else
+		          tDoOpEx({64{1'b1}});  // -1
+	        end
+		      else begin
+		        if (rob[rob_exec].ia.val[7:0]==rob[rob_exec].ib.val[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'b0});
+		        end
+		        else if (rob[rob_exec].ia.val[15:8]==rob[rob_exec].ib.val[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd1});
+		        end
+		        else if (rob[rob_exec].ia.val[23:16]==rob[rob_exec].ib.val[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd2});
+		        end
+		        else if (rob[rob_exec].ia.val[31:24]==rob[rob_exec].ib.val[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd3});
+		        end
+		        else if (rob[rob_exec].ia.val[39:32]==rob[rob_exec].ib.val[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd4});
+		        end
+		        else if (rob[rob_exec].ia.val[47:40]==rob[rob_exec].ib.val[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd5});
+		        end
+		        else if (rob[rob_exec].ia.val[55:40]==rob[rob_exec].ib.val[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd6});
+		        end
+		        else if (rob[rob_exec].ia.val[63:56]==rob[rob_exec].ib.val[7:0]) begin
+		          tDoOpEx({rob[rob_exec].step,3'd7});
+		        end
+		        else
+		          tDoOpEx({64{1'b1}});  // -1
+		      end
+	      end
+        else begin
+          tDoOpEx(vtmp[63] ? {1'b0,vtmp[62:0]} : 64'hFFFFFFFFFFFFFFFF);  // -1
+        end
+	    end
+	  VM:
+			case(rob[rob_exec].ir.r2.func)
+			MTM:	begin  exres.val <= rob[rob_exec].ia.val; tModEx(); end
+			MFM:	begin  if (rob[rob_exec].vmv) begin exres.val <= rob[rob_exec].vmask; tModEx(); end end
+			VMADD:begin  exres.val <= rob[rob_exec].ia.val + rob[rob_exec].ib.val; tModEx(); end
+			MAND:	begin  exres.val <= rob[rob_exec].ia.val & rob[rob_exec].ib.val; tModEx(); end
+			MOR:	begin  exres.val <= rob[rob_exec].ia.val | rob[rob_exec].ib.val; tModEx(); end
+			MXOR:	begin  exres.val <= rob[rob_exec].ia.val ^ rob[rob_exec].ib.val; tModEx(); end
+			MFILL:	begin
+								  
+								for (n = 0; n < 64; n = n + 1)
+									exres.val[n] <= n[5:0] <= rob[rob_exec].ia.val[5:0];
+								tModEx();
+							end
+			MSLL:	begin  exres.val <= rob[rob_exec].ia.val << rob[rob_exec].ib.val[5:0]; tModEx(); end
+			MSRL:	begin  exres.val <= rob[rob_exec].ia.val >> rob[rob_exec].ib.val[5:0]; tModEx(); end
+			MPOP: begin  exres.val <= cntpopo; tModEx(); end
+			MFIRST:	begin  exres.val <= floo; tModEx(); end
+			MLAST:	begin  exres.val <= ffoo; tModEx(); end
+			default:	;
+	  	endcase
+`ifdef U10NDX
+    VU10NDX:
+    begin
+    	if (rob[rob_exec].ir.sz==4'd1) begin
+        if (rob[rob_exec].ia.val[9:0]==rob[rob_exec].imm[9:0])
+          tDoOpEx( 64'd0);
+        else if (rob[rob_exec].ia.val[19:10]==rob[rob_exec].imm[9:0])
+          tDoOpEx( 64'd1);
+        else if (rob[rob_exec].ia.val[29:20]==rob[rob_exec].imm[9:0])
+          tDoOpEx( 64'd2);
+        else if (rob[rob_exec].ia.val[39:30]==rob[rob_exec].imm[9:0])
+          tDoOpEx( 64'd3);
+        else if (rob[rob_exec].ia.val[49:40]==rob[rob_exec].imm[9:0])
+          tDoOpEx( 64'd4);
+        else if (rob[rob_exec].ia.val[59:50]==rob[rob_exec].imm[9:0])
+          tDoOpEx( 64'd5);
+        else
+          tDoOpEx( {64{1'b1}});  // -1
+      end
+      else begin
+        if (rob[rob_exec].ia.val[9:0]==rob[rob_exec].ib.val[9:0])
+          tDoOpEx( 64'd0);
+        else if (rob[rob_exec].ia.val[19:10]==rob[rob_exec].ib.val[9:0])
+          tDoOpEx( 64'd1);
+        else if (rob[rob_exec].ia.val[29:20]==rob[rob_exec].ib.val[9:0])
+          tDoOpEx( 64'd2);
+        else if (rob[rob_exec].ia.val[39:30]==rob[rob_exec].ib.val[9:0])
+          tDoOpEx( 64'd3)
+        else if (rob[rob_exec].ia.val[49:40]==rob[rob_exec].ib.val[9:0])
+          tDoOpEx( 64'd4)
+        else if (rob[rob_exec].ia.val[59:50]==rob[rob_exec].ib.val[9:0])
+          tDoOpEx( 64'd5);
+        else
+          tDoOpEx( {64{1'b1}});  // -1
+      end
+    end
+`endif
+    VU21NDX:
+		begin
+    	if (rob[rob_exec].ir.r2.func!=4'd0) begin
+        if (rob[rob_exec].ia.val[20:0]==rob[rob_exec].imm[20:0])
+          tDoOpEx( 64'd0);
+        else if (rob[rob_exec].ia.val[41:21]==rob[rob_exec].imm[20:0])
+          tDoOpEx( 64'd1);
+        else if (rob[rob_exec].ia.val[62:42]==rob[rob_exec].imm[20:0])
+          tDoOpEx( 64'd2);
+        else
+          tDoOpEx( {64{1'b1}});  // -1
+      end
+      else begin
+        if (rob[rob_exec].ia.val[20:0]==rob[rob_exec].ib.val[20:0])
+          tDoOpEx( 64'd0);
+        else if (rob[rob_exec].ia.val[41:21]==rob[rob_exec].ib.val[20:0])
+          tDoOpEx( 64'd1);
+        else if (rob[rob_exec].ia.val[62:42]==rob[rob_exec].ib.val[20:0])
+          tDoOpEx( 64'd2);
+        else
+          tDoOpEx( {64{1'b1}});  // -1
+      end
+    end
+    PERM:
+		begin
+    	if (rob[rob_exec].ir.r2.func!=4'd0) begin
+    		tDoOpEx({
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[23:21],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[20:18],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[17:15],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[14:12],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[11:9],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[8:6],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[5:3],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[2:0],3'b0}});
+			end
+			else begin
+    		tDoOpEx({
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[23:21],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[20:18],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[17:15],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[14:12],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[11:9],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[8:6],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[5:3],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[2:0],3'b0}});
+			end
+		end    	
+		VCHKI:
+			begin
+				case(rob[rob_exec].ir.r2.Rt[2:0])
+				3'd0:
+					if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].imm)) begin
+						tModEx();
+					end
+				3'd1:
+					if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].imm)) begin
+						tModEx();
+					end
+				3'd2:
+					if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].imm)) begin
+						tModEx();
+					end
+				3'd3:
+					if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].imm)) begin
+						tModEx();
+					end
+				3'd4:
+					if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].imm))) begin
+						tModEx();
+					end
+				3'd5:
+					if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].imm))) begin
+						tModEx();
+					end
+				3'd6:
+					if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm))) begin
+						tModEx();
+					end
+				3'd7:
+					if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm))) begin
+						tModEx();
+					end
+				endcase
+			end
+`ifdef SUPPORT_MYST
+		VMYSTI:	begin exres.val <= {rob[rob_exec].id.val[35:20],rob[rob_exec].ir[19:8],rob[rob_exec].id.val[7:0]}; tModEx(); end
+`endif
+		VSYS:
+			case(rob[rob_exec].ir.r2.func)
+`ifdef SUPPORT_EXEC
+			EXEC:
+				begin
+					exres.val <= rob[rob_exec].ia.val;
+					tModEx();
+				end
+`endif				
+			default:	;			
+			endcase
+`endif
+		default:	;
+		endcase
+end
+
+always_comb
+	begin
+		funcUnit[FU_EXEC].rid = rob[rob_exec].rid;
+		funcUnit[FU_EXEC].res = exres;
+		funcUnit[FU_EXEC].res2 = rob[rob_exec].ia;
+		funcUnit[FU_EXEC].cause = cc;
+		funcUnit[FU_EXEC].badAddr = rob[rob_exec].ip;
+		funcUnit[FU_EXEC].ele = rob[rob_exec].step;
+		funcUnit[FU_EXEC].cmt = rob_cmt;
+	end
+
 always @(posedge clk_g)
 if (rst_i) begin
 	tvec[4'd4] <= BRKIP;
@@ -1792,7 +3163,7 @@ if (rst_i) begin
 	wb_redirecti.redirect_ip <= 32'd0;
 	wb_redirecti.current_ip <= 32'd0;
 	wb_redirecti.wr <= FALSE;
-	cr0 <= 64'h30940000000;		// enable branch predictor, data cache, 32 bit addressing
+	cr0 <= 64'h70940000000;		// enable branch predictor, data cache, 64 bit addressing
 	keytbl <= 32'h00020000;
 	for (n = 0; n < 4; n = n + 1)
 		keys2[n] <= 64'd0;
@@ -1861,8 +3232,20 @@ if (rst_i) begin
 	sgram_dat <= 64'd0;
 	sgram_adr <= 11'd0;
 	gdt <= 64'h100FF;
+	// Execute vars
+	//rob_exec <= 6'd0;
+	mulreci.wr <= FALSE;
+	divreci.wr <= FALSE;
+	set_wfi <= FALSE;
+	last_tid <= 6'd0;
+	vtmp <= 64'h0;
+	rd_trace <= FALSE;
+	count <= 6'd0;
+	membufi <= {$bits(sMemoryIO){1'b0}};
+	ASID <= 8'h00;
 end
 else begin
+	ex_redirecti.wr <= FALSE;
 	mem_redirecti.wr <= FALSE;
 	wb_redirecti.wr <= FALSE;
 	exfifo_rd <= FALSE;
@@ -1883,6 +3266,18 @@ else begin
 		ld_time <= FALSE;
 	if (pe_nmi)
 		nmif <= 1'b1;
+
+	membufi.wr <= FALSE;
+	mulreci.wr <= FALSE;
+	divreci.wr <= FALSE;
+	// Create a two cycle wide write pulse.
+//	if (membufi_wr1)
+	fpreci.wr <= FALSE;
+	set_wfi <= FALSE;
+	rob[rob_exec].out <= FALSE;
+	rob[rob_exec].out2 <= FALSE;
+	rd_trace <= FALSE;
+
 /*
 	if (!ifStall)
 		decven <= 6'd0;
@@ -2178,7 +3573,7 @@ else begin
 	// Multi-cycle instructions are placed in instruction queues.
 
 	// Search for ready-to execute instructions and move execute pointer there.
-//	if (next_exec[5:0] != 6'd63)
+	if (next_exec[5:0] != 6'd63)
 		rob_exec <= next_exec[5:0];
 	if (rob_exec != 6'd63)
 		rob_pexec <= rob_exec;
@@ -2186,35 +3581,1426 @@ else begin
 		exec_misses <= exec_misses + 2'd1;
 
 	$display("Execute");
-	$display("ip: %h  ir: %h  a:%h  b:%h  c:%h  d:%h  i:%h", exbufi.ip[AWID-1:0], exbufi.ir,exbufi.ia.val,exbufi.ib.val,exbufi.ic.val,exbufi.id.val,exbufi.imm.val);
+	$display("ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", exbufi.ip[AWID-1:0], exbufi.ir,
+		exbufi.ia.val,exbufi.iav?"v":" ",
+		exbufi.ib.val,exbufi.ibv?"v":" ",
+		exbufi.ic.val,exbufi.icv?"v":" ",
+		exbufi.id.val,exbufi.idv?"v":" ",
+		exbufi.imm.val);
 
+	$display("Execute");
+	if (rob_cmt) begin
+		rob[rob_exec].res <= funcUnit[FU_EXEC].res;
+//		rob[rob_exec].res2 <= funcUnit[FU_EXEC].res2;
+	end
+
+	exvec <= 4'd0;
+	if (cd_cmt_exec)
+		fu0_cmt <= FALSE;
+	if (rob[rob_exec].v==VAL && !rob[rob_exec].cmt && !rob[rob_exec].out && rob_exec != 6'd63) begin
+		cmt_exec <= rob_exec;
+		rob[rob_exec].rid <= rob[rob_exec].rid;
+		rob[rob_exec].ip <= rob[rob_exec].ip;
+		rob[rob_exec].step <= rob[rob_exec].step;
+		rob[rob_exec].ia <= rob[rob_exec].ia;
+		rob[rob_exec].out <= FALSE;
+		rob[rob_exec].takb <= FALSE;
+		last_tid <= tid;
+		exvec <= 4'd1;
+		if (rob[rob_exec].dec) begin
+			exvec <= 4'd2;
+		$display("rid:%d ip: %h  ir: %h  a:%h%c  b:%h%c  c:%h%c  d:%h%c  i:%h", rob_exec, rob[rob_exec].ip, rob[rob_exec].ir,
+			rob[rob_exec].ia.val,rob[rob_exec].iav?"v":" ",rob[rob_exec].ib.val,rob[rob_exec].ibv?"v":" ",
+			rob[rob_exec].ic.val,rob[rob_exec].icv?"v":" ",rob[rob_exec].id.val,rob[rob_exec].idv?"v":" ",
+			rob[rob_exec].imm);
+
+		// If the instruction is exceptioned, then ignore executing it.
+		if (cc != 16'h0000) begin
+			exvec <= 4'd4;
+			rob[rob_exec].cmt <= TRUE;
+			rob[rob_exec].cmt2 <= TRUE;
+			rob[rob_exec].out <= TRUE;
+		end
+		else if (!rob[rob_exec].out) begin
+			exvec <= 4'd3;
+		rob[rob_exec].out <= TRUE;
+		//rob[rob_exec].res.tag <= rob[rob_exec].ir.tag;
+		rob[rob_exec].step <= rob[rob_exec].step;
+		rob[rob_exec].takb <= FALSE;
+		rob[rob_exec].cmt <= !rob[rob_exec].mc;
+		rob[rob_exec].cmt2 <= !rob[rob_exec].mc;
+		if (rob[rob_exec].ir[6:4]!=3'b101)	// not a modifier
+			if (rob[rob_exec].ir[35:32]!=LSM || !rob[rob_exec].mem_op)
+				count <= 6'd0;
+		casez(rob[rob_exec].ir.r2.opcode)
+		8'h7?:
+			case(rob[rob_exec].ir[3:0])
+			4'd0:
+				case(rob[rob_exec].ir[12:8])
+				5'd0:
+					case(rob[rob_exec].ir[19:13])
+					7'd120:	; // RTI (handled at WRITEBACK)
+					7'd121:		// PFI
+						begin
+			      	if (irq_i != 1'b0)
+					    	cc[rob_exec] <= 16'h8000|cause_i;
+					    tMod();
+				  	end
+		  		7'd123:		begin set_wfi <= TRUE; tMod(); end	// WFI
+					default:	begin cc[rob_exec] <= rob[rob_exec].ir[19:13]; tMod(); end	// BRK
+					endcase
+				default:
+					tLoad(2'b00);
+				endcase
+			4'd1:	tLoad(2'b00);
+			4'd2:	tStore(2'b00);
+			4'd3:	tStore(2'b00);
+			4'd4:
+				case(rob[rob_exec].ir[19:18])
+				2'd0:	tJalr();
+				2'd1:	begin fu0_cmt <= TRUE; tMod(); end	// MOV
+				2'd2: begin fu0_cmt <= TRUE; tMod(); end	// ADD
+				2'd3: begin fu0_cmt <= TRUE; tMod(); end	// AND
+				endcase
+			4'd5:	begin fu0_cmt <= TRUE; tMod(); end
+			4'd6:	begin fu0_cmt <= TRUE; tMod(); end
+			4'd7:	begin fu0_cmt <= TRUE; tMod(); end
+			4'd8:	txBranch();
+			4'd9:	txBranch();
+			4'd10:	tBal(TRUE);
+			4'd11:	begin fu0_cmt <= TRUE; end	// LDI
+			4'd12:
+				case(rob[rob_exec].ir[19:18])
+				2'd0:	begin fu0_cmt <= TRUE; tMod(); end
+				2'd1:	begin fu0_cmt <= TRUE; tMod(); end
+				2'd2:	begin fu0_cmt <= TRUE; tMod(); end
+				2'd3:
+					begin
+						case({rob[rob_exec].ir[17:16],rob[rob_exec].ir[12:11]})
+						4'd0:	begin fu0_cmt <= TRUE; tMod(); end
+						4'd1: begin fu0_cmt <= TRUE; tMod(); end
+						4'd2: begin fu0_cmt <= TRUE; tMod(); end
+						4'd3: begin fu0_cmt <= TRUE; tMod(); end
+						4'd4: begin fu0_cmt <= TRUE; tMod(); end
+						default:	;
+						endcase
+					end
+				endcase
+			4'd14:	tLoad(2'b00);
+			4'd15:	tStore(2'b00);
+			default:	;
+			endcase
+		BRK:	begin cc[rob_exec] <= rob[rob_exec].ir[21:14]; tMod(); end
+		NOP:	tMod();
+		R3:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				SLLP:	begin fu0_cmt <= TRUE; tMod(); end
+				/*
+				PTRDIF:	
+					begin
+						//rob[rob_exec].res.tag <= TAG_INT;
+						// We want A-B to return a negative if B > A.
+						rob[rob_exec].res.val <= diff[VALUE_SIZE-1] ? ~(64'hFFFFFFFFFFFFFFFF >> rob[rob_exec].ic.val[4:0]) | (diff >> rob[rob_exec].ic.val[4:0]) : (diff >> rob[rob_exec].ic.val[4:0]);
+						tMod();
+					end
+				*/
+				CHK:
+					case(rob[rob_exec].ir.r2.func)
+					3'd0:
+						if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].ib.val)) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd1:
+						if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].ib.val)) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd2:
+						if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].ib.val)) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd3:
+						if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].ib.val)) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd4:
+						if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].ib.val))) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd5:
+						if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].ib.val))) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd6:
+						if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val))) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd7:
+						if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val))) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					default:
+						begin
+							tMod();
+						end
+					endcase
+				MUX:	;
+				CMOVNZ:	begin fu0_cmt <= TRUE; tMod(); end
+				default:	;
+				endcase
+			end
+		R2:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				ADD:	begin	fu0_cmt <= TRUE; tMod(); end
+				SUB:	begin	fu0_cmt <= TRUE; tMod(); end
+				AND:	begin	fu0_cmt <= TRUE; tMod(); end
+				OR:		begin	fu0_cmt <= TRUE; tMod(); end
+				XOR:	begin	fu0_cmt <= TRUE; tMod(); end
+`ifdef SUPPORT_MYST				
+				MYST:	begin fu0_cmt <= TRUE;  rob[rob_exec].myst <= TRUE; tMod(); end
+`endif					
+				BMMOR,BMMXOR,BMMTOR,BMMTXOR:	begin fu0_cmt <= TRUE; rob[rob_exec].res.val <= bmm_o; tMod(); end
+				SLL:	begin fu0_cmt <= TRUE; tMod(); end
+				SLLI:	begin fu0_cmt <= TRUE; tMod(); end
+				SRL:	begin fu0_cmt <= TRUE; tMod(); end
+				SRLI:	begin fu0_cmt <= TRUE; tMod(); end
+				ROL:	begin fu0_cmt <= TRUE; tMod(); end
+				ROLI:	begin fu0_cmt <= TRUE; tMod(); end
+				ROR:	begin fu0_cmt <= TRUE; tMod(); end
+				RORI:	begin fu0_cmt <= TRUE; tMod(); end
+				SRA:	begin fu0_cmt <= TRUE; tMod(); end
+				SRAI:	begin fu0_cmt <= TRUE; tMod(); end
+				DIF:
+					begin
+						fu0_cmt <= TRUE; 
+						tMod();
+					end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
+					begin
+						mulreci.rid <= rob_exec;
+						mulreci.ir <= rob[rob_exec].ir;
+						mulreci.a <= rob[rob_exec].ia;
+						mulreci.b <= rob[rob_exec].ib;
+						mulreci.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				DIV,DIVU,DIVSU:
+					begin
+						divreci.rid <= rob_exec;
+						divreci.ir <= rob[rob_exec].ir;
+						divreci.a <= rob[rob_exec].ia;
+						divreci.b <= rob[rob_exec].ib;
+						divreci.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				MULF:	begin fu0_cmt <= TRUE; tMod(); end
+				CMP:	begin fu0_cmt <= TRUE; tMod(); end
+				SEQ:	begin fu0_cmt <= TRUE; tMod(); end
+				SNE:	begin fu0_cmt <= TRUE; tMod(); end
+				SLT:	begin fu0_cmt <= TRUE; tMod(); end
+				SGE:	begin fu0_cmt <= TRUE; tMod(); end
+				SLTU:	begin fu0_cmt <= TRUE; tMod(); end
+				SGEU:	begin fu0_cmt <= TRUE; tMod(); end
+				default:	;
+				endcase
+			end
+		R1:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				ABS:	begin fu0_cmt <= TRUE; tMod(); end
+				NABS:	begin fu0_cmt <= TRUE; tMod(); end
+				NEG:	begin fu0_cmt <= TRUE; tMod(); end
+				NOT:	begin fu0_cmt <= TRUE; tMod(); end
+				CTLZ:	begin fu0_cmt <= TRUE; tMod(); end
+				CTPOP:	begin fu0_cmt <= TRUE; tMod(); end
+				V2BITS:	begin
+									fu0_cmt <= TRUE; 
+									if (rob[rob_exec].step==0) begin
+										if (rob[rob_exec].vmask[0]) begin
+											vtmp <= {63'd0,rob[rob_exec].ia.val[0]};
+										end
+										else if (rob[rob_exec].irmod.im.z) begin
+											vtmp <= 64'd0;
+										end
+									end
+									else begin
+										if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+											vtmp <= vtmp | (rob[rob_exec].ia.val[0] << rob[rob_exec].step);
+										end
+									end
+									tMod(); 
+								end
+`ifdef SUPPORT_GRAPHICS								
+				TRANSFORM:
+					begin
+						graphi.rid <= rob_exec;
+						graphi.ir <= rob[rob_exec].ir;
+						graphi.ia <= rob[rob_exec].ia;
+						graphi.ib <= rob[rob_exec].ib;
+						graphi.ic <= rob[rob_exec].ic;
+						graphi.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				CLIP:
+					begin
+						fu0_cmt <= TRUE; 
+					end
+`endif					
+				default:	;
+				endcase
+			end
+`ifdef SUPPORT_FLOAT			
+		F1,VF1:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				FABS:	begin fu0_cmt <= TRUE; tMod(); end
+				FNABS:begin fu0_cmt <= TRUE; tMod(); end
+				FNEG:	begin fu0_cmt <= TRUE; tMod(); end
+				I2F,F2I,FSQRT:
+					begin
+						fpreci.rid <= rob_exec;
+						fpreci.a <= rob[rob_exec].ia;
+						fpreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				FRM:	begin fu0_cmt <= TRUE; tMod(); end
+				default:	;
+				endcase
+			end
+		F2,VF2:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				CPYSGN: begin fu0_cmt <= TRUE; tMod(); end
+				SGNINV: begin fu0_cmt <= TRUE; tMod(); end
+				FADD,FSUB,FMUL,FDIV:
+					begin
+						fpreci.rid <= rob_exec;
+						fpreci.a <= rob[rob_exec].ia;
+						fpreci.b <= rob[rob_exec].ib;
+						fpreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				FMIN:	// FMIN	
+					begin
+						fu0_cmt <= TRUE; 
+						tMod();
+					end
+				FMAX:	// FMAX
+					begin
+						fu0_cmt <= TRUE; 
+						tMod();
+					end
+				FCMP:	begin fu0_cmt <= TRUE; tMod(); end	//2,-1,0,1 
+				FCMPB:begin	fu0_cmt <= TRUE; tMod(); end
+				FSEQ:	begin fu0_cmt <= TRUE; tMod(); end
+				FSNE: begin fu0_cmt <= TRUE; tMod(); end
+				FSLT:	begin fu0_cmt <= TRUE; tMod(); end
+				FSLE:	begin fu0_cmt <= TRUE; tMod(); end
+				FSETM:
+					if (rob[rob_exec].step==6'd0) begin
+						fu0_cmt <= TRUE; 
+						vtmp <= 64'd0;
+						tMod();
+					end
+					else begin
+						fu0_cmt <= TRUE; 
+						tMod();
+					end
+				default:	;
+				endcase
+			end
+		F3,VF3:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				MADD,MSUB,NMADD,NMSUB:
+					begin
+						fpreci.rid <= rob_exec;
+						fpreci.a <= rob[rob_exec].ia;
+						fpreci.b <= rob[rob_exec].ib;
+						fpreci.c <= rob[rob_exec].ic;
+						fpreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				default:	;
+				endcase
+			end
+`endif
+		ADDI:	begin fu0_cmt <= TRUE; tMod(); end
+		SUBFI:begin fu0_cmt <= TRUE; tMod(); end
+		ANDI:	begin fu0_cmt <= TRUE; tMod(); end
+		ORI:	begin fu0_cmt <= TRUE; tMod(); end
+		XORI:	begin fu0_cmt <= TRUE; tMod(); end
+		ADDIP:begin fu0_cmt <= TRUE; tMod(); end
+`ifdef SUPPORT_MYST
+		MYSTI:	begin fu0_cmt <= TRUE; rob[rob_exec].myst <= TRUE; tMod(); end
+`endif
+		MULI,MULUI,MULSUI:
+				begin
+					begin
+						mulreci.rid <= rob_exec;
+						mulreci.a <= rob[rob_exec].ia;
+						mulreci.imm <= rob[rob_exec].imm;
+						mulreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				end
+		DIVI,DIVUI,DIVSUI:
+				begin
+					begin
+						divreci.rid <= rob_exec;
+						divreci.a <= rob[rob_exec].ia;
+						divreci.imm <= rob[rob_exec].imm;
+						divreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				end
+		MULFI:begin fu0_cmt <= TRUE; tMod(); end
+		SEQI:	begin fu0_cmt <= TRUE; tMod(); end
+		SNEI:	begin fu0_cmt <= TRUE; tMod(); end
+		SLTI:	begin fu0_cmt <= TRUE; tMod(); end
+		SGTI:	begin fu0_cmt <= TRUE; tMod(); end
+		SLTUI:	begin fu0_cmt <= TRUE; tMod(); end
+		SGTUI:	begin fu0_cmt <= TRUE; tMod(); end
+		BTFLD:	begin fu0_cmt <= TRUE; tMod(); rob[rob_exec].cmt <= TRUE; end
+    BYTNDX:
+	    begin
+	    	fu0_cmt <= TRUE; 
+	      tMod();
+	    end
+`ifdef U10NDX
+    U10NDX:
+    begin
+    	fu0_cmt <= TRUE; 
+      tMod();
+    end
+`endif
+    U21NDX:
+			begin
+				fu0_cmt <= TRUE; 
+	      tMod();
+	    end
+    PERM:
+			begin
+				fu0_cmt <= TRUE; 
+				tMod();
+			end    	
+		CHKI:
+			begin
+				case(rob[rob_exec].ir.r2.Rt[2:0])
+				3'd0:
+					if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].imm)) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd1:
+					if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].imm)) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd2:
+					if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].imm)) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd3:
+					if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].imm)) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd4:
+					if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].imm))) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd5:
+					if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].imm))) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd6:
+					if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm))) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd7:
+					if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm))) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				endcase
+			end
+		BEQ,BNE,BLT,BGE,BLTU,BGEU,BBS,BBC:
+			txBranch();
+		JALR:	tJalr();
+		JAL:
+			begin
+				//rob[rob_exec].jump <= TRUE;
+				//rob[rob_exec].jump_tgt <= rob[rob_exec].imm;
+				ex_redirecti.redirect_ip <= rob[rob_exec].imm;
+				ex_redirecti.redirect_cs <= cs;
+				ex_redirecti.current_ip <= rob[rob_exec].ip;
+				ex_redirecti.current_cs <= cs;
+				ex_redirecti.xrid <= rob_exec;
+				ex_redirecti.step <= 6'd0;
+				ex_redirecti.wr <= TRUE;
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+			end
+		BAL:	tBal(FALSE);
+		JALI:
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= rob[rob_exec].step;
+				membufi.ir <= rob[rob_exec].ir;
+				membufi.ia <= rob[rob_exec].ia;
+				membufi.ib <= rob[rob_exec].ib;
+				membufi.ic <= rob[rob_exec].ic;
+				membufi.dato <= rob[rob_exec].ib;
+				membufi.imm <= rob[rob_exec].imm;
+				membufi.wr <= TRUE;
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+			end
+`ifdef SUPPORT_CALL_RET			
+		CALL:
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= rob[rob_exec].step;
+				membufi.ir <= rob[rob_exec].ir;
+				membufi.ia.val <= rob[rob_exec].ia.val - 4'd8;
+				membufi.ib.val <= fnIncIP(rob[rob_exec].ip);
+				membufi.ic <= rob[rob_exec].ic;
+				membufi.dato <= fnIncIP(rob[rob_exec].ip);
+				membufi.imm <= rob[rob_exec].imm;
+				membufi.wr <= TRUE;
+				tMod();
+				ex_redirecti.redirect_ip <= rob[rob_exec].ir[8] ? rob[rob_exec].imm : rob[rob_exec].ip + rob[rob_exec].imm;
+				ex_redirecti.current_ip <= rob[rob_exec].ip;
+				ex_redirecti.xrid <= rob_exec;
+				ex_redirecti.step <= 6'd0;
+				ex_redirecti.wr <= TRUE;
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].out2 <= TRUE;
+			end
+		RTS:
+			begin
+				membufi.rid <= rob_exec;
+				membufi.step <= rob[rob_exec].step;
+				membufi.ir <= rob[rob_exec].ir;
+				membufi.ia <= rob[rob_exec].ia;
+				membufi.ib <= rob[rob_exec].ib;
+				membufi.ic <= rob[rob_exec].ic;
+				membufi.dato <= rob[rob_exec].ib;
+				membufi.imm <= rob[rob_exec].imm;
+				membufi.wr <= TRUE;
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+			end
+`endif			
+		LEA,LDx,LDxX,LDxZ,LDxXZ:
+			tLoad(2'b01);
+		STx,STxX:
+			tStore(2'b01);
+		LDSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			begin
+			if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+				membufi.rid <= rob_exec;
+				membufi.step <= rob[rob_exec].step;
+				membufi.ir <= rob[rob_exec].ir;
+				membufi.ia <= rob[rob_exec].ia;
+				membufi.ib <= rob[rob_exec].ib;
+				membufi.ic <= rob[rob_exec].ic;
+				membufi.dato <= rob[rob_exec].ib;
+				membufi.imm <= rob[rob_exec].imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+			end
+			else if (rob[rob_exec].irmod.im.z)
+				tDoOp(64'd0);
+			else begin
+				tDoOp(64'd0);
+				rob[rob_exec].vrfwr <= FALSE;
+			end
+			end
+		STSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+				membufi.rid <= rob_exec;
+				membufi.step <= rob[rob_exec].step;
+				membufi.ir <= rob[rob_exec].ir;
+				membufi.ia <= rob[rob_exec].ia;
+				membufi.ib <= rob[rob_exec].ib;
+				membufi.ic <= rob[rob_exec].ic;
+				membufi.dato <= rob[rob_exec].ib;
+				membufi.imm <= rob[rob_exec].imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+			else if (rob[rob_exec].irmod.im.z) begin
+				membufi.rid <= rob_exec;
+				membufi.step <= rob[rob_exec].step;
+				membufi.ir <= rob[rob_exec].ir;
+				membufi.ia <= rob[rob_exec].ia;
+				membufi.ib <= rob[rob_exec].ib;
+				membufi.ic <= rob[rob_exec].ic;
+				membufi.dato <= 64'd0;
+				membufi.imm <= rob[rob_exec].imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+			else begin
+				tDoOp(64'd0);
+				rob[rob_exec].vrfwr <= FALSE;
+			end
+			end
+		CVLDSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+				vtmp[5:0] <= vtmp[5:0] + 2'd1;
+				membufi.rid <= rob_exec;
+				membufi.step <= vtmp[5:0];
+				membufi.ir <= rob[rob_exec].ir;
+				membufi.ia <= rob[rob_exec].ia;
+				membufi.ib <= rob[rob_exec].ib;
+				membufi.ic <= rob[rob_exec].ic;
+				membufi.dato <= rob[rob_exec].ib;
+				membufi.imm <= rob[rob_exec].imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+			else if (rob[rob_exec].irmod.im.z)
+				tDoOp(64'd0);
+			else begin
+				tDoOp(64'd0);
+				rob[rob_exec].vrfwr <= FALSE;
+			end
+			end
+		CVSTSx:
+			//if (memfifo_wr==FALSE) begin	// prevent back-to-back screwup
+			// This does not wait for registers to be valid.
+			begin
+			if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+				vtmp[5:0] <= vtmp[5:0] + 2'd1;
+				membufi.rid <= rob_exec;
+				membufi.step <= vtmp[5:0];
+				membufi.ir <= rob[rob_exec].ir;
+				membufi.ia <= rob[rob_exec].ia;
+				membufi.ib <= rob[rob_exec].ib;
+				membufi.ic <= rob[rob_exec].ic;
+				membufi.dato <= rob[rob_exec].ib;
+				membufi.imm <= rob[rob_exec].imm;
+				membufi.wr <= TRUE;
+				tMod();
+				rob[rob_exec].cmt <= FALSE;
+				rob[rob_exec].cmt2 <= FALSE;
+				rob[rob_exec].out <= TRUE;
+			end
+			else begin
+				tDoOp(64'd0);
+				rob[rob_exec].vrfwr <= FALSE;
+			end
+			end
+		CSR:
+			begin
+				case({rob[rob_exec].ir.r2.Ta,rob[rob_exec].ir.r2.Tt})
+				CSRR:	begin fu0_cmt <= TRUE; end
+				CSRW,CSRS,CSRC:	;
+//				CSRRW:	rob[rob_exec].res <= csrro;
+				default:	;
+				endcase
+		    tMod();
+			end
+		SYS:
+			case(rob[rob_exec].ir.r2.func)
+			POPQ:
+				begin
+					case(rob[rob_exec].ia[5:0])
+					6'd15:	
+						begin
+							fu0_cmt <= TRUE; 
+							rd_trace <= TRUE;
+							tMod();
+						end
+					default:	;
+					endcase
+				end
+			POPQI:
+				begin
+					case(rob[rob_exec].ir.r2.Ra)
+					6'd15:	
+						begin
+							fu0_cmt <= TRUE; 
+							rd_trace <= TRUE;
+							tMod();
+						end
+					default:	;
+					endcase
+				end
+			PEEKQ:
+				begin
+					case(rob[rob_exec].ia[5:0])
+					6'd15:	
+						begin
+							fu0_cmt <= TRUE; 
+							tMod();
+						end
+					default:	;
+					endcase
+				end
+			PEEKQI:
+				begin
+					case(rob[rob_exec].ir.r2.Ra)
+					6'd15:	
+						begin
+							fu0_cmt <= TRUE; 
+							tMod();
+						end
+					default:	;
+					endcase
+				end
+			PFI:
+				begin
+	      	if (irq_i != 3'b0)
+			    	cc[rob_exec] <= 16'h8000|cause_i;
+			    tMod();
+		  	end
+		  WFI:	begin set_wfi <= TRUE; tMod(); end
+			TLBRW:
+				begin
+					membufi.rid <= rob_exec;
+					membufi.step <= rob[rob_exec].step;
+					membufi.ir <= rob[rob_exec].ir;
+					membufi.ia <= rob[rob_exec].ia;
+					membufi.ib <= rob[rob_exec].ib;
+					membufi.imm <= rob[rob_exec].imm;
+					membufi.wr <= TRUE;
+					tMod();
+					rob[rob_exec].cmt <= FALSE;
+					rob[rob_exec].cmt2 <= FALSE;
+					rob[rob_exec].out <= TRUE;
+				end
+`ifdef SUPPORT_EXEC
+			EXEC:
+				begin
+					fu0_cmt <= TRUE; 
+					rob[rob_exec].exec <= TRUE;
+					tMod();
+				end
+`endif				
+			SYNC:	;
+			CSAVE:		tStore(2'b10);
+			CRESTORE:	tLoad(2'b10);
+//			BASE:	begin rob[rob_exec].res.val <= (|omode & ~rob[rob_exec].ir[28]) ? rob[rob_exec].ia.val : (rob[rob_exec].ia.val & ~amask) | ({rob[rob_exec].ib.val[3:0],8'b0} << {arange,3'b0}); tMod(); end
+			BASE:	begin fu0_cmt <= TRUE; tMod(); end
+			MFSEL:	begin fu0_cmt <= TRUE; tMod(); end
+			MFBND:	begin fu0_cmt <= TRUE; tMod(); end
+			MTBND:	begin fu0_cmt <= TRUE; tMod(); end
+			MTSEL:	begin	fu0_cmt <= TRUE; tLoad(2'b11);	end
+			default:	;
+			endcase
+		// Some of the modifiers should never execute because they are committed
+		// immediately at decode.
+		RGLST0,RGLST1,RGLST2,RGLST3:	tMod();
+		EXI0,EXI1,EXI2:	tMod();
+		IMOD:
+			begin
+				rob[rob_exec].ic <= rob[rob_exec].ia;
+				rob[rob_exec].id <= rob[rob_exec].ib;
+				rob[rob_exec].icv <= VAL;
+				rob[rob_exec].idv <= VAL;
+				tMod();
+			end
+		BRMOD:
+			begin
+				rob[rob_exec].ic <= rob[rob_exec].ia;
+				rob[rob_exec].icv <= VAL;
+				tMod();
+			end
+		STRIDE:
+			begin
+				rob[rob_exec].ic <= rob[rob_exec].ia;
+				rob[rob_exec].id <= rob[rob_exec].ib;
+				rob[rob_exec].icv <= VAL;
+				rob[rob_exec].idv <= VAL;
+				tMod();
+			end
+		8'hFF:
+			;//rob_exec <= rob_exec;
+`ifdef SUPPORT_VECTOR
+		VR1:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				ABS:	begin
+								fu0_cmt <= TRUE; 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+						  end
+				NABS:	begin
+								fu0_cmt <= TRUE; 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+						  end
+				NEG:	begin
+								fu0_cmt <= TRUE; 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+						  end
+				NOT:	begin
+								fu0_cmt <= TRUE; 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+							end
+				CTLZ:	begin
+								fu0_cmt <= TRUE; 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+							end
+				CTPOP:begin
+								fu0_cmt <= TRUE; 
+								if (rob[rob_exec].vmask.val[rob[rob_exec].step]) begin
+									rob[rob_exec].cmt <= TRUE;
+									rob[rob_exec].cmt2 <= TRUE;
+								end
+							end
+				V2BITS:	
+					if (rob[rob_exec].iav) begin
+						if (rob[rob_exec].step==0) begin
+							if (rob[rob_exec].vmask[0]) begin
+								fu0_cmt <= TRUE; 
+								vtmp <= {63'd0,rob[rob_exec].ia.val[0]};
+							end
+							else if (rob[rob_exec].irmod.im.z) begin
+								fu0_cmt <= TRUE; 
+								vtmp <= 64'd0;
+							end
+						end
+						else begin
+							if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+								fu0_cmt <= TRUE; 
+								vtmp <= vtmp | (rob[rob_exec].ia.val[0] << rob[rob_exec].step);
+							end
+						end
+						tMod();
+						if (rob[rob_exec].step + 2'd1 >= vl)
+							rob[rob_exec].vcmt <= TRUE;
+					end
+				BITS2V:
+					if (rob[rob_exec].iav) begin
+						tDoOp(rob[rob_exec].ia.val[rob[rob_exec].step]);
+					end
+				VCMPRSS:
+					begin
+						if (rob[rob_exec].step==6'd0)
+							vtmp[5:0] <= 6'd0;
+						fu0_cmt <= TRUE; 
+						if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+							vtmp[5:0] <= vtmp[5:0] + 2'd1;
+						end
+						tMod();
+					end
+				VCIDX:
+					begin
+						if (rob[rob_exec].step==6'd0)
+							vtmp[5:0] <= 6'd0;
+						fu0_cmt <= TRUE; 
+						if (rob[rob_exec].vmask[rob[rob_exec].step]) begin
+							vtmp[5:0] <= vtmp[5:0] + 2'd1;
+						end
+						tMod();
+					end
+				VSCAN:
+					begin
+						fu0_cmt <= TRUE; 
+						if (rob[rob_exec].step==6'd0) begin
+							vtmp <= 64'd0;
+						end
+						else if (rob[rob_exec].vmask[rob[rob_exec].step])
+							vtmp <= vtmp + rob[rob_exec].ia.val;
+						tMod();
+					end
+				default:	;
+				endcase
+			end
+		VR2:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				ADD:	tDoOp(rob[rob_exec].ia.val + rob[rob_exec].ib.val);
+				SUB:	tDoOp(rob[rob_exec].ia.val - rob[rob_exec].ib.val);
+				AND:	tDoOp(rob[rob_exec].ia.val & rob[rob_exec].ib.val);
+				OR:		tDoOp(rob[rob_exec].ia.val | rob[rob_exec].ib.val);
+				XOR:	tDoOp(rob[rob_exec].ia.val ^ rob[rob_exec].ib.val);
+				SLL:	tDoOp(rob[rob_exec].ia.val << rob[rob_exec].ib.val[5:0]);
+				SLLI:	tDoOp(rob[rob_exec].ia.val << {rob[rob_exec].ir.r2.Tb[0],rob[rob_exec].ir.r2.Rb[4:0]});
+				SRL:	tDoOp(rob[rob_exec].res.val <= rob[rob_exec].ia.val >> rob[rob_exec].ib.val[5:0]);
+				SRLI:	tDoOp(rob[rob_exec].res.val <= rob[rob_exec].ia.val >> {rob[rob_exec].ir.r2.Tb[0],rob[rob_exec].ir.r2.Rb[4:0]});
+				DIF:
+					begin
+						tDoOp($signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val) ?
+							rob[rob_exec].ib.val - rob[rob_exec].ia.val : rob[rob_exec].ia.val - rob[rob_exec].ib.val);
+					end
+				MUL,MULU,MULSU,MULH,MULUH,MULSUH:
+					begin
+						mulreci.rid <= rob_exec;
+						mulreci.ir <= rob[rob_exec].ir;
+						mulreci.a <= rob[rob_exec].ia;
+						mulreci.b <= rob[rob_exec].ib;
+						mulreci.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].vcmt <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				DIV,DIVU,DIVSU:
+					begin
+						divreci.rid <= rob_exec;
+						divreci.ir <= rob[rob_exec].ir;
+						divreci.a <= rob[rob_exec].ia;
+						divreci.b <= rob[rob_exec].ib;
+						divreci.wr <= TRUE;
+						tMod();
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].vcmt <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				MULF:	tDoOp(rob[rob_exec].ia.val[23:0] * rob[rob_exec].ib.val[15:0]);
+				CMP:	tDoOp($signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val) ? -64'd1 : $signed(rob[rob_exec].ia.val) == $signed(rob[rob_exec].ib.val) ? 64'd0 : 64'd1);
+				SEQ:	tDoOp(rob[rob_exec].ia.val == rob[rob_exec].ib.val);
+				SNE:	tDoOp(rob[rob_exec].ia.val != rob[rob_exec].ib.val);
+				SLT:	tDoOp($signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val));
+				SGE:	tDoOp($signed(rob[rob_exec].ia.val) >= $signed(rob[rob_exec].ib.val));
+				SLTU:	tDoOp(rob[rob_exec].ia.val < rob[rob_exec].ib.val);
+				SGEU:	tDoOp(rob[rob_exec].ia.val >= rob[rob_exec].ib.val);
+				SETM:
+					if (rob[rob_exec].step==6'd0) begin
+						vtmp <= 64'd0;
+						case(rob[rob_exec].ir[13:11])
+						3'd0:	begin fu0_cmt <= TRUE; vtmp <= rob[rob_exec].ia.val==rob[rob_exec].ib.val; end
+						3'd1:	begin fu0_cmt <= TRUE; vtmp <= rob[rob_exec].ia.val!=rob[rob_exec].ib.val; end
+						3'd2:	begin fu0_cmt <= TRUE; vtmp <= $signed(rob[rob_exec].ia.val)< $signed(rob[rob_exec].ib.val); end
+						3'd3:	begin fu0_cmt <= TRUE; vtmp <= $signed(rob[rob_exec].ia.val)<=$signed(rob[rob_exec].ib.val); end
+						3'd4:	begin fu0_cmt <= TRUE; vtmp <= rob[rob_exec].ia.val< rob[rob_exec].ib.val; end
+						3'd5:	begin fu0_cmt <= TRUE; vtmp <= rob[rob_exec].ia.val<=rob[rob_exec].ib.val; end
+						default:	;
+						endcase
+						tMod();
+					end
+					else begin
+						case(rob[rob_exec].ir[13:11])
+						3'd0:	begin fu0_cmt <= TRUE; vtmp[rob[rob_exec].step] <= rob[rob_exec].ia.val==rob[rob_exec].ib.val; end
+						3'd1:	begin fu0_cmt <= TRUE; vtmp[rob[rob_exec].step] <= rob[rob_exec].ia.val!=rob[rob_exec].ib.val; end
+						3'd2:	begin fu0_cmt <= TRUE; vtmp[rob[rob_exec].step] <= $signed(rob[rob_exec].ia.val)< $signed(rob[rob_exec].ib.val); end
+						3'd3:	begin fu0_cmt <= TRUE; vtmp[rob[rob_exec].step] <= $signed(rob[rob_exec].ia.val)<=$signed(rob[rob_exec].ib.val); end
+						3'd4:	begin fu0_cmt <= TRUE; vtmp[rob[rob_exec].step] <= rob[rob_exec].ia.val< rob[rob_exec].ib.val; end
+						3'd5:	begin fu0_cmt <= TRUE; vtmp[rob[rob_exec].step] <= rob[rob_exec].ia.val<=rob[rob_exec].ib.val; end
+						default:	;
+						endcase
+						tMod();
+					end
+				VEX:
+					if (rob[rob_exec].step_v) begin
+						fu0_cmt <= TRUE; 
+						tMod();
+					end
+					else begin
+						rob[rob_exec].step_v <= TRUE;
+						rob[rob_exec].step <= rob[rob_exec].ia[5:0];
+					end
+				VEINS:
+					if (rob[rob_exec].step_v)
+						tDoOp(rob[rob_exec].ib);
+					else begin
+						rob[rob_exec].step_v <= TRUE;
+						rob[rob_exec].step <= rob[rob_exec].ia[5:0];
+					end
+				VSLLV:
+					begin
+						if ({2'b0,rob[rob_exec].ia_ele} + rob[rob_exec].ib.val[11:6] <= vl) begin
+							rob[rob_exec].res_ele <= rob[rob_exec].ia_ele + rob[rob_exec].ib.val[11:6];
+							tDoOp(sll_out2[63:0]|vtmp);
+							vtmp <= sll_out2[127:64];
+						end
+						else begin
+							rob[rob_exec].res_ele <= rob[rob_exec].ia_ele - vl - 2'd1;
+							tDoOp(64'd0);
+						end
+					end
+				VSRLV:
+					begin
+						if (rob[rob_exec].ia_ele >= rob[rob_exec].ib.val[11:6]) begin
+							rob[rob_exec].res_ele <= rob[rob_exec].ia_ele - rob[rob_exec].ib.val[11:6];
+							tDoOp(vtmp|srl_out2[127:64]);
+							vtmp <= srl_out2[63:0];
+						end
+						else begin
+							rob[rob_exec].res_ele <= rob[rob_exec].ia_ele;
+							tDoOp(64'd0);
+						end
+					end
+`ifdef SUPPORT_MYST				
+				MYST:	begin fu0_cmt <= TRUE; rob[rob_exec].res.val <= {rob[rob_exec].id.val[35:29],rob[rob_exec].ir[28:8],rob[rob_exec].id.val[7:0]}; rob[rob_exec].myst <= TRUE; tMod(); end
+`endif					
+				default:	;
+				endcase
+			end
+		VR3:
+			begin
+				case(rob[rob_exec].ir.r2.func)
+				SLLP:	tDoOp(rob[rob_exec].res.val <= sll_out[63:0]);
+				PTRDIF:	tDoOp(((rob[rob_exec].ia.val < rob[rob_exec].ib.val) ? rob[rob_exec].ib.val - rob[rob_exec].ia.val : rob[rob_exec].ia.val - rob[rob_exec].ib.val) >> rob[rob_exec].ic.val[4:0]);
+				CHK:
+					case(rob[rob_exec].ir.r2.func)
+					3'd0:
+						if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].ib.val)) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd1:
+						if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].ib.val)) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd2:
+						if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].ib.val)) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd3:
+						if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].ib.val)) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd4:
+						if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].ib.val))) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd5:
+						if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].ib.val))) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd6:
+						if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val))) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					3'd7:
+						if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].ib.val))) begin
+							cc[rob_exec] <= FLT_CHK;
+							tMod();
+						end
+					default:
+						begin
+							tMod();
+						end
+					endcase
+				default:	;
+				endcase
+			end
+		VADDI:	tDoOp(rob[rob_exec].ia.val + rob[rob_exec].imm);
+		VSUBFI:	tDoOp(rob[rob_exec].imm - rob[rob_exec].ia.val);
+		VANDI:	tDoOp(rob[rob_exec].ia.val & rob[rob_exec].imm);
+		VORI:		tDoOp(rob[rob_exec].ia.val | rob[rob_exec].imm);
+		VXORI:	tDoOp(rob[rob_exec].ia.val ^ rob[rob_exec].imm);
+		VMULI,VMULUI,VMULSUI:
+				begin
+					begin
+						mulreci.rid <= rob_exec;
+						mulreci.a <= rob[rob_exec].ia;
+						mulreci.imm <= rob[rob_exec].imm;
+						mulreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].vcmt <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				end
+		VDIVI,VDIVUI,VDIVSUI:
+				begin
+					begin
+						divreci.rid <= rob_exec;
+						divreci.a <= rob[rob_exec].ia;
+						divreci.imm <= rob[rob_exec].imm;
+						divreci.wr <= TRUE;
+						tMod(); 
+						rob[rob_exec].cmt <= FALSE;
+						rob[rob_exec].cmt2 <= FALSE;
+						rob[rob_exec].vcmt <= FALSE;
+						rob[rob_exec].out <= TRUE;
+					end
+				end
+		VMULFI:	tDoOp(rob[rob_exec].ia.val[23:0] * rob[rob_exec].imm[15:0]);
+		VSEQI:	tDoOp(rob[rob_exec].ia.val == rob[rob_exec].imm);
+		VSNEI:	tDoOp(rob[rob_exec].ia != rob[rob_exec].imm);
+		VSLTI:	tDoOp($signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm));
+		VSGTI:	tDoOp($signed(rob[rob_exec].ia.val) > $signed(rob[rob_exec].imm));
+		VSLTUI:	tDoOp(rob[rob_exec].ia.val < rob[rob_exec].imm);
+		VSGTUI:	tDoOp(rob[rob_exec].ia.val > rob[rob_exec].imm);
+		VBTFLD:	tDoOp(bf_out.val);
+    VBYTNDX:
+	    begin
+	   		if (vtmp==64'd0 | rob[rob_exec].Rt[6]) begin
+		    	if (rob[rob_exec].ir.r2.func[6:3]!=4'd0) begin
+		        if (rob[rob_exec].ia.val[7:0]==rob[rob_exec].imm[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'b0};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'b0});
+		        end
+		        else if (rob[rob_exec].ia.val[15:8]==rob[rob_exec].imm[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd1};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd1});
+		        end
+		        else if (rob[rob_exec].ia.val[23:16]==rob[rob_exec].imm[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd2};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd2});
+		        end
+		        else if (rob[rob_exec].ia.val[31:24]==rob[rob_exec].imm[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd3};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd3});
+		        end
+		        else if (rob[rob_exec].ia.val[39:32]==rob[rob_exec].imm[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd4};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd4});
+		        end
+		        else if (rob[rob_exec].ia.val[47:40]==rob[rob_exec].imm[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd5};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd5});
+		        end
+		        else if (rob[rob_exec].ia.val[55:40]==rob[rob_exec].imm[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd6};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd6});
+		        end
+		        else if (rob[rob_exec].ia.val[63:56]==rob[rob_exec].imm[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd7};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd7});
+		        end
+		        else
+		          tDoOp({64{1'b1}});  // -1
+	        end
+		      else begin
+		        if (rob[rob_exec].ia.val[7:0]==rob[rob_exec].ib.val[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'b0};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'b0});
+		        end
+		        else if (rob[rob_exec].ia.val[15:8]==rob[rob_exec].ib.val[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd1};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd1});
+		        end
+		        else if (rob[rob_exec].ia.val[23:16]==rob[rob_exec].ib.val[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd2};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd2});
+		        end
+		        else if (rob[rob_exec].ia.val[31:24]==rob[rob_exec].ib.val[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd3};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd3});
+		        end
+		        else if (rob[rob_exec].ia.val[39:32]==rob[rob_exec].ib.val[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd4};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd4});
+		        end
+		        else if (rob[rob_exec].ia.val[47:40]==rob[rob_exec].ib.val[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd5};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd5});
+		        end
+		        else if (rob[rob_exec].ia.val[55:40]==rob[rob_exec].ib.val[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd6};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd6});
+		        end
+		        else if (rob[rob_exec].ia.val[63:56]==rob[rob_exec].ib.val[7:0]) begin
+		        	vtmp <= {rob[rob_exec].step,3'd7};
+		        	vtmp[63] <= 1'b1;
+		          tDoOp({rob[rob_exec].step,3'd7});
+		        end
+		        else
+		          tDoOp({64{1'b1}});  // -1
+		      end
+	      end
+        else begin
+          tDoOp(vtmp[63] ? {1'b0,vtmp[62:0]} : 64'hFFFFFFFFFFFFFFFF);  // -1
+        end
+	    end
+	  VM:
+			case(rob[rob_exec].ir.r2.func)
+			MTM:	begin fu0_cmt <= TRUE; tMod(); end
+			MFM:	begin fu0_cmt <= TRUE; if (rob[rob_exec].vmv) begin tMod(); end end
+			VMADD:begin fu0_cmt <= TRUE; tMod(); end
+			MAND:	begin fu0_cmt <= TRUE; tMod(); end
+			MOR:	begin fu0_cmt <= TRUE; tMod(); end
+			MXOR:	begin fu0_cmt <= TRUE; tMod(); end
+			MFILL:	begin
+								fu0_cmt <= TRUE;  
+								tMod();
+							end
+			MSLL:	begin fu0_cmt <= TRUE; tMod(); end
+			MSRL:	begin fu0_cmt <= TRUE; tMod(); end
+			MPOP: begin fu0_cmt <= TRUE; tMod(); end
+			MFIRST:	begin fu0_cmt <= TRUE; tMod(); end
+			MLAST:	begin fu0_cmt <= TRUE; tMod(); end
+			default:	;
+	  	endcase
+`ifdef U10NDX
+    VU10NDX:
+    begin
+    	if (rob[rob_exec].ir.sz==4'd1) begin
+        if (rob[rob_exec].ia.val[9:0]==rob[rob_exec].imm[9:0])
+          tDoOp( 64'd0);
+        else if (rob[rob_exec].ia.val[19:10]==rob[rob_exec].imm[9:0])
+          tDoOp( 64'd1);
+        else if (rob[rob_exec].ia.val[29:20]==rob[rob_exec].imm[9:0])
+          tDoOp( 64'd2);
+        else if (rob[rob_exec].ia.val[39:30]==rob[rob_exec].imm[9:0])
+          tDoOp( 64'd3);
+        else if (rob[rob_exec].ia.val[49:40]==rob[rob_exec].imm[9:0])
+          tDoOp( 64'd4);
+        else if (rob[rob_exec].ia.val[59:50]==rob[rob_exec].imm[9:0])
+          tDoOp( 64'd5);
+        else
+          tDoOp( {64{1'b1}});  // -1
+      end
+      else begin
+        if (rob[rob_exec].ia.val[9:0]==rob[rob_exec].ib.val[9:0])
+          tDoOp( 64'd0);
+        else if (rob[rob_exec].ia.val[19:10]==rob[rob_exec].ib.val[9:0])
+          tDoOp( 64'd1);
+        else if (rob[rob_exec].ia.val[29:20]==rob[rob_exec].ib.val[9:0])
+          tDoOp( 64'd2);
+        else if (rob[rob_exec].ia.val[39:30]==rob[rob_exec].ib.val[9:0])
+          tDoOp( 64'd3)
+        else if (rob[rob_exec].ia.val[49:40]==rob[rob_exec].ib.val[9:0])
+          tDoOp( 64'd4)
+        else if (rob[rob_exec].ia.val[59:50]==rob[rob_exec].ib.val[9:0])
+          tDoOp( 64'd5);
+        else
+          tDoOp( {64{1'b1}});  // -1
+      end
+    end
+`endif
+    VU21NDX:
+		begin
+    	if (rob[rob_exec].ir.r2.func!=4'd0) begin
+        if (rob[rob_exec].ia.val[20:0]==rob[rob_exec].imm[20:0])
+          tDoOp( 64'd0);
+        else if (rob[rob_exec].ia.val[41:21]==rob[rob_exec].imm[20:0])
+          tDoOp( 64'd1);
+        else if (rob[rob_exec].ia.val[62:42]==rob[rob_exec].imm[20:0])
+          tDoOp( 64'd2);
+        else
+          tDoOp( {64{1'b1}});  // -1
+      end
+      else begin
+        if (rob[rob_exec].ia.val[20:0]==rob[rob_exec].ib.val[20:0])
+          tDoOp( 64'd0);
+        else if (rob[rob_exec].ia.val[41:21]==rob[rob_exec].ib.val[20:0])
+          tDoOp( 64'd1);
+        else if (rob[rob_exec].ia.val[62:42]==rob[rob_exec].ib.val[20:0])
+          tDoOp( 64'd2);
+        else
+          tDoOp( {64{1'b1}});  // -1
+      end
+    end
+    PERM:
+		begin
+    	if (rob[rob_exec].ir.r2.func!=4'd0) begin
+    		tDoOp({
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[23:21],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[20:18],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[17:15],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[14:12],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[11:9],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[8:6],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[5:3],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].imm[2:0],3'b0}});
+			end
+			else begin
+    		tDoOp({
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[23:21],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[20:18],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[17:15],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[14:12],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[11:9],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[8:6],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[5:3],3'b0},
+    		rob[rob_exec].ia.val >> {rob[rob_exec].ib.val[2:0],3'b0}});
+			end
+		end    	
+		VCHKI:
+			begin
+				case(rob[rob_exec].ir.r2.Rt[2:0])
+				3'd0:
+					if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].imm)) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd1:
+					if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val <= rob[rob_exec].imm)) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd2:
+					if (!(rob[rob_exec].ic.val <= rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].imm)) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd3:
+					if (!(rob[rob_exec].ic.val < rob[rob_exec].ia.val && rob[rob_exec].ia.val < rob[rob_exec].imm)) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd4:
+					if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].imm))) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd5:
+					if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) <= $signed(rob[rob_exec].imm))) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd6:
+					if (!($signed(rob[rob_exec].ic.val) <= $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm))) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				3'd7:
+					if (!($signed(rob[rob_exec].ic.val) < $signed(rob[rob_exec].ia.val) && $signed(rob[rob_exec].ia.val) < $signed(rob[rob_exec].imm))) begin
+						cc[rob_exec] <= FLT_CHK;
+						tMod();
+					end
+				endcase
+			end
+`ifdef SUPPORT_MYST
+		VMYSTI:	begin rob[rob_exec].res.val <= {rob[rob_exec].id.val[35:20],rob[rob_exec].ir[19:8],rob[rob_exec].id.val[7:0]}; rob[rob_exec].myst <= TRUE; tMod(); end
+`endif
+		VSYS:
+			case(rob[rob_exec].ir.r2.func)
+`ifdef SUPPORT_EXEC
+			EXEC:
+				begin
+					rob[rob_exec].exec <= TRUE;
+					tMod();
+				end
+`endif				
+			default:	;			
+			endcase
+`endif
+		default:	;
+		endcase
+		end // if (!rob[rob_exec].out)
+		end // if (rob[rob_exec].dec)
+	end // if (rob[rob_exec].v && !rob[rob_exec].cmt && rob_exec != 6'd63)
+	else begin
+		/*
+		if (rob[rob_exec].v==INV)
+			tMod();
+		else
+		*/
+		if (rob[rob_exec].dec && rob[rob_exec].out && rob_exec != 6'd63) begin
+			tMod();
+		end
+	end
 	/*
-	if (last_rid!=execo.rid) 
+	if (last_rid!=rob[rob_exec].rid) 
 	begin
-			if (execo.update) begin
-				rob[execo.rid].wr_fu <= execo.wr_fu;
-				rob[execo.rid].takb <= execo.takb;
-				rob[execo.rid].cause <= execo.cause;
-				rob[execo.rid].res <= execo.res;
-				rob[execo.rid].cmt <= execo.cmt;
-				rob[execo.rid].cmt2 <= execo.cmt2;
-				rob[execo.rid].vcmt <= execo.vcmt;
-				rob[execo.rid].out <= TRUE;
-				last_rid <= execo.rid;
+			if (rob[rob_exec].update) begin
+				rob[rob[rob_exec].rid].takb <= rob[rob_exec].takb;
+				rob[rob[rob_exec].rid].cause <= cc[rob_exec];
+				rob[rob[rob_exec].rid].res <= rob[rob_exec].res;
+				rob[rob[rob_exec].rid].cmt <= rob[rob_exec].cmt;
+				rob[rob[rob_exec].rid].cmt2 <= rob[rob_exec].cmt2;
+				rob[rob[rob_exec].rid].vcmt <= rob[rob_exec].vcmt;
+				rob[rob[rob_exec].rid].out <= TRUE;
+				last_rid <= rob[rob_exec].rid;
 		end
 		if (restore_rfsrc) begin
-//			tRestoreRegfileSrc(rob[execo.rid].btag);
+//			tRestoreRegfileSrc(rob[rob[rob_exec].rid].btag);
 			//rob_que <= rob_exec;
 			//rob_q <= rob_q - fnBackupCnt(rob_exec);
 //			for (n = 0; n < ROB_ENTRIES; n = n + 1)
-//				if (newer_than_execo[n])
+//				if (newer_than_rob[rob_exec][n])
 //					rob[n].v <= 1'b0;
 		end
 	end
 	*/
 
 	if (memresp_v && !rob[tidx].cmt && rob[tidx].v) begin
-		rob[tidx].cause <= memresp.cause;
+		cc[tidx] <= memresp.cause;
 		rob[tidx].badAddr <= memresp.badAddr;
 		if (memresp.cmt && !memresp.ret && rob[tidx].out)
 			rob[tidx].cmt <= TRUE;
@@ -2241,62 +5027,13 @@ else begin
 			mem_redirecti.current_ip <= rob[tidx].ip;
 			mem_redirecti.current_cs <= cs;
 		end
-		else if (!memresp.call)
+		else if (!memresp.call & !memresp.mtsel)
 			rob[tidx].res <= memresp.res;
 	end
 
-	// We do not always want to write to the EXEC FU. It may have been a multi-cycle or memory op.
-	if (execo.wr_fu) begin
-		funcUnit[FU_EXEC].cmt <= execo.cmt;
-		funcUnit[FU_EXEC].ele <= execo.step;
-		funcUnit[FU_EXEC].rid <= execo.rid;
-		funcUnit[FU_EXEC].res <= execo.res;
-		funcUnit[FU_EXEC].res2 <= execo.ia;
-		funcUnit[FU_EXEC].cause <= execo.cause;
-		funcUnit[FU_EXEC].badAddr <= execo.ip;
-	end
-	else begin
-		funcUnit[FU_EXEC].cmt <= FALSE;
-		funcUnit[FU_EXEC].rid <= 6'd63;
-	end
-
-	if (execo.update==TRUE && !rob[execo.rid].cmt && rob[execo.rid].v==VAL) begin// && execo.rid != prev_rob_dec2) begin
-		rob[execo.rid].wr_fu <= execo.wr_fu;
-		rob[execo.rid].takb <= execo.takb;
-		rob[execo.rid].cause <= execo.cause;
-		rob[execo.rid].res <= execo.res;
-//		if (execo.cmt)
-		if (execo.out)
-			rob[execo.rid].cmt <= execo.cmt;
-//		if (execo.cmt2)
-		if (execo.out)
-			rob[execo.rid].cmt2 <= execo.cmt2;
-		rob[execo.rid].vcmt <= execo.vcmt;
-		rob[execo.rid].out <= TRUE;
-		if (execo.update_c) begin
-			rob[fnNext(execo.rid)].ic <= execo.ia;
-			rob[fnNext(execo.rid)].icv <= TRUE; 
-			rob[fnNext(execo.rid)].ics <= 7'd0; 
-		end
-		if (execo.update_d) begin
-			rob[fnNext(execo.rid)].id <= execo.ib;
-			rob[fnNext(execo.rid)].idv <= TRUE; 
-			rob[fnNext(execo.rid)].ids <= 7'd0; 
-		end
-`ifdef SUPPORT_MYST		
-		if (execo.myst|execo.exec) begin
-			rob[execo.rid].ir <= execo.res.val[35:0];
-			rob[execo.rid].dec <= FALSE;
-			rob[execo.rid].out <= FALSE;
-			rob[execo.rid].cmt <= FALSE;
-			rob[execo.rid].cmt2 <= FALSE;
-			rob[execo.rid].vcmt <= FALSE;
-		end
-`endif		
-	end
-	if (execo.out2) begin
-		rob[execo.rid].out <= TRUE;
-		rob[execo.rid].res <= execo.res;
+	if (rob[rob_exec].out2) begin
+		rob[rob[rob_exec].rid].out <= TRUE;
+		rob[rob[rob_exec].rid].res <= rob[rob_exec].res;
 	end
 
   $display ("----------------------------------------------------------------- Reorder Buffer -----------------------------------------------------------------");
@@ -2331,32 +5068,13 @@ else begin
 			begin
 				$display("ip:%h  ir:%h", rob[rob_deq].ip[AWID-1:0], rob[rob_deq].ir);
 				$display("Rt:%d  res:%h", rob[rob_deq].Rt, rob[rob_deq].res);
-				if (rob[rob_deq].ui==TRUE) begin
-					status[4][4] <= 1'b0;	// disable further interrupts
-					eip <= rob[rob_deq].ip;
-					ecs <= rob[rob_deq].cs;
-					estep <= rob[rob_deq].step;
-					pmStack <= {pmStack[55:0],4'b0100,pmStack[3:1],1'b0};
-					cause[3'd4] <= FLT_UNIMP;
-					wb_a2d_rst <= TRUE;
-					wb_d2x_rst <= TRUE;
-					wb_redirecti.redirect_ip <= tvec[3'd4] + {omode,6'h00};
-					wb_redirecti.redirect_cs <= svec[3'd4];
-					wb_redirecti.current_ip <= rob[rob_deq].ip;
-					wb_redirecti.current_cs <= cs;
-					wb_redirecti.xrid <= rob_deq;
-					wb_redirecti.wr <= TRUE;
-					wb2if_wr <= TRUE;
-					for (n = 0; n < ROB_ENTRIES; n = n + 1)
-						rob[n].v <= INV;
-				end
-				else if (rob[rob_deq].cause!=16'h00 && !(rob[rob_deq].cause[15] && rob[rob_deq].cause != FLT_NMI && rob[rob_deq].lockout)) begin
+				if (cc[rob_deq]!=16'h00 && !(cc[rob_deq][15] && cc[rob_deq] != FLT_NMI && rob[rob_deq].lockout)) begin
 					status[4][4] <= 1'b0;	// disable further interrupts
 					eip <= rob[rob_deq].ip;
 					ecs <= rob[rob_deq].cs;
 					estep <= rob[rob_deq].step;
 					pmStack <= {pmStack[55:0],4'b010,rob[rob_deq].irq_level,1'b0};
-					cause[3'd4] <= rob[rob_deq].cause;
+					cause[3'd4] <= cc[rob_deq];
 					badaddr[3'd4] <= rob[rob_deq].badAddr;
 					wb_a2d_rst <= TRUE;
 					wb_d2x_rst <= TRUE;
@@ -2373,11 +5091,11 @@ else begin
 				else begin
 					casez(rob[rob_deq].ir.r2.opcode)
 					8'h7?:
-						case(robi.ir[3:0])
+						case(rob[rob_exec].ir[3:0])
 						4'd0:
-							case(robi.ir[12:8])
+							case(rob[rob_exec].ir[12:8])
 							5'd0:
-								case(robi.ir[19:13])
+								case(rob[rob_exec].ir[19:13])
 								7'd120:	tRte(); // RTI
 								endcase
 							default:	;
@@ -2600,6 +5318,7 @@ else begin
 			end
 		end
 	end
+	/*
 	for (n = 0; n < ROB_ENTRIES; n = n + 1) begin
 		for (m = 0; m < ROB_ENTRIES; m = m + 1) begin
 			if (!rob[n].iav && rob[n].ias.rid==m && rob[n].ia_ele==rob[m].step && rob[m].cmt) begin
@@ -2612,12 +5331,12 @@ else begin
 				rob[n].ibv <= TRUE;
 				rob[n].ib <= rob[m].res;
 			end
-			/*
-			if (!rob[n].icv && rob[n].ics.rid==m && rob[n].ic_ele==rob[m].step && rob[m].cmt) begin
-				rob[n].icv <= TRUE;
-				rob[n].ic <= rob[m].res;
-			end
-			*/
+			
+			//if (!rob[n].icv && rob[n].ics.rid==m && rob[n].ic_ele==rob[m].step && rob[m].cmt) begin
+			//	rob[n].icv <= TRUE;
+			//	rob[n].ic <= rob[m].res;
+			//end
+			
 `ifdef SUPPORT_VECTOR			
 			if (!rob[n].vmv && rob[n].vms.rid==m && rob[n].id_ele==rob[m].step && rob[m].cmt) begin
 				rob[n].vmv <= TRUE;
@@ -2629,6 +5348,8 @@ else begin
 			end
 		end
 	end
+	*/
+
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	// Decode
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -2705,9 +5426,9 @@ else begin
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 	// Watchdog timeout pipeline advance logic.
 	// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-	if (wd_timeout) begin
+	if (wd_timeout && wde) begin
 		rob[safe_rob_exec].ir <= NOP_INSN;
-		rob[safe_rob_exec].cause <= FLT_WD;
+		cc[safe_rob_exec] <= 16'h0000|FLT_WD;
 		rob[safe_rob_exec].v <= TRUE;
 		rob[safe_rob_exec].cmt <= TRUE;
 	end
@@ -2880,7 +5601,7 @@ DIV4:
 		funcUnit[FU_DIV].res <= div_sign ? -div_q[VALUE_SIZE-1:0] : div_q;
 		funcUnit[FU_DIV].res2 <= rob[divreco.rid].ib;
 		funcUnit[FU_DIV].rid <= divreco.rid;
-		funcUnit[FU_MUL].ele <= rob[divreco.rid].step;
+		funcUnit[FU_DIV].ele <= rob[divreco.rid].step;
 		case(divreco.ir[7:0])
 		R3:
 			begin
@@ -3084,6 +5805,15 @@ default:
 
 end	// clock domain
 
+// Debugging aid
+reg [15:0] causex;
+always_comb
+begin
+	causex = 8'h00;
+	for (n2 = 0; n2 < ROB_ENTRIES; n2 = n2 + 1)
+		causex = causex|cc[n2];
+end
+
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 // Support tasks
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -3151,20 +5881,20 @@ begin
 	rob[rob_que].its <= {1'b0,6'd0};//regfilesrc[decbuf.Rt[5:0]];
 	rob[rob_que].step <= decven;
 	rob[rob_deq].irq_level <= 3'd0;
+	
+	cc[rob_que] <= 16'h0000|FLT_NONE;
 	if (nmif) begin
 		nmif <= 1'b0;
-		rob[rob_que].cause <= 16'h8000|FLT_NMI;
+		cc[rob_que] <= 16'h8000|FLT_NMI;
 	end
 	else if ((irq_i > pmStack[3:1]) && die && decbuf.ir[6:4]!=3'h5 &&		// not prefix inst.
 	 (!rob[rob_que].lockout | decbuf.di) &&							// and not locked out
 	 micro_ip==6'd0) begin															// and not executing micro-code
-		rob[rob_que].cause <= 16'h8000|cause_i;
+		cc[rob_que] <= 16'h8000|cause_i;
 		rob[rob_deq].irq_level <= irq_i;
 	end
 	else if (a2d_out.ip > {a2d_out.cs.limit,7'h7f})
-		rob[rob_que].cause <= FLT_SGB;
-	else
-		rob[rob_que].cause <= FLT_NONE;
+		cc[rob_que] <= 16'h0000|FLT_SGB;
 
 	rob_q <= rob_q + 2'd1;
 	if (rob_que >= ROB_ENTRIES-1)
@@ -3196,7 +5926,9 @@ begin
 		ridv[rob_dec] <= 1'b1;
 	end
 */
-	rob[rob_dec].ui <= decbuf.ui;
+	// An earlier exception takes precedence
+	if (cc[rob_dec]==16'h0000 && decbuf.ui)
+		cc[rob_dec] <= {8'h00,FLT_UNIMP};
 	rob[rob_dec].is_vec <= decbuf.is_vec;
 	rob[rob_dec].is_mod <= decbuf.is_mod;
 	rob[rob_dec].Ra <= decbuf.Ra;
@@ -3299,6 +6031,7 @@ begin
 			rob[rob_dec].out <= TRUE;
 			rob[rob_dec].exi <= TRUE;
 			rob[rob_dec].imm <= {{128-39{exbufi.ir[35]}},exbufi.ir[35:8],11'd0};
+			immbuf <= {{128-39{exbufi.ir[35]}},exbufi.ir[35:8],11'd0};
 		end
 	EXI1:
 		begin
@@ -3306,8 +6039,8 @@ begin
 			rob[rob_dec].cmt2 <= TRUE;
 			rob[rob_dec].out <= TRUE;
 			rob[rob_dec].exi <= TRUE;
-			rob[rob_dec].imm <= rob[prev_rob_dec].imm;
-			rob[rob_dec].imm[127:39] <= {{128-67{exbufi[35]}},exbufi.ir[35:8]};
+			rob[rob_dec].imm <= {{128-67{exbufi[35]}},exbufi.ir[35:8],immbuf[38:0]};
+			immbuf <= {{128-67{exbufi[35]}},exbufi.ir[35:8],immbuf[38:0]};
 		end
 	EXI2:
 		begin
@@ -3315,8 +6048,8 @@ begin
 			rob[rob_dec].cmt2 <= TRUE;
 			rob[rob_dec].out <= TRUE;
 			rob[rob_dec].exi <= TRUE;
-			rob[rob_dec].imm <= rob[prev_rob_dec].imm;
-			rob[rob_dec].imm[127:67] <= {{128-95{exbufi[35]}},exbufi.ir[35:8]};
+			rob[rob_dec].imm <= {{128-95{exbufi[35]}},exbufi.ir[35:8],immbuf[66:0]};
+			immbuf <= {{128-95{exbufi[35]}},exbufi.ir[35:8],immbuf[66:0]};
 		end
 	EXI3:
 		begin
@@ -3324,8 +6057,8 @@ begin
 			rob[rob_dec].cmt2 <= TRUE;
 			rob[rob_dec].out <= TRUE;
 			rob[rob_dec].exi <= TRUE;
-			rob[rob_dec].imm <= rob[prev_rob_dec].imm;
-			rob[rob_dec].imm[127:95] <= {{128-123{exbufi[35]}},exbufi.ir[35:8]};
+			rob[rob_dec].imm <= {{128-123{exbufi[35]}},exbufi.ir[35:8],immbuf[94:0]};
+			immbuf <= {{128-123{exbufi[35]}},exbufi.ir[35:8],immbuf[94:0]};
 		end
 	EXI4:
 		begin
@@ -3333,8 +6066,8 @@ begin
 			rob[rob_dec].cmt2 <= TRUE;
 			rob[rob_dec].out <= TRUE;
 			rob[rob_dec].exi <= TRUE;
-			rob[rob_dec].imm <= rob[prev_rob_dec].imm;
-			rob[rob_dec].imm[127:123] <= exbufi.ir[12:8];
+			rob[rob_dec].imm <= {exbufi.ir[12:8],immbuf[122:0]};
+			immbuf <= {exbufi.ir[12:8],immbuf[122:0]};
 		end
 	IMOD:
 		begin
@@ -3376,89 +6109,94 @@ begin
 	// order. It's possible for a modifier to fall under the branch shadow
 	// and the instruction fetched from the target is likely not the next
 	// one in program order.
-	if (fnIPInc(rob[prev_rob_dec].ip)==rob[rob_dec].ip) begin
-		rob[rob_dec].Rm <= rob[prev_rob_dec].Rm;	// Propagte Rm
-		if (rob[prev_rob_dec].exi) begin
-			rob[rob_dec].imm[127:11] <= rob[prev_rob_dec].imm[127:11];
+	if (fnIPInc(rob[fnQm1(rob_dec)].ip)==rob[rob_dec].ip) begin
+		rob[rob_dec].Rm <= rob[fnQm1(rob_dec)].Rm;	// Propagte Rm
+		if (rob[fnQm1(rob_dec)].exi) begin
+			if (decbuf.ir.r2.opcode != EXI0 && 
+					decbuf.ir.r2.opcode != EXI1 &&
+					decbuf.ir.r2.opcode != EXI2 &&
+					decbuf.ir.r2.opcode != EXI3 &&
+					decbuf.ir.r2.opcode != EXI4)
+				rob[rob_dec].imm[127:11] <= immbuf[127:11];
 			if (decbuf.lsm) begin
 				if (decbuf.ir[6:4]==3'd6)
-				 	rob[rob_dec].Rt <= rob[prev_rob_dec].Rm;
+				 	rob[rob_dec].Rt <= rob[fnQm1(rob_dec)].Rm;
 				else begin
-				 	rob[rob_dec].Rb <= rob[prev_rob_dec].Rm;
+				 	rob[rob_dec].Rb <= rob[fnQm1(rob_dec)].Rm;
 				 	rob[rob_dec].ibv <= FALSE;
-					rob[rob_dec].ibs <= regfilesrc[rob[prev_rob_dec].Rm[4:0]];
+					rob[rob_dec].ibs <= regfilesrc[rob[fnQm1(rob_dec)].Rm[4:0]];
 				end
 			end
 		end
-		if (rob[prev_rob_dec].imod) begin
-			rob[rob_dec].Rc <= rob[prev_rob_dec].Ra;
-			rob[rob_dec].Rd <= rob[prev_rob_dec].Rb;
-			rob[rob_dec].ic <= rob[prev_rob_dec].ia;
-			rob[rob_dec].id <= rob[prev_rob_dec].ib;
-			rob[rob_dec].icv <= rob[prev_rob_dec].iav;
-			rob[rob_dec].idv <= rob[prev_rob_dec].ibv;
-			rob[rob_dec].ics <= {1'b1,prev_rob_dec};
-			rob[rob_dec].ids <= {1'b1,prev_rob_dec};
+		if (rob[fnQm1(rob_dec)].imod) begin
+			rob[rob_dec].Rc <= rob[fnQm1(rob_dec)].Ra;
+			rob[rob_dec].Rd <= rob[fnQm1(rob_dec)].Rb;
+			rob[rob_dec].ic <= rob[fnQm1(rob_dec)].ia;
+			rob[rob_dec].id <= rob[fnQm1(rob_dec)].ib;
+			rob[rob_dec].icv <= rob[fnQm1(rob_dec)].iav;
+			rob[rob_dec].idv <= rob[fnQm1(rob_dec)].ibv;
+			rob[rob_dec].ics <= {1'b1,fnQm1(rob_dec)};
+			rob[rob_dec].ids <= {1'b1,fnQm1(rob_dec)};
 			rob[rob_dec].idib <= TRUE;
-			rob[rob_dec].Rcvec <= rob[prev_rob_dec].Ravec;
-			rob[rob_dec].Rdvec <= rob[prev_rob_dec].Rbvec;
-			if (rob[prev_rob_dec].ir[12]) begin
+			rob[rob_dec].Rcvec <= rob[fnQm1(rob_dec)].Ravec;
+			rob[rob_dec].Rdvec <= rob[fnQm1(rob_dec)].Rbvec;
+			if (rob[fnQm1(rob_dec)].ir[12]) begin
 //					rob[rob_dec].vms <= rob[prev_rob_dec].msrc;
-				rob[rob_dec].vmask <= rob[prev_rob_dec].vmask;
+				rob[rob_dec].vmask <= rob[fnQm1(rob_dec)].vmask;
 //					rob[rob_dec].vmv <= rob[prev_rob_dec].vmv;
 			if (decbuf.lsm) begin
 				if (decbuf.ir[6:4]==3'd6)
-				 	rob[rob_dec].Rt <= rob[prev_rob_dec].Rm;
+				 	rob[rob_dec].Rt <= rob[fnQm1(rob_dec)].Rm;
 				else begin
-				 	rob[rob_dec].Rb <= rob[prev_rob_dec].Rm;
+				 	rob[rob_dec].Rb <= rob[fnQm1(rob_dec)].Rm;
 				 	rob[rob_dec].ibv <= FALSE;
-					rob[rob_dec].ibs <= regfilesrc[rob[prev_rob_dec].Rm[4:0]];
+					rob[rob_dec].ibs <= regfilesrc[rob[fnQm1(rob_dec)].Rm[4:0]];
 				end
 			end
 			end
 		end
-		if (rob[prev_rob_dec].brmod) begin
-			rob[rob_dec].Rc <= rob[prev_rob_dec].Ra;
-			rob[rob_dec].Rd <= rob[prev_rob_dec].Rb;
-			rob[rob_dec].ic <= rob[prev_rob_dec].ia;
-			rob[rob_dec].id <= rob[prev_rob_dec].ib;
-			rob[rob_dec].icv <= rob[prev_rob_dec].iav;
-			rob[rob_dec].idv <= rob[prev_rob_dec].ibv;
-			rob[rob_dec].ics <= {1'b1,prev_rob_dec};
-			rob[rob_dec].ids <= {1'b1,prev_rob_dec};
-			rob[rob_dec].Rcvec <= rob[prev_rob_dec].Ravec;
-			rob[rob_dec].Rdvec <= rob[prev_rob_dec].Rbvec;
-			rob[rob_dec].imm[127:16] <= rob[prev_rob_dec].imm[127:16];
-			rob[rob_dec].Rt <= rob[prev_rob_dec].Rt;
-			if (rob[prev_rob_dec].Rt[4:0] != 5'd0) begin
+		if (rob[fnQm1(rob_dec)].brmod) begin
+			rob[rob_dec].Rc <= rob[fnQm1(rob_dec)].Ra;
+			rob[rob_dec].Rd <= rob[fnQm1(rob_dec)].Rb;
+			rob[rob_dec].ic <= rob[fnQm1(rob_dec)].ia;
+			rob[rob_dec].id <= rob[fnQm1(rob_dec)].ib;
+			rob[rob_dec].icv <= rob[fnQm1(rob_dec)].iav;
+			rob[rob_dec].idv <= rob[fnQm1(rob_dec)].ibv;
+			rob[rob_dec].ics <= {1'b1,fnQm1(rob_dec)};
+			rob[rob_dec].ids <= {1'b1,fnQm1(rob_dec)};
+			rob[rob_dec].Rcvec <= rob[fnQm1(rob_dec)].Ravec;
+			rob[rob_dec].Rdvec <= rob[fnQm1(rob_dec)].Rbvec;
+			rob[rob_dec].imm[127:16] <= rob[fnQm1(rob_dec)].imm[127:16];
+			rob[rob_dec].Rt <= rob[fnQm1(rob_dec)].Rt;
+			if (rob[fnQm1(rob_dec)].Rt[4:0] != 5'd0) begin
 //				tAllocReg(imod_inst.r2.Rt,rob[rob_dec].pRt);
 				rob[rob_dec].rfwr <= TRUE;
-//					regfilesrc[rob[prev_rob_dec].Rt[4:0]].rf <= 1'b1;
+//					regfilesrc[rob[fnQm1(rob_dec)].Rt[4:0]].rf <= 1'b1;
 			end
 		end
-		if (rob[prev_rob_dec].stride) begin
-			rob[rob_dec].Rc <= rob[prev_rob_dec].Ra;
-			rob[rob_dec].Rd <= rob[prev_rob_dec].Rb;
-			rob[rob_dec].ic <= rob[prev_rob_dec].ia;
-			rob[rob_dec].id <= rob[prev_rob_dec].ib;
-			rob[rob_dec].icv <= rob[prev_rob_dec].iav;
-			rob[rob_dec].idv <= rob[prev_rob_dec].ibv;
-			rob[rob_dec].ics <= {1'b1,prev_rob_dec};
-			rob[rob_dec].ids <= {1'b1,prev_rob_dec};
-			rob[rob_dec].Rcvec <= rob[prev_rob_dec].Ravec;
-			rob[rob_dec].Rdvec <= rob[prev_rob_dec].Rbvec;
+		if (rob[fnQm1(rob_dec)].stride) begin
+			rob[rob_dec].Rc <= rob[fnQm1(rob_dec)].Ra;
+			rob[rob_dec].Rd <= rob[fnQm1(rob_dec)].Rb;
+			rob[rob_dec].ic <= rob[fnQm1(rob_dec)].ia;
+			rob[rob_dec].id <= rob[fnQm1(rob_dec)].ib;
+			rob[rob_dec].icv <= rob[fnQm1(rob_dec)].iav;
+			rob[rob_dec].idv <= rob[fnQm1(rob_dec)].ibv;
+			rob[rob_dec].ics <= {1'b1,fnQm1(rob_dec)};
+			rob[rob_dec].ids <= {1'b1,fnQm1(rob_dec)};
+			rob[rob_dec].Rcvec <= rob[fnQm1(rob_dec)].Ravec;
+			rob[rob_dec].Rdvec <= rob[fnQm1(rob_dec)].Rbvec;
 			if (decbuf.lsm) begin
 				if (decbuf.ir[6:4]==3'd6)
-				 	rob[rob_dec].Rt <= rob[prev_rob_dec].Rm;
+				 	rob[rob_dec].Rt <= rob[fnQm1(rob_dec)].Rm;
 				else begin
-				 	rob[rob_dec].Rb <= rob[prev_rob_dec].Rm;
+				 	rob[rob_dec].Rb <= rob[fnQm1(rob_dec)].Rm;
 				 	rob[rob_dec].ibv <= FALSE;
-					rob[rob_dec].ibs <= regfilesrc[rob[prev_rob_dec].Rm[4:0]];
+					rob[rob_dec].ibs <= regfilesrc[rob[fnQm1(rob_dec)].Rm[4:0]];
 				end
 			end
 		end
-		if (rob[prev_rob_dec].ir[6:2]==5'b10111) begin
-			rob[rob_dec].Rm <= rob[prev_rob_dec].Rm;
+		if (rob[fnQm1(rob_dec)].ir[6:2]==5'b10111) begin
+			rob[rob_dec].Rm <= rob[fnQm1(rob_dec)].Rm;
 		end
 	end
 end
@@ -3467,8 +6205,7 @@ endtask
 task tDeque1;
 begin
 	rob[rob_deq].v <= INV;
-	rob[rob_deq].ui <= INV;
-	rob[rob_deq].cause <= FLT_NONE;
+	cc[rob_deq] <= 16'h0000|FLT_NONE;
 	rob[rob_deq].cmt <= FALSE;
 	rob[rob_deq].rfwr <= FALSE;
 	rob[rob_deq].vrfwr <= FALSE;
@@ -3558,55 +6295,57 @@ begin
 end
 endtask
 
+// Important to use the correct assignment type for the following, otherwise
+// The read won't happen until the clock cycle.
 task tReadCSR;
 output Value res;
 input [15:0] regno;
 begin
 	if (regno[14:12] <= omode) begin
 		casez(regno[15:0])
-		CSR_SCRATCH:	res.val <= scratch[regno[14:12]];
-		CSR_DCR0:	res.val <= cr0|(dce << 5'd30);
-		CSR_DHARTID: res.val <= hartid_i;
-		CSR_MHARTID: res.val <= hartid_i;
-		CSR_MCR0:	res.val <= cr0|(dce << 5'd30);
-		CSR_KEYTBL:	res.val <= keytbl;
-		CSR_KEYS:	res.val <= keys2[regno[1:0]];
-		CSR_SEMA: res.val <= sema;
-		CSR_FSTAT:	res.val <= fpscr;
-		CSR_ASID:	res.val <= ASID;
-		CSR_MBADADDR:	res.val <= badaddr[regno[14:12]];
-		CSR_TICK:	res.val <= tick;
-		CSR_CAUSE:	res.val <= cause[regno[14:12]];
+		CSR_SCRATCH:	res.val = scratch[regno[14:12]];
+		CSR_DCR0:	res.val = cr0|(dce << 5'd30);
+		CSR_DHARTID: res.val = hartid_i;
+		CSR_MHARTID: res.val = hartid_i;
+		CSR_MCR0:	res.val = cr0|(dce << 5'd30);
+		CSR_KEYTBL:	res.val = keytbl;
+		CSR_KEYS:	res.val = keys2[regno[1:0]];
+		CSR_SEMA: res.val = sema;
+		CSR_FSTAT:	res.val = fpscr;
+		CSR_ASID:	res.val = ASID;
+		CSR_MBADADDR:	res.val = badaddr[regno[14:12]];
+		CSR_TICK:	res.val = tick;
+		CSR_CAUSE:	res.val = cause[regno[14:12]];
 		CSR_MTVEC,CSR_DTVEC:
-			res.val <= tvec[regno[2:0]];
+			res.val = tvec[regno[2:0]];
 		CSR_MSVEC,CSR_DSVEC:
-			res.val <= svec[regno[2:0]];
-		CSR_DPMSTACK:	res.val <= pmStack;
-		CSR_MPMSTACK:	res.val <= pmStack;
-		CSR_MVSTEP:	res.val <= estep;
-		CSR_DVSTEP:	res.val <= estep;
-		CSR_DVTMP:	res.val <= vtmp;
-		CSR_MVTMP:	res.val <= vtmp;
-		CSR_DEIP: res.val <= eip;
-		CSR_MEIP: res.val <= eip;
-		CSR_DECS: res.val <= ecs;
-		CSR_MECS: res.val <= ecs;
-		CSR_DPCS: res.val <= pcs;
-		CSR_MPCS: res.val <= pcs;
-		CSR_DSP:	res.val <= dsp;
-		CSR_TIME:	res.val <= wc_time;
-		CSR_MSTATUS:	res.val <= status[4];
-		CSR_DSTATUS:	res.val <= status[4];
-		CSR_DTCBPTR:	res.val <= tcbptr;
-		CSR_DSTUFF0:	res.val <= stuff0;
-		CSR_DSTUFF1:	res.val <= stuff1;
-		CSR_DGDT:	res.val <= gdt;
-		CSR_DLDT:	res.val <= ldt;
-		default:	res.val <= 64'd0;
+			res.val = svec[regno[2:0]];
+		CSR_DPMSTACK:	res.val = pmStack;
+		CSR_MPMSTACK:	res.val = pmStack;
+		CSR_MVSTEP:	res.val = estep;
+		CSR_DVSTEP:	res.val = estep;
+		CSR_DVTMP:	res.val = vtmp;
+		CSR_MVTMP:	res.val = vtmp;
+		CSR_DEIP: res.val = eip;
+		CSR_MEIP: res.val = eip;
+		CSR_DECS: res.val = ecs;
+		CSR_MECS: res.val = ecs;
+		CSR_DPCS: res.val = pcs;
+		CSR_MPCS: res.val = pcs;
+		CSR_DSP:	res.val = dsp;
+		CSR_TIME:	res.val = wc_time;
+		CSR_MSTATUS:	res.val = status[4];
+		CSR_DSTATUS:	res.val = status[4];
+		CSR_DTCBPTR:	res.val = tcbptr;
+		CSR_DSTUFF0:	res.val = stuff0;
+		CSR_DSTUFF1:	res.val = stuff1;
+		CSR_DGDT:	res.val = gdt;
+		CSR_DLDT:	res.val = ldt;
+		default:	res.val = 64'd0;
 		endcase
 	end
 	else
-		res <= 64'd0;
+		res = 64'd0;
 end
 endtask
 
@@ -3708,6 +6447,266 @@ begin
 end
 endtask
 */
+
+task tBalEx;
+input opt;
+begin
+	//rob[rob_exec].jump <= TRUE;
+	//rob[rob_exec].jump_tgt <= rob[rob_exec].ip + rob[rob_exec].imm;
+	exres.val <= opt ? fnIncIP5(rob[rob_exec].ip) : fnIPInc(rob[rob_exec].ip);
+end
+endtask
+
+task tBal;
+input opt;
+begin
+	//rob[rob_exec].jump <= TRUE;
+	//rob[rob_exec].jump_tgt <= rob[rob_exec].ip + rob[rob_exec].imm;
+	ex_redirecti.redirect_ip <= rob[rob_exec].ip + rob[rob_exec].imm;
+	ex_redirecti.redirect_cs <= cs;
+	ex_redirecti.current_ip <= rob[rob_exec].ip;
+	ex_redirecti.current_cs <= cs;
+	ex_redirecti.xrid <= rob_exec;
+	ex_redirecti.step <= 6'd0;
+	ex_redirecti.wr <= TRUE;
+	rob[rob_exec].cmt <= FALSE;
+	rob[rob_exec].cmt2 <= FALSE;
+end
+endtask
+
+task txBranchEx;
+begin
+	exres.val <= fnIPInc(rob[rob_exec].ip);
+end
+endtask
+
+task txBranch;
+begin
+	rob[rob_exec].takb <= ex_takb;
+	tMod();
+	fu0_cmt <= rob[rob_exec].Rt!=5'd0;
+	if (brMispredict) begin
+		ex_redirecti.redirect_ip <= ex_takb ? rob[rob_exec].ic + rob[rob_exec].imm : fnIPInc(rob[rob_exec].ip);
+		ex_redirecti.redirect_cs <= cs;
+		//ex_redirect.redirect_ip <= ex_takb ? rob[rob_exec].ic + rob[rob_exec].imm : fnIncIP(rob[rob_exec].ip);
+		ex_redirecti.current_ip <= rob[rob_exec].ip;
+		ex_redirecti.current_cs <= cs;
+		ex_redirecti.step <= 6'd0;
+		ex_redirecti.xrid <= rob_exec;
+		ex_redirecti.wr <= TRUE;
+		rob[rob_exec].cmt <= FALSE;
+		rob[rob_exec].cmt2 <= FALSE;
+	end
+	else if (brAddrMispredict) begin
+		ex_redirecti.redirect_ip <= ex_takb ? rob[rob_exec].ic + rob[rob_exec].imm : fnIPInc(rob[rob_exec].ip);
+		ex_redirecti.redirect_cs <= cs;
+		//ex_redirect.redirect_ip <= ex_takb ? rob[rob_exec].ic + rob[rob_exec].imm : fnIncIP(rob[rob_exec].ip);
+		ex_redirecti.current_ip <= rob[rob_exec].ip;
+		ex_redirecti.current_cs <= cs;
+		ex_redirecti.step <= 6'd0;
+		ex_redirecti.xrid <= rob_exec;
+		ex_redirecti.wr <= TRUE;
+		rob[rob_exec].cmt <= FALSE;
+		rob[rob_exec].cmt2 <= FALSE;
+	end
+end
+endtask
+
+task tJalr;
+begin
+	//rob[rob_exec].jump <= TRUE;
+	//rob[rob_exec].jump_tgt <= rob[rob_exec].ia.val + rob[rob_exec].imm;
+	ex_redirecti.redirect_ip <= rob[rob_exec].ia.val + rob[rob_exec].imm;
+	ex_redirecti.redirect_cs <= cs;
+	ex_redirecti.current_ip <= rob[rob_exec].ip;
+	ex_redirecti.current_cs <= cs;
+	ex_redirecti.step <= 6'd0;
+	ex_redirecti.xrid <= rob_exec;
+	ex_redirecti.wr <= TRUE;
+	rob[rob_exec].cmt <= FALSE;
+	rob[rob_exec].cmt2 <= FALSE;
+end
+endtask
+
+
+// For a LDM if Rt is zero there is nothing left to load. Do not run a bus
+// cycle. The micro-code may pass the load operation for a couple of cycles
+// beyond the point where it is finished.
+
+task tLoadEx;
+input [1:0] opt;
+begin
+	rob_cmt <= FALSE;
+	if (opt==2'b11) begin
+		;
+	end
+	else if (opt==2'b10) begin
+		;
+	end
+	else if (rob[rob_exec].ir[35:32]==LSM && opt==2'b01) begin
+		if (rob[rob_exec].Rt != 6'd0)
+			;
+		else begin
+			rob_cmt <= TRUE;
+		end
+	end
+	else begin
+		;
+	end
+end
+endtask
+
+task tLoad;
+input [1:0] opt;
+begin
+	membufi.rid <= rob_exec;
+	membufi.step <= rob[rob_exec].step;
+	membufi.ir <= rob[rob_exec].ir;
+	membufi.ib <= rob[rob_exec].ib;
+	membufi.ic <= rob[rob_exec].ic;
+	membufi.dato <= rob[rob_exec].ib;
+	membufi.imm <= rob[rob_exec].imm;
+	tMod();
+	rob[rob_exec].cmt <= FALSE;
+	rob[rob_exec].cmt2 <= FALSE;
+	// MTSEL
+	if (opt==2'b11) begin
+		membufi.ia <= rob[rob_exec].ia;
+		membufi.wr <= TRUE;
+	end
+	else if (opt==2'b10) begin
+		membufi.ia <= tcbptr + {rob[rob_exec].Rtseg,rob[rob_exec].Rt[4:0],3'h0};
+		membufi.wr <= TRUE;
+	end
+	else if (rob[rob_exec].ir[35:32]==LSM && opt==2'b01) begin
+		membufi.ia <= rob[rob_exec].ia + {count,3'd0};
+		count <= count + 2'd1;
+		if (rob[rob_exec].Rt != 6'd0)
+			membufi.wr <= TRUE;
+		else begin
+			rob[rob_exec].cmt <= TRUE;
+			rob[rob_exec].cmt2 <= TRUE;
+		end
+	end
+	else begin
+		membufi.ia <= rob[rob_exec].ia;
+		count <= 6'd0;
+		membufi.wr <= TRUE;
+	end
+end
+endtask
+
+// For STM if Rb is zero there there is nothing more to do. Do not run a bus
+// cycle.
+
+task tStoreEx;
+input [1:0] opt;
+begin
+	rob_cmt <= FALSE;
+	if (opt==2'b10) begin
+		;
+	end
+	else if (rob[rob_exec].ir[35:32]==LSM && opt==2'b01) begin
+		if (rob[rob_exec].Rb != 7'd0)
+			;
+		else begin
+			rob_cmt <= TRUE;
+		end
+	end
+	else begin
+		;
+	end
+end
+endtask
+
+task tStore;
+input [1:0] opt;
+begin
+	exvec <= 4'd5;
+	membufi.rid <= rob_exec;
+	membufi.step <= rob[rob_exec].step;
+	membufi.ir <= rob[rob_exec].ir;
+	membufi.ib <= rob[rob_exec].ib;
+	membufi.ic <= rob[rob_exec].ic;
+	membufi.dato <= rob[rob_exec].ib;
+	membufi.imm <= rob[rob_exec].imm;
+	tMod();
+	rob[rob_exec].cmt <= FALSE;
+	rob[rob_exec].cmt2 <= FALSE;
+	if (opt==2'b10) begin
+		membufi.ia <= tcbptr + {rob[rob_exec].Rbseg,rob[rob_exec].Rb[4:0],3'h0};
+		membufi.wr <= TRUE;
+	end
+	else if (rob[rob_exec].ir[35:32]==LSM && opt==2'b01) begin
+		membufi.ia <= rob[rob_exec].ia + {count,3'd0};
+		count <= count + 2'd1;
+		if (rob[rob_exec].Rb != 7'd0)
+			membufi.wr <= TRUE;
+		else begin
+			rob[rob_exec].cmt <= TRUE;
+			rob[rob_exec].cmt2 <= TRUE;
+		end
+	end
+	else begin
+		membufi.ia <= rob[rob_exec].ia;
+		count <= 6'd0;
+		membufi.wr <= TRUE;
+	end
+end
+endtask
+
+task tDoOpEx;
+input Value res;
+begin
+	fu0_cmt <= TRUE;
+	rob_vcmt <= FALSE;
+	if (rob[rob_exec].vmask.val[rob[rob_exec].step])
+		exres.val <= res.val;
+	else if (rob[rob_exec].irmod.im.z)
+		exres.val <= {VALUE_SIZE{1'd0}};
+	rob_cmt <= TRUE;
+	if (rob[rob_exec].step >= vl) begin
+		rob_vcmt <= TRUE;
+	end
+end
+endtask
+
+task tDoOp;
+input Value res;
+begin
+	fu0_cmt <= TRUE;
+	rob[rob_exec].out <= TRUE;
+	rob[rob_exec].cmt <= TRUE;
+	rob[rob_exec].cmt2 <= TRUE;
+	if (rob[rob_exec].step >= vl) begin
+		vtmp <= 64'h0;
+		rob[rob_exec].vcmt <= TRUE;
+	end
+end
+endtask
+
+task tModEx;
+begin
+	rob_cmt <= TRUE;
+	rob_vcmt <= rob[rob_exec].step >= vl;
+	if (rob[rob_exec].step >= vl) begin
+		rob_vcmt <= TRUE;
+	end
+end
+endtask
+
+task tMod;
+begin
+	cmt_exec <= rob_exec;
+	rob[rob_exec].cmt <= TRUE;
+	rob[rob_exec].cmt2 <= TRUE;
+	rob[rob_exec].vcmt <= rob[rob_exec].step >= vl;
+	if (rob[rob_exec].step >= vl) begin
+		vtmp <= 64'h0;
+		rob[rob_exec].vcmt <= TRUE;
+	end
+end
+endtask
 
 endmodule
 

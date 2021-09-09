@@ -37,7 +37,7 @@
 
 import any1_pkg::*;
 
-module any1_mem_ctrl(rst,clk,tlbclk,UserMode,MUserMode,omode,ASID,ea_seg,
+module any1_mem_ctrl(rst,clk,tlbclk,UserMode,MUserMode,omode,ASID,ea_seg,bounds_chk,pe,
 	sregfile,cs,ip,ihit,ifStall,ic_line,
 	fifoToCtrl_i,fifoToCtrl_full,fifoFromCtrl_o,fifoFromCtrl_rd,fifoFromCtrl_empty,fifoFromCtrl_v,
 	bok_i, bte_o, cti_o, vpa_o, vda_o, cyc_o, stb_o, ack_i, we_o, sel_o, adr_o,
@@ -51,6 +51,8 @@ input MUserMode;
 input [2:0] omode;
 input [7:0] ASID;
 output reg [9:0] ea_seg;
+input bounds_chk;
+input pe;									// protected mode enable
 input [19:0] sregfile;
 input SegDesc cs;
 input Address ip;
@@ -171,22 +173,22 @@ Address afilt;
 // Get segment selection
 // +9 has extra +1 to account for addresses starting at :-1]
 always_comb
-	ea_seg = memreq.adr >> 6'd54;
+	ea_seg = memreq.adr >> 6'd55;
 	
 // Filter out the segment selection from the request address
 always_comb
-	for (m = -1; m < AWID; m = m + 1)
+	for (m = -1; m < $bits(Address); m = m + 1)
 		if (m > 53)
-			afilt = 1'b0;
+			afilt[m] = 1'b0;
 		else
-			afilt = memreq.adr[m];
+			afilt[m] = memreq.adr[m];
 
 always_comb
  	ea = {afilt >> shr_ma};	// Keep same segment
 
 reg [7:-1] ealow;
 wire [3:0] segsel = ea >> ({arange,3'b0} + 4'd8);
-wire [3:0] ea_acr = sregfile[3:0];
+wire [3:0] ea_acr = pe ? desc_out[3:0] : 4'hF;
 wire [3:0] pc_acr = cs[3:0];
 
 reg [63:0] sel;
@@ -370,7 +372,7 @@ reg ihit1a;
 reg ihit1b;
 reg ihit1c;
 reg ihit1d;
-always_comb
+always_ff @(tlbclk)
 begin
   ihit1a = ictag[0][csip[12:6]]==csip[AWID-1:6] && icvalid[0][csip[12:6]]==TRUE;
   ihit1b = ictag[1][csip[12:6]]==csip[AWID-1:6] && icvalid[1][csip[12:6]]==TRUE;
@@ -590,7 +592,7 @@ any1_TLB utlb (
   .padr_o(adr_o),
   .acr_o(tlbacr),
   .tlben_i(tlben),
-  .wrtlb_i(tlbwr),
+  .wrtlb_i(tlbwr & tlb_ia[63]),
   .tlbadr_i(tlb_ia[15:0]),
   .tlbdat_i(tlb_ib),
   .tlbdat_o(tlbdato),
@@ -599,15 +601,34 @@ any1_TLB utlb (
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 // Descriptor cache
+//
+// At reset the first 8 descriptor cache entries are initialized to a flat
+// model.
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
-reg [63:0] limit;
+reg [63:-1] limit;
 reg wr_desc;
 reg [9:0] desc_index;
 SegDesc desc_out;
+SegDesc init_desc;
+always_comb
+begin
+	init_desc.base = 58'h0;
+	init_desc.limit = 58'h3FFFFFFFFFFFFFF;
+	init_desc.U = 1'b0;
+	init_desc.con = 1'b1;
+	init_desc.S = 1'b0;
+	init_desc.OM = 3'd4;
+	init_desc.P = 1'b1;
+	init_desc.A = 1'b1;
+	init_desc.C = 1'b1;
+	init_desc.R = 1'b1;
+	init_desc.W = 1'b1;
+	init_desc.X = 1'b1;
+end
 
 always_comb
-	limit <= {6'd0,desc_out.limit};
+	limit <= {6'd0,desc_out.limit,1'b1};
 
 desc_cache_blkram udesc1
 (
@@ -682,7 +703,7 @@ else begin
 	MEMORY_INIT:
 		begin
 			wr_desc <= TRUE;
-			memresp.res <= 128'hFFFFFFFFFFFFFFC4_000000000000003F;
+			memresp.res <= init_desc;
 			desc_index <= desc_index + 2'd1;
 			if (desc_index==10'd8)
 				goto (MEMORY1);
@@ -698,6 +719,7 @@ else begin
 				waycnt <= waycnt + 2'd1;
 				// On a miss goto load I$ process unless a hit in the victim cache.
 		    iaccess <= TRUE;
+		    xlaten <= TRUE;
 				gosub (IFETCH0);
 			end
 			if (!fifoToCtrl_empty) begin
@@ -718,12 +740,13 @@ else begin
 			memresp.jali <= memreq.func==M_JALI;
 			memresp.call <= memreq.func==M_CALL;
 			memresp.ldcs <= FALSE;
+			memresp.mtsel <= memreq.func==LOAD && memreq.func2 == LDDESC;
 			ealow <= ea[7:-1];
 			// Detect cache controller commands
   		case(memreq.func)
 			TLB:
 				begin
-		    	tlb_ia <= memreq.adr[AWID-1:0];
+		    	tlb_ia <= memreq.adr[63:0];
     			tlb_ib <= memreq.dat;
     			tlbwr <= TRUE;
 					goto (TLB1);
@@ -752,7 +775,7 @@ else begin
 					end
 				default:
 					begin
-			    	if (afilt > limit) begin
+			    	if (afilt > limit && bounds_chk) begin
 							memresp.tid <= memreq.tid;
 							memresp.step <= memreq.step;
 							memresp.res <= memreq.adr;
@@ -775,7 +798,7 @@ else begin
 				endcase
 			M_JALI:
 				begin
-		    	if (afilt > limit) begin
+		    	if (afilt > limit && bounds_chk) begin
 						memresp.tid <= memreq.tid;
 						memresp.step <= memreq.step;
 						memresp.res <= memreq.adr;
@@ -826,7 +849,7 @@ else begin
 			*/
 			STORE,M_CALL:
 				begin
-					if (afilt > limit) begin
+					if (afilt > limit && bounds_chk) begin
 						memresp.tid <= memreq.tid;
 						memresp.step <= memreq.step;
 						memresp.res <= memreq.adr;
@@ -1290,9 +1313,14 @@ else begin
 	IFETCH3:
 		begin
 		  ic_wway <= waycnt;
+		  xlaten <= FALSE;
+		  ret();
+		end
+	IFETCH3a:
+		begin
 			ret();
 		end
-
+	
 	IFETCH4:
 		goto (IFETCH5);		// delay for block ram read
 	IFETCH5:
@@ -1483,14 +1511,18 @@ endtask
 task tEA;
 input Address iea;
 begin
-  if ((memreq.func==STORE || memreq.func==M_CALL) && !ea_acr[1])
+  if ((memreq.func==STORE || memreq.func==M_CALL) && !ea_acr[1]) begin
     memresp.cause <= {8'h80,FLT_WRV};
-  else if ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==M_JALI /*|| memreq.func==RTS2*/) && !ea_acr[2])
+    memresp.badAddr <= iea;
+  end
+  else if ((memreq.func==LOAD || memreq.func==LOADZ || memreq.func==M_JALI /*|| memreq.func==RTS2*/) && !ea_acr[2]) begin
     memresp.cause <= {8'h80,FLT_RDV};
+    memresp.badAddr <= iea;
+  end
 //	if (iea[AWID-1:24]=={AWID-24{1'b1}})
 //		dadr <= iea;
 //	else
-		dadr <= iea[AWID-5:-1] + {desc_out.base,7'd0};
+		dadr <= iea[AWID-1:-1] + {desc_out.base,7'd0};
 end
 endtask
 

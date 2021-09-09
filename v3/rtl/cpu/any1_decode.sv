@@ -422,14 +422,14 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				POPQI:	begin decbuf.ui <= FALSE; decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; end
 				PEEKQI:	begin decbuf.ui <= FALSE; decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; end
 				PFI:		begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; end
-				TLBRW:	begin decbuf.ui <= FALSE; decbuf.Rt <= ir[13:8]; decbuf.rfwr <= TRUE; decbuf.mc <= TRUE; end
+				TLBRW:	begin decbuf.ui <= FALSE; decbuf.Rt <= ir[13:8]; decbuf.needRb <= TRUE; decbuf.rfwr <= TRUE; decbuf.mc <= TRUE; end
 `ifdef SUPPORT_EXEC				
 				EXEC:		begin decbuf.ui <= FALSE; decbuf.exec <= TRUE; end
 `endif				
 				CSAVE:		begin decbuf.ui <= FALSE; decbuf.Ra <= 6'd0; decbuf.Rb <= {2'b00,ir[12:8]}; decbuf.Rbseg <= ir[13]; decbuf.needRb <= TRUE; decbuf.needRa <= FALSE; decbuf.mc <= TRUE; end
 				CRESTORE:	begin decbuf.ui <= FALSE; decbuf.Ra <= 6'd0; decbuf.Rt <= {1'b0,ir[12:8]}; decbuf.Rtseg <= ir[13]; decbuf.mc <= TRUE; decbuf.needRa <= FALSE; decbuf.rfwr <= ~ir[13]; decbuf.srfwr <= ir[13]; end
 				BASE:		begin decbuf.ui <= FALSE; decbuf.needRb <= TRUE; decbuf.rfwr <= TRUE; end
-				MFBASE,MFSEL:	
+				MFSEL:	
 					begin
 						decbuf.ui <= FALSE;
 						decbuf.Rbseg <= TRUE;
@@ -445,7 +445,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 						decbuf.needRb <= TRUE;
 						decbuf.needRa <= FALSE;
 					end
-				MTBASE,MTSEL:
+				MTSEL:
 					begin
 						decbuf.ui <= FALSE;
 						decbuf.Rtseg <= TRUE;
@@ -470,7 +470,7 @@ always_comb // @*//(a2d_out, predicted_ip, ven)
 				default:	;
 				endcase
 			end
-		CSR:	begin decbuf.Rt <= {1'b0,ir[12:8]}; decbuf.Rtvec <= FALSE; decbuf.Ra <= {1'b0,ir.r2.Ra}; decbuf.Ravec <= FALSE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; end
+		CSR:	begin decbuf.rfwr <= TRUE; decbuf.Rt <= {1'b0,ir[12:8]}; decbuf.Rtvec <= FALSE; decbuf.Ra <= {1'b0,ir.r2.Ra}; decbuf.Ravec <= FALSE; decbuf.ui <= FALSE; decbuf.imm.val <= {{VALUE_SIZE-16{1'd0}},ir[35:20]}; end
 		RGLST0,RGLST1,RGLST2,RGLST3:	begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; decbuf.Ravec <= FALSE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= FALSE; end
 		EXI0,EXI1,EXI2,EXI3,EXI4:	begin decbuf.ui <= FALSE; decbuf.needRa <= FALSE; decbuf.Ravec <= FALSE; decbuf.Rbvec <= FALSE; decbuf.Rtvec <= FALSE; end
 		BRMOD:	begin decbuf.ui <= FALSE; decbuf.Rt <= {4'b0,ir.r2.Rt[1:0]}; decbuf.Rc <= {1'b0,ir.im.Tc1,ir.im.Rc}; decbuf.Rtvec <= FALSE; end
